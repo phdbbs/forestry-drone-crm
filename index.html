@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>疫木速报</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f5f5; }
+        
+        .header { background: #2385bb; color: white; padding: 16px; display: flex; align-items: center; position: sticky; top: 0; z-index: 100; }
+        .header .back { font-size: 24px; margin-right: 16px; cursor: pointer; }
+        .header .title { font-size: 18px; font-weight: 600; }
+        
+        .content { padding: 16px; }
+        .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        
+        .section-title { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 12px; }
+        
+        .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { color: #999; font-size: 14px; }
+        .info-value { color: #333; font-size: 14px; }
+        
+        .warning { background: #fff7f0; border-left: 4px solid #ff6b35; padding: 12px; margin-top: 12px; display: flex; align-items: center; }
+        .warning-icon { color: #ff6b35; font-size: 18px; margin-right: 8px; }
+        .warning-text { color: #ff6b35; font-size: 14px; }
+        
+        .photo-upload { border: 2px dashed #d9d9d9; border-radius: 12px; padding: 32px 16px; text-align: center; cursor: pointer; transition: all 0.3s; }
+        .photo-upload:hover, .photo-upload:active { border-color: #2385bb; background: #f8fcff; }
+        .photo-upload .icon { font-size: 48px; color: #ccc; margin-bottom: 8px; }
+        .photo-upload .text { font-size: 14px; color: #666; }
+        .photo-upload .hint { font-size: 12px; color: #999; margin-top: 4px; }
+        
+        .photo-preview { position: relative; border-radius: 12px; overflow: hidden; }
+        .photo-preview img { width: 100%; height: auto; display: block; }
+        .photo-preview .delete { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; background: rgba(0,0,0,0.5); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; cursor: pointer; }
+        
+        .btn-upload { background: #2385bb; color: white; border: none; border-radius: 12px; padding: 16px; font-size: 16px; font-weight: 600; width: 100%; margin-top: 16px; margin-bottom: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .btn-upload:hover { background: #1a6fa5; }
+        .btn-upload .icon { margin-right: 8px; }
+        
+        .step-indicator { display: flex; justify-content: space-between; padding: 16px; background: white; margin-bottom: 16px; }
+        .step { text-align: center; flex: 1; }
+        .step .number { width: 32px; height: 32px; border-radius: 50%; background: #e8e8e8; color: #999; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-size: 14px; font-weight: 600; }
+        .step.active .number { background: #2385bb; color: white; }
+        .step.completed .number { background: #52c41a; color: white; }
+        .step .label { font-size: 12px; color: #999; }
+        .step.active .label, .step.completed .label { color: #333; }
+        
+        .tab-bar { display: flex; background: white; border-radius: 12px; padding: 4px; margin-bottom: 16px; }
+        .tab-item { flex: 1; padding: 12px; text-align: center; font-size: 14px; color: #999; border-radius: 8px; cursor: pointer; transition: all 0.3s; }
+        .tab-item.active { background: #2385bb; color: white; }
+        
+        .btn-photo { background: #52c41a; color: white; border: none; border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600; width: 48%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .btn-photo:hover { background: #3d9e14; }
+        
+        .btn-qrcode { background: #ff6b35; color: white; border: none; border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600; width: 100%; margin-top: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .btn-qrcode:hover { background: #e55a2b; }
+        
+        .qrcode-section { background: #fff7f0; border: 2px dashed #ff6b35; border-radius: 12px; padding: 20px; margin-top: 16px; }
+        .qrcode-section .title { font-size: 16px; font-weight: 600; color: #ff6b35; margin-bottom: 8px; }
+        .qrcode-section .desc { font-size: 14px; color: #666; }
+        
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-overlay.show { display: flex; }
+        .modal-content { background: white; border-radius: 16px; width: 90%; max-width: 400px; overflow: hidden; }
+        .modal-header { padding: 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 18px; font-weight: 600; }
+        .modal-close { font-size: 24px; color: #999; cursor: pointer; }
+        .modal-body { padding: 16px; }
+        .modal-actions { padding: 16px; border-top: 1px solid #f0f0f0; display: flex; gap: 12px; }
+        .modal-actions .btn { flex: 1; padding: 12px; border-radius: 8px; border: none; font-size: 16px; cursor: pointer; }
+        .btn-secondary { background: #f5f5f5; color: #666; }
+        .btn-primary { background: #2385bb; color: white; }
+        
+        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: white; padding: 12px 24px; border-radius: 20px; font-size: 14px; display: none; z-index: 2000; }
+        .toast.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="back" onclick="goBack()">←</div>
+        <div class="title">疫木速报</div>
+    </div>
+
+    <div class="step-indicator">
+        <div class="step completed" id="step1">
+            <div class="number">1</div>
+            <div class="label">疫木照片</div>
+        </div>
+        <div class="step" id="step2">
+            <div class="number">2</div>
+            <div class="label">空中识别</div>
+        </div>
+        <div class="step" id="step3">
+            <div class="number">3</div>
+            <div class="label">砍伐前</div>
+        </div>
+        <div class="step" id="step4">
+            <div class="number">4</div>
+            <div class="label">树桩</div>
+        </div>
+        <div class="step" id="step5">
+            <div class="number">5</div>
+            <div class="label">二维码</div>
+        </div>
+    </div>
+
+    <div class="content">
+        <div class="card">
+            <div class="section-title">GPS坐标</div>
+            <div class="info-row"><div class="info-label">经度:</div><div class="info-value">119.956334</div></div>
+            <div class="info-row"><div class="info-label">纬度:</div><div class="info-value">30.262916</div></div>
+            <div class="info-row"><div class="info-label">精度:</div><div class="info-value">4.85 米</div></div>
+            <div class="warning"><span class="warning-icon">⚠️</span><span class="warning-text">当前位置不在任何小班内</span></div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">默认信息</div>
+            <div class="info-row"><div class="info-label">小班代码:</div><div class="info-value">370612111237005554</div></div>
+            <div class="info-row"><div class="info-label">管理单位:</div><div class="info-value">昆嵛山林场</div></div>
+            <div class="info-row"><div class="info-label">疫木类型:</div><div class="info-value" style="color: #ff6b35;">死亡</div></div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">疫木照片 (选填)</div>
+            <div id="photo1Section" class="photo-upload" onclick="uploadPhoto(1)">
+                <div class="icon">📷</div>
+                <div class="text">点击拍摄疫木照片</div>
+                <div class="hint">一张照片即可完成疫木除治</div>
+            </div>
+            <div id="photo1Preview" class="photo-preview" style="display: none;">
+                <img id="photo1Img" src="" alt="">
+                <div class="delete" onclick="deletePhoto(1)">×</div>
+            </div>
+            
+            <div id="qrcode1Section" class="qrcode-section" style="display: none;">
+                <div class="title">🔗 关联二维码</div>
+                <div class="desc">点击下方按钮扫描二维码，将其与当前疫木照片关联</div>
+                <button class="btn-qrcode" onclick="scanQrcode(1)">
+                    <span class="icon">📱</span> 扫描二维码
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">空中识别照片</div>
+            <div id="photo2Section" class="photo-upload" onclick="uploadPhoto(2)">
+                <div class="icon">📷</div>
+                <div class="text">点击拍摄空中识别照片</div>
+                <div class="hint">无人机发现的疫木识别照片</div>
+            </div>
+            <div id="photo2Preview" class="photo-preview" style="display: none;">
+                <img id="photo2Img" src="" alt="">
+                <div class="delete" onclick="deletePhoto(2)">×</div>
+            </div>
+            
+            <div id="qrcode2Section" class="qrcode-section" style="display: none;">
+                <div class="title">🔗 关联二维码</div>
+                <div class="desc">点击下方按钮扫描二维码，将其与当前空中识别照片关联</div>
+                <button class="btn-qrcode" onclick="scanQrcode(2)">
+                    <span class="icon">📱</span> 扫描二维码
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">砍伐前照片 (必填)</div>
+            <div id="photo3Section" class="photo-upload" onclick="uploadPhoto(3)">
+                <div class="icon">📷</div>
+                <div class="text">点击拍摄砍伐前照片</div>
+                <div class="hint">砍伐前树木状态照片</div>
+            </div>
+            <div id="photo3Preview" class="photo-preview" style="display: none;">
+                <img id="photo3Img" src="" alt="">
+                <div class="delete" onclick="deletePhoto(3)">×</div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <button class="btn-photo" onclick="takePhoto(3)">📷 拍照</button>
+                <button class="btn-photo" onclick="selectFromAlbum(3)">📁 从相册选择</button>
+            </div>
+            
+            <div id="qrcode3Section" class="qrcode-section" style="display: none;">
+                <div class="title">🔗 关联二维码</div>
+                <div class="desc">点击下方按钮扫描二维码，将其与当前砍伐前照片关联</div>
+                <button class="btn-qrcode" onclick="scanQrcode(3)">
+                    <span class="icon">📱</span> 扫描二维码
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="tab-bar">
+                <div class="tab-item active" onclick="switchTab('before')">砍伐前</div>
+                <div class="tab-item" onclick="switchTab('stump')">树桩</div>
+            </div>
+            
+            <div id="beforeTab" class="tab-content" style="display: block;">
+                <div class="section-title">砍伐前照片(必填)</div>
+                <div id="photo4Section" class="photo-upload" onclick="uploadPhoto(4)">
+                    <div class="icon">📷</div>
+                    <div class="text">点击拍摄砍伐前照片</div>
+                    <div class="hint">砍伐前树木状态照片</div>
+                </div>
+                <div id="photo4Preview" class="photo-preview" style="display: none;">
+                    <img id="photo4Img" src="" alt="">
+                    <div class="delete" onclick="deletePhoto(4)">×</div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button class="btn-photo" onclick="takePhoto(4)">📷 拍照</button>
+                    <button class="btn-photo" onclick="selectFromAlbum(4)">📁 从相册选择</button>
+                </div>
+                
+                <div id="qrcode4Section" class="qrcode-section" style="display: none;">
+                    <div class="title">🔗 关联二维码</div>
+                    <div class="desc">点击下方按钮扫描二维码，将其与当前砍伐前照片关联</div>
+                    <button class="btn-qrcode" onclick="scanQrcode(4)">
+                        <span class="icon">📱</span> 扫描二维码
+                    </button>
+                </div>
+            </div>
+            
+            <div id="stumpTab" class="tab-content" style="display: none;">
+                <div class="section-title">树桩照片(必填)</div>
+                <div id="photo5Section" class="photo-upload" onclick="uploadPhoto(5)">
+                    <div class="icon">📷</div>
+                    <div class="text">点击拍摄树桩照片</div>
+                    <div class="hint">砍伐后的树桩状态照片</div>
+                </div>
+                <div id="photo5Preview" class="photo-preview" style="display: none;">
+                    <img id="photo5Img" src="" alt="">
+                    <div class="delete" onclick="deletePhoto(5)">×</div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button class="btn-photo" onclick="takePhoto(5)">📷 拍照</button>
+                    <button class="btn-photo" onclick="selectFromAlbum(5)">📁 从相册选择</button>
+                </div>
+                
+                <div id="qrcode5Section" class="qrcode-section" style="display: none;">
+                    <div class="title">🔗 关联二维码</div>
+                    <div class="desc">点击下方按钮扫描二维码，将其与当前树桩照片关联</div>
+                    <button class="btn-qrcode" onclick="scanQrcode(5)">
+                        <span class="icon">📱</span> 扫描二维码
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <button class="btn-upload" onclick="submitForm()">
+            <span class="icon">☁️</span> 上传
+        </button>
+    </div>
+
+    <div class="modal-overlay" id="qrcodeModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">📱 扫描二维码</div>
+                <div class="modal-close" onclick="closeModal('qrcodeModal')">×</div>
+            </div>
+            <div class="modal-body">
+                <div style="text-align: center; padding: 20px;">
+                    <div style="width: 200px; height: 200px; background: #f5f5f5; border: 2px dashed #ccc; border-radius: 12px; margin: 0 auto; display: flex; align-items: center; justify-content: center;">
+                        <span style="font-size: 64px;">📷</span>
+                    </div>
+                    <p style="margin-top: 16px; color: #666;">将二维码对准扫描框</p>
+                    <p style="font-size: 12px; color: #999; margin-top: 4px;">系统将自动识别二维码信息</p>
+                </div>
+                <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 12px;">
+                    <p style="font-size: 14px; color: #333; margin-bottom: 8px;"><strong>扫描结果:</strong></p>
+                    <p id="qrcodeResult" style="font-size: 12px; color: #666;">等待扫描...</p>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('qrcodeModal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmQrcode()">确认关联</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        var currentPhotoIndex = 0;
+        var qrcodeResults = {};
+
+        function uploadPhoto(index) {
+            currentPhotoIndex = index;
+            takePhoto(index);
+        }
+
+        function takePhoto(index) {
+            var mockImages = [
+                'https://picsum.photos/400/600?random=1',
+                'https://picsum.photos/400/600?random=2', 
+                'https://picsum.photos/400/600?random=3',
+                'https://picsum.photos/400/600?random=4',
+                'https://picsum.photos/400/600?random=5'
+            ];
+            
+            document.getElementById('photo' + index + 'Section').style.display = 'none';
+            document.getElementById('photo' + index + 'Preview').style.display = 'block';
+            document.getElementById('photo' + index + 'Img').src = mockImages[index - 1];
+            document.getElementById('qrcode' + index + 'Section').style.display = 'block';
+            
+            document.getElementById('step' + index).classList.add('completed');
+            if (index < 5) {
+                document.getElementById('step' + (index + 1)).classList.add('active');
+            }
+            
+            showToast('照片拍摄成功');
+        }
+
+        function selectFromAlbum(index) {
+            takePhoto(index);
+        }
+
+        function deletePhoto(index) {
+            document.getElementById('photo' + index + 'Section').style.display = 'block';
+            document.getElementById('photo' + index + 'Preview').style.display = 'none';
+            document.getElementById('qrcode' + index + 'Section').style.display = 'none';
+            document.getElementById('photo' + index + 'Img').src = '';
+            qrcodeResults[index] = null;
+            
+            document.getElementById('step' + index).classList.remove('completed');
+            showToast('照片已删除');
+        }
+
+        function scanQrcode(index) {
+            currentPhotoIndex = index;
+            document.getElementById('qrcodeModal').classList.add('show');
+            setTimeout(function() {
+                document.getElementById('qrcodeResult').textContent = '二维码ID: QR-' + Date.now().toString().substr(-8);
+            }, 1500);
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        function confirmQrcode() {
+            var result = document.getElementById('qrcodeResult').textContent;
+            if (result !== '等待扫描...') {
+                qrcodeResults[currentPhotoIndex] = result;
+                showToast('二维码关联成功: ' + result);
+                closeModal('qrcodeModal');
+            } else {
+                showToast('请先扫描二维码');
+            }
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-item').forEach(item => item.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+            event.target.classList.add('active');
+            document.getElementById(tabName + 'Tab').style.display = 'block';
+        }
+
+        function goBack() {
+            showToast('返回上一页');
+        }
+
+        function submitForm() {
+            var completedSteps = document.querySelectorAll('.step.completed').length;
+            if (completedSteps < 3) {
+                showToast('请至少完成3张照片的拍摄');
+                return;
+            }
+            
+            showToast('正在上传...');
+            setTimeout(function() {
+                showToast('上传成功！');
+            }, 1500);
+        }
+
+        function showToast(message) {
+            var toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(function() {
+                toast.classList.remove('show');
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
