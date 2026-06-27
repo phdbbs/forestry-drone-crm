@@ -1,0 +1,6 @@
+flask>=3.0
+flask-sqlalchemy>=3.1
+requests>=2.34
+beautifulsoup4>=4.15
+lxml>=5.0
+apscheduler>=3.11
