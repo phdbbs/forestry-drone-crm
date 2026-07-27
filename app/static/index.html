@@ -11,7 +11,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .sidebar{position:fixed;left:0;top:0;width:var(--sw);height:100vh;background:linear-gradient(180deg,var(--pd),var(--primary));color:#fff;z-index:100;overflow-y:auto;display:flex;flex-direction:column;transition:transform .3s}
 .sidebar-logo{padding:20px 16px;font-size:17px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.15);text-align:center;white-space:nowrap}
 .sidebar-nav{padding:8px 0;flex:1}
-.sidebar-nav a{display:flex;align-items:center;gap:10px;padding:12px 20px;color:rgba(255,255,255,.8);text-decoration:none;font-size:14px;transition:all .2s;cursor:pointer;border-left:3px solid transparent}
+.sidebar-nav a{display:flex;align-items:center;gap:10px;padding:12px 20px;color:rgba(255,255,255,.8);text-decoration:none;font-size:14px;transition:background-color .2s,color .2s,border-left-color .2s;cursor:pointer;border-left:3px solid transparent}
 .sidebar-nav a:hover,.sidebar-nav a.active{background:rgba(255,255,255,.15);color:#fff;border-left-color:var(--pl)}
 .sidebar-nav a .icon{font-size:16px;width:20px;text-align:center}
 .main{margin-left:var(--sw);min-height:100vh;display:flex;flex-direction:column;flex:1}
@@ -26,7 +26,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .card{background:var(--cb);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:1px solid var(--brd);margin-bottom:16px}
 .card-title{font-size:15px;font-weight:600;color:var(--pd);margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:none;font-size:14px;cursor:pointer;transition:all .2s;text-decoration:none;font-family:inherit;background:#e5e7eb;color:var(--tx)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:none;font-size:14px;cursor:pointer;transition:background-color .2s,color .2s,opacity .2s;text-decoration:none;font-family:inherit;background:#e5e7eb;color:var(--tx)}
 .btn:hover{opacity:.85}
 .btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--pd)}
 .btn-success{background:var(--ok);color:#fff}.btn-success:hover{background:#15803d}
@@ -57,7 +57,7 @@ input,select,textarea{width:100%;padding:8px 12px;border:1px solid var(--brd);bo
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(21,128,61,.1)}
 textarea{resize:vertical;min-height:80px}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
-.modal{background:#fff;border-radius:16px;padding:24px;width:90%;max-width:600px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal{background:#fff;border-radius:16px;padding:24px;width:90%;max-width:600px;max-height:85vh;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 20px 60px rgba(0,0,0,.2)}
 .modal h3{margin-bottom:16px;color:var(--pd);font-size:18px}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
 .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -94,9 +94,25 @@ textarea{resize:vertical;min-height:80px}
 .section-title{font-size:16px;font-weight:600;color:var(--pd);margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .settings-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6}
 .settings-label{min-width:100px;font-size:14px;font-weight:500;color:var(--tl)}
-.skill-badge{display:inline-block;padding:6px 14px;background:#f0fdf4;border:1px solid var(--brd);border-radius:20px;font-size:13px;margin:4px;cursor:pointer;transition:all .2s}
+.skill-badge{display:inline-block;padding:6px 14px;background:#f0fdf4;border:1px solid var(--brd);border-radius:20px;font-size:13px;margin:4px;cursor:pointer;transition:background-color .2s,color .2s}
 .skill-badge:hover{background:var(--primary);color:#fff}
 .mobile-toggle{display:none;position:fixed;bottom:16px;right:16px;z-index:150;width:48px;height:48px;border-radius:50%;background:var(--primary);color:#fff;border:none;font-size:20px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.searchable-select{position:relative;display:block}
+.ss-display{width:100%;padding:8px 12px;border:1px solid var(--brd);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;cursor:pointer;min-height:36px;display:flex;align-items:center;justify-content:space-between;color:var(--tx)}
+.ss-display.placeholder{color:var(--tl)}
+.ss-display::after{content:'▾';font-size:12px;color:var(--tl);margin-left:8px}
+.ss-panel{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--brd);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:300;padding:6px;display:flex;flex-direction:column}
+.ss-filter{margin-bottom:6px}
+.ss-list{max-height:240px;overflow-y:auto;border-radius:6px}
+.ss-item{padding:8px 10px;border-radius:6px;cursor:pointer;font-size:14px;color:var(--tx);transition:background-color .15s,color .15s}
+.ss-item:hover,.ss-item.active{background:var(--primary);color:#fff}
+.ss-item .ss-sub{font-size:12px;color:var(--tl);margin-top:2px}
+.ss-item:hover .ss-sub,.ss-item.active .ss-sub{color:rgba(255,255,255,.85)}
+.ss-empty{padding:12px;color:var(--tl);font-size:13px;text-align:center}
+.num{font-variant-numeric:tabular-nums}
+.pagination{display:flex;gap:6px;align-items:center;justify-content:center;padding:12px 0;flex-wrap:wrap}
+.pagination button{min-width:32px}
+.pagination .pg-info{font-size:13px;color:var(--tl);margin:0 8px}
 @media(max-width:768px){
   .sidebar{transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0)}
@@ -139,7 +155,7 @@ textarea{resize:vertical;min-height:80px}
   <div class="content" id="content"></div>
 </div>
 
-<button class="mobile-toggle" id="mobileToggle" onclick="toggleSidebar()">☰</button>
+<button class="mobile-toggle" id="mobileToggle" onclick="toggleSidebar()" aria-label="打开菜单">☰</button>
 
 <div class="modal-overlay" id="modalOverlay" style="display:none" onclick="if(event.target===this)closeModal()"></div>
 
@@ -165,6 +181,8 @@ function toast(msg, type = 'info') {
   const t = document.createElement('div');
   t.className = 'toast toast-' + type;
   t.textContent = msg;
+  t.setAttribute('role', 'status');
+  t.setAttribute('aria-live', 'polite');
   document.body.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
 }
@@ -198,14 +216,300 @@ function datetimeInput(d) {
 }
 
 // ===== MODAL =====
+let _lastFocused = null;
 function openModal(html) {
-  document.getElementById('modalOverlay').style.display = 'flex';
-  document.getElementById('modalOverlay').innerHTML = '<div class="modal">' + html + '</div>';
+  _lastFocused = document.activeElement;
+  const overlay = document.getElementById('modalOverlay');
+  overlay.style.display = 'flex';
+  overlay.innerHTML = '<div class="modal" role="dialog" aria-modal="true">' + html + '</div>';
+  // Focus first interactive element
+  setTimeout(() => {
+    const modal = overlay.querySelector('.modal');
+    if (!modal) return;
+    const focusable = modal.querySelector('input:not([type="hidden"]), select, textarea, button, a[href], [tabindex]:not([tabindex="-1"])');
+    if (focusable) { try { focusable.focus(); } catch (e) {} }
+    else { modal.setAttribute('tabindex', '-1'); modal.focus(); }
+  }, 0);
 }
 
 function closeModal() {
-  document.getElementById('modalOverlay').style.display = 'none';
-  document.getElementById('modalOverlay').innerHTML = '';
+  const overlay = document.getElementById('modalOverlay');
+  overlay.style.display = 'none';
+  overlay.innerHTML = '';
+  if (_lastFocused && typeof _lastFocused.focus === 'function') {
+    try { _lastFocused.focus(); } catch (e) {}
+  }
+  _lastFocused = null;
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && document.getElementById('modalOverlay').style.display !== 'none') {
+    closeModal();
+  }
+});
+
+// ===== SEARCHABLE SELECT =====
+function searchableSelect(containerId, currentId, items, opts) {
+  opts = opts || {};
+  const container = document.getElementById(containerId);
+  if (!container) return { getValue: () => currentId || null };
+  items = Array.isArray(items) ? items : [];
+  let selectedId = currentId != null ? currentId : null;
+  let filtered = items.slice();
+  let activeIndex = -1;
+  const placeholder = opts.placeholder || '请选择…';
+
+  container.classList.add('searchable-select');
+  container.innerHTML = `
+    <div class="ss-display placeholder" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false"></div>
+    <div class="ss-panel" style="display:none" role="listbox">
+      <input class="ss-filter" type="text" placeholder="搜索…" aria-label="搜索过滤">
+      <div class="ss-list"></div>
+    </div>
+  `;
+  const display = container.querySelector('.ss-display');
+  const panel = container.querySelector('.ss-panel');
+  const filterInput = container.querySelector('.ss-filter');
+  const listEl = container.querySelector('.ss-list');
+
+  function renderDisplay() {
+    const sel = items.find(i => i.id === selectedId);
+    if (sel) {
+      display.textContent = sel.name;
+      display.classList.remove('placeholder');
+    } else {
+      display.textContent = placeholder;
+      display.classList.add('placeholder');
+    }
+  }
+
+  function renderList() {
+    if (!filtered.length) {
+      listEl.innerHTML = '<div class="ss-empty">暂无数据</div>';
+      return;
+    }
+    listEl.innerHTML = filtered.map((it, idx) => `
+      <div class="ss-item${idx === activeIndex ? ' active' : ''}" data-id="${esc(String(it.id))}" role="option" aria-selected="${it.id === selectedId ? 'true' : 'false'}">
+        <div>${esc(it.name || '')}</div>
+        ${it.sub ? `<div class="ss-sub">${esc(it.sub)}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  function openPanel() {
+    panel.style.display = 'flex';
+    display.setAttribute('aria-expanded', 'true');
+    filterInput.value = '';
+    filtered = items.slice();
+    activeIndex = filtered.findIndex(i => i.id === selectedId);
+    renderList();
+    setTimeout(() => filterInput.focus(), 0);
+  }
+
+  function closePanel() {
+    panel.style.display = 'none';
+    display.setAttribute('aria-expanded', 'false');
+    activeIndex = -1;
+  }
+
+  function isOpen() { return panel.style.display === 'flex'; }
+
+  function doFilter() {
+    const q = (filterInput.value || '').toLowerCase();
+    filtered = items.filter(it => {
+      const name = (it.name || '').toLowerCase();
+      const sub = (it.sub || '').toLowerCase();
+      return !q || name.indexOf(q) >= 0 || sub.indexOf(q) >= 0;
+    });
+    activeIndex = filtered.length ? 0 : -1;
+    renderList();
+  }
+
+  function pick(id) {
+    selectedId = id != null ? (typeof id === 'string' && items.length && typeof items[0].id === 'number' ? Number(id) : id) : null;
+    // normalize id type against items
+    const found = items.find(i => String(i.id) === String(id));
+    selectedId = found ? found.id : null;
+    renderDisplay();
+    closePanel();
+    if (typeof opts.onChange === 'function') opts.onChange(selectedId);
+  }
+
+  display.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (isOpen()) closePanel(); else openPanel();
+  });
+  display.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      openPanel();
+    }
+  });
+  filterInput.addEventListener('input', doFilter);
+  filterInput.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (filtered.length) { activeIndex = Math.min(activeIndex + 1, filtered.length - 1); renderList(); }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (filtered.length) { activeIndex = Math.max(activeIndex - 1, 0); renderList(); }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex >= 0 && activeIndex < filtered.length) pick(filtered[activeIndex].id);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closePanel();
+      display.focus();
+    }
+  });
+  listEl.addEventListener('click', function (e) {
+    const item = e.target.closest('.ss-item');
+    if (item) pick(item.dataset.id);
+  });
+  document.addEventListener('click', function (e) {
+    if (!container.contains(e.target)) closePanel();
+  });
+
+  renderDisplay();
+  return {
+    getValue: () => selectedId,
+    setValue: (id) => { selectedId = id != null ? (items.find(i => String(i.id) === String(id)) || {}).id || id : null; renderDisplay(); },
+    refresh: (newItems, newId) => {
+      items = Array.isArray(newItems) ? newItems : [];
+      if (newId !== undefined) selectedId = newId;
+      else {
+        const stillExists = items.find(i => String(i.id) === String(selectedId));
+        selectedId = stillExists ? stillExists.id : null;
+      }
+      renderDisplay();
+    }
+  };
+}
+
+// ===== CONFIRM / PROMPT DIALOGS =====
+function confirmDialog(title, message, opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    const confirmText = opts.confirmText || '确认';
+    const danger = opts.danger ? 'btn-danger' : 'btn-primary';
+    openModal(`
+      <h3>${esc(title)}</h3>
+      <div style="font-size:14px;line-height:1.6;color:var(--tx);margin-bottom:8px">${esc(message)}</div>
+      <div class="modal-actions">
+        <button class="btn" data-act="cancel">取消</button>
+        <button class="btn ${danger}" data-act="ok">${esc(confirmText)}</button>
+      </div>
+    `);
+    const overlay = document.getElementById('modalOverlay');
+    overlay.querySelector('[data-act="cancel"]').onclick = () => { closeModal(); resolve(false); };
+    overlay.querySelector('[data-act="ok"]').onclick = () => { closeModal(); resolve(true); };
+  });
+}
+
+function promptDialog(title, message, defaultValue) {
+  return new Promise(resolve => {
+    openModal(`
+      <h3>${esc(title)}</h3>
+      <div style="font-size:14px;color:var(--tl);margin-bottom:8px">${esc(message || '')}</div>
+      <div class="form-group"><input id="dlg_prompt_input" value="${esc(defaultValue || '')}"></div>
+      <div class="modal-actions">
+        <button class="btn" data-act="cancel">取消</button>
+        <button class="btn btn-primary" data-act="ok">确认</button>
+      </div>
+    `);
+    const overlay = document.getElementById('modalOverlay');
+    const input = overlay.querySelector('#dlg_prompt_input');
+    overlay.querySelector('[data-act="cancel"]').onclick = () => { closeModal(); resolve(null); };
+    overlay.querySelector('[data-act="ok"]').onclick = () => { const v = input.value; closeModal(); resolve(v); };
+    if (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { const v = input.value; closeModal(); resolve(v); }
+      });
+    }
+  });
+}
+
+// ===== URL HASH QUERY HELPERS =====
+function parseHashQuery() {
+  const raw = window.location.hash.slice(1) || '';
+  const [page, qs] = raw.split('?');
+  const params = {};
+  if (qs) {
+    qs.split('&').forEach(pair => {
+      const [k, v] = pair.split('=');
+      if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+    });
+  }
+  return { page: page || 'dashboard', params };
+}
+
+function updateHashQuery(page, params) {
+  const parts = [page];
+  const kv = [];
+  Object.keys(params || {}).forEach(k => {
+    const v = params[k];
+    if (v !== undefined && v !== null && v !== '') kv.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+  });
+  let hash = page;
+  if (kv.length) hash += '?' + kv.join('&');
+  if (window.location.hash !== '#' + hash) {
+    window.location.hash = hash;
+  }
+}
+
+// ===== CUSTOMER/CONTACT CASCADE HELPER =====
+async function setupCustomerContactCascade(custContainerId, contactContainerId, currentCustId, currentContactId, opts) {
+  opts = opts || {};
+  const custResp = await api('/customers?page=1&page_size=500');
+  const customers = Array.isArray(custResp) ? custResp : (custResp?.data || []);
+  const custItems = customers.map(cu => ({ id: cu.id, name: cu.name, sub: cu.short_name || '' }));
+  const holder = { customerSelect: null, contactSelect: null };
+
+  async function refreshContacts(custId, selId) {
+    if (!custId) {
+      holder.contactSelect = searchableSelect(contactContainerId, null, [], { placeholder: '无' });
+      return;
+    }
+    try {
+      const r = await api('/contacts?customer_id=' + custId);
+      const list = Array.isArray(r) ? r : (r?.data || []);
+      const items = list.map(ct => ({ id: ct.id, name: ct.name, sub: ct.phone || '' }));
+      holder.contactSelect = searchableSelect(contactContainerId, selId || null, items, { placeholder: '无' });
+    } catch (e) {
+      holder.contactSelect = searchableSelect(contactContainerId, null, [], { placeholder: '无' });
+    }
+  }
+
+  holder.customerSelect = searchableSelect(custContainerId, currentCustId || null, custItems, {
+    placeholder: '无',
+    onChange: async (newCustId) => {
+      await refreshContacts(newCustId, null);
+      if (typeof opts.onCustomerChange === 'function') {
+        try { opts.onCustomerChange(newCustId); } catch (e) {}
+      }
+    }
+  });
+  await refreshContacts(currentCustId || null, currentContactId || null);
+  return holder;
+}
+
+// ===== KANBAN BOARD SELECT HELPER =====
+async function loadKanbanBoardsForSelect() {
+  const d = await api('/kanban/boards');
+  return Array.isArray(d) ? d : (d.data || []);
+}
+
+function kanbanBoardSelectHtml(selectId, boards, selectedId) {
+  return `<select id="${selectId}"><option value="">请选择看板…</option>${boards.map(b => `<option value="${b.id}" ${selectedId === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
+}
+
+function bindKanbanCheckbox(checkboxId, boardSelectWrapperId, boards, selectedBoardId) {
+  const cb = document.getElementById(checkboxId);
+  const wrap = document.getElementById(boardSelectWrapperId);
+  if (!cb || !wrap) return;
+  wrap.innerHTML = kanbanBoardSelectHtml(boardSelectWrapperId + '_sel', boards, selectedBoardId);
+  wrap.style.display = cb.checked ? 'block' : 'none';
+  cb.addEventListener('change', () => { wrap.style.display = cb.checked ? 'block' : 'none'; });
 }
 
 // ===== NAVIGATION =====
@@ -220,7 +524,7 @@ function navigate(page) {
 }
 
 function onHashChange() {
-  const page = window.location.hash.slice(1) || 'dashboard';
+  const { page } = parseHashQuery();
   document.querySelectorAll('.sidebar-nav a').forEach(a => {
     a.classList.toggle('active', a.dataset.page === page);
   });
@@ -235,7 +539,7 @@ async function render(page) {
   const c = document.getElementById('content');
   const h = document.getElementById('pageTitle');
   if (!c) return;
-  c.innerHTML = '<div class="empty-state">加载中...</div>';
+  c.innerHTML = '<div class="empty-state">加载中…</div>';
   h.textContent = pageTitles[page] || page;
   document.querySelectorAll('.sidebar-nav a').forEach(a => {
     a.classList.toggle('active', a.dataset.page === page);
@@ -339,26 +643,31 @@ async function renderDashboard(c) {
 
 // ===== LEADS =====
 async function renderLeads(c) {
-  const d = await api('/leads');
-  const list = Array.isArray(d) ? d : (d.data || []);
+  const { params } = parseHashQuery();
+  const search = params.search || '';
+  const status = params.status || '';
+  const level = params.level || '';
+  const page = parseInt(params.page) || 1;
+  window._leadsPage = page;
+  window._leadsPageSize = 20;
   c.innerHTML = `
     <div class="search-bar">
-      <input placeholder="搜索线索标题..." id="lSearch" style="flex:1;min-width:200px">
-      <select id="lStatus"><option value="">全部状态</option><option value="active">活跃</option><option value="converted">已转化</option><option value="abandoned">已废弃</option></select>
-      <select id="lLevel"><option value="">全部匹配度</option><option value="高匹配">高匹配</option><option value="中匹配">中匹配</option><option value="低匹配">低匹配</option></select>
-      <button class="btn btn-primary" onclick="loadLeads()">搜索</button>
+      <input placeholder="搜索线索标题…" id="lSearch" name="lead_search" autocomplete="off" value="${esc(search)}" style="flex:1;min-width:200px" onkeydown="if(event.key==='Enter')loadLeads(1)">
+      <select id="lStatus"><option value="">全部状态</option><option value="active" ${status === 'active' ? 'selected' : ''}>活跃</option><option value="converted" ${status === 'converted' ? 'selected' : ''}>已转化</option><option value="abandoned" ${status === 'abandoned' ? 'selected' : ''}>已废弃</option></select>
+      <select id="lLevel"><option value="">全部匹配度</option><option value="高匹配" ${level === '高匹配' ? 'selected' : ''}>高匹配</option><option value="中匹配" ${level === '中匹配' ? 'selected' : ''}>中匹配</option><option value="低匹配" ${level === '低匹配' ? 'selected' : ''}>低匹配</option></select>
+      <button class="btn btn-primary" onclick="loadLeads(1)">搜索</button>
       <button class="btn btn-success" onclick="showLeadForm()">+ 新增线索</button>
-      <button class="btn btn-warning" onclick="triggerCrawl()">🕷️ 爬取</button>
+      <button class="btn btn-warning" onclick="triggerCrawl()" aria-label="爬取线索">🕷️ 爬取</button>
     </div>
     <div class="card">
       <table>
         <thead><tr><th>标号</th><th>标题</th><th>预算</th><th>截止日期</th><th>区域</th><th>匹配度</th><th>状态</th><th>客户</th><th>操作</th></tr></thead>
-        <tbody id="lTableBody"></tbody>
+        <tbody id="lTableBody"><tr><td colspan="9" class="empty-state">加载中…</td></tr></tbody>
       </table>
+      <div class="pagination" id="lPagination"></div>
     </div>
   `;
-  window._leadsList = list;
-  renderLeadTable(list);
+  await loadLeads(page);
 }
 
 function renderLeadTable(list) {
@@ -369,7 +678,7 @@ function renderLeadTable(list) {
     <tr>
       <td style="white-space:nowrap">${esc(l.bid_number || '-')}</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.title)}">${esc(l.title)}</td>
-      <td>${esc(l.budget || '-')}</td>
+      <td class="num">${esc(l.budget || '-')}</td>
       <td>${esc(l.deadline || '-')}</td>
       <td>${esc(l.region || '-')}</td>
       <td><span class="badge badge-${l.match_level === '高匹配' ? 'high' : l.match_level === '中匹配' ? 'medium' : 'low'}">${esc(l.match_level || '-')}</span></td>
@@ -384,17 +693,47 @@ function renderLeadTable(list) {
   `).join('');
 }
 
-async function loadLeads() {
-  const q = document.getElementById('lSearch').value;
-  const st = document.getElementById('lStatus').value;
-  const lv = document.getElementById('lLevel').value;
-  let url = '/leads?search=' + encodeURIComponent(q);
+function renderLeadPagination(page, total) {
+  const el = document.getElementById('lPagination');
+  if (!el) return;
+  const pageSize = window._leadsPageSize || 20;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) { el.innerHTML = `<span class="pg-info">共 ${total} 条</span>`; return; }
+  let html = `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="loadLeads(${page - 1})">上一页</button>`;
+  const maxBtns = 7;
+  let start = Math.max(1, page - 3);
+  let end = Math.min(totalPages, start + maxBtns - 1);
+  start = Math.max(1, end - maxBtns + 1);
+  if (start > 1) html += `<button class="btn btn-sm" onclick="loadLeads(1)">1</button>`;
+  if (start > 2) html += '<span class="pg-info">…</span>';
+  for (let i = start; i <= end; i++) {
+    html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : ''}" onclick="loadLeads(${i})">${i}</button>`;
+  }
+  if (end < totalPages - 1) html += '<span class="pg-info">…</span>';
+  if (end < totalPages) html += `<button class="btn btn-sm" onclick="loadLeads(${totalPages})">${totalPages}</button>`;
+  html += `<button class="btn btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="loadLeads(${page + 1})">下一页</button>`;
+  html += `<span class="pg-info">第 ${page}/${totalPages} 页 · 共 ${total} 条</span>`;
+  el.innerHTML = html;
+}
+
+async function loadLeads(page) {
+  page = page || 1;
+  const q = (document.getElementById('lSearch')?.value || '').trim();
+  const st = document.getElementById('lStatus')?.value || '';
+  const lv = document.getElementById('lLevel')?.value || '';
+  window._leadsPage = page;
+  updateHashQuery('leads', { search: q, status: st, level: lv, page });
+  let url = '/leads?page=' + page + '&page_size=' + (window._leadsPageSize || 20);
+  if (q) url += '&search=' + encodeURIComponent(q);
   if (st) url += '&status=' + st;
   if (lv) url += '&level=' + encodeURIComponent(lv);
   const d = await api(url);
   const list = Array.isArray(d) ? d : (d.data || []);
+  const total = (d && d.total != null) ? d.total : list.length;
   window._leadsList = list;
+  window._leadsTotal = total;
   renderLeadTable(list);
+  renderLeadPagination(page, total);
 }
 
 function showLeadForm(id) {
@@ -403,7 +742,7 @@ function showLeadForm(id) {
   openModal(`
     <h3>${isEdit ? '编辑线索' : '新增线索'}</h3>
     <div class="form-row">
-      <div class="form-group"><label>标题 *</label><input id="f_title" value="${esc(data?.title || '')}"></div>
+      <div class="form-group"><label>标题 *</label><input id="f_title" name="lead_title" autocomplete="off" value="${esc(data?.title || '')}"></div>
       <div class="form-group"><label>标号</label><input id="f_bid" value="${esc(data?.bid_number || '')}"></div>
     </div>
     <div class="form-row">
@@ -417,28 +756,19 @@ function showLeadForm(id) {
     <div class="form-group"><label>服务内容</label><textarea id="f_service">${esc(data?.service_content || '')}</textarea></div>
     <div class="form-row">
       <div class="form-group"><label>来源平台</label><input id="f_platform" value="${esc(data?.source_platform || '')}"></div>
-      <div class="form-group"><label>来源URL</label><input id="f_url" value="${esc(data?.source_url || '')}"></div>
+      <div class="form-group"><label>来源URL</label><input id="f_url" type="url" value="${esc(data?.source_url || '')}"></div>
     </div>
-    <div class="form-group"><label>关联客户</label>
-      <select id="f_customer"><option value="">无</option></select>
-    </div>
+    <div class="form-group"><label>关联客户</label><div id="f_customer"></div></div>
     ${isEdit ? `<div class="form-row"><div class="form-group"><label>状态</label><select id="f_status"><option value="active" ${data?.status === 'active' ? 'selected' : ''}>活跃</option><option value="converted" ${data?.status === 'converted' ? 'selected' : ''}>已转化</option><option value="abandoned" ${data?.status === 'abandoned' ? 'selected' : ''}>已废弃</option></select></div></div>` : ''}
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveLead(${id || ''})">${isEdit ? '保存' : '创建'}</button>
     </div>
   `);
-  // Load customers for dropdown
-  api('/customers').then(d => {
+  api('/customers?page=1&page_size=500').then(d => {
     const customers = Array.isArray(d) ? d : (d.data || []);
-    const sel = document.getElementById('f_customer');
-    customers.forEach(cu => {
-      const opt = document.createElement('option');
-      opt.value = cu.id;
-      opt.textContent = cu.name;
-      if (data && data.customer_id === cu.id) opt.selected = true;
-      sel.appendChild(opt);
-    });
+    const items = customers.map(cu => ({ id: cu.id, name: cu.name, sub: cu.short_name || '' }));
+    window._leadCustSelect = searchableSelect('f_customer', data?.customer_id || null, items, { placeholder: '无' });
   });
 }
 
@@ -453,7 +783,7 @@ async function saveLead(id) {
     service_content: document.getElementById('f_service').value,
     source_platform: document.getElementById('f_platform').value,
     source_url: document.getElementById('f_url').value,
-    customer_id: parseInt(document.getElementById('f_customer').value) || null,
+    customer_id: (window._leadCustSelect && window._leadCustSelect.getValue()) || null,
   };
   if (!body.title) return toast('请填写标题', 'error');
   if (id) body.status = document.getElementById('f_status').value;
@@ -462,28 +792,32 @@ async function saveLead(id) {
   await api(url, { method, body: JSON.stringify(body) });
   toast(id ? '更新成功' : '创建成功', 'success');
   closeModal();
-  loadLeads();
+  loadLeads(window._leadsPage || 1);
 }
 
 async function convertLead(id) {
-  const customers = await api('/customers') || [];
-  const contacts = await api('/contacts') || [];
-  const custList = Array.isArray(customers) ? customers : (customers.data || []);
-  const contList = Array.isArray(contacts) ? contacts : (contacts.data || []);
+  const lead = (window._leadsList || []).find(l => l.id === id);
+  const custResp = await api('/customers?page=1&page_size=500');
+  const custList = Array.isArray(custResp) ? custResp : (custResp?.data || []);
+  const custItems = custList.map(cu => ({ id: cu.id, name: cu.name, sub: cu.short_name || '' }));
+  const stagesResp = await api('/stages');
+  const stages = Array.isArray(stagesResp) ? stagesResp : [];
   openModal(`
     <h3>转为商机</h3>
-    <div class="form-group"><label>商机标题 *</label><input id="c_title" value="${esc((window._leadsList || []).find(l => l.id === id)?.title || '')}"></div>
+    <div class="form-group"><label>商机标题 *</label><input id="c_title" name="opp_title" autocomplete="off" value="${esc(lead?.title || '')}"></div>
     <div class="form-row">
-      <div class="form-group"><label>金额</label><input id="c_amount" value="${esc((window._leadsList || []).find(l => l.id === id)?.budget || '')}"></div>
-      <div class="form-group"><label>当前阶段</label><select id="c_stage"><option>初步接触</option><option>需求确认</option><option>方案报价</option><option>商务谈判</option><option>签约</option></select></div>
+      <div class="form-group"><label>金额</label><input id="c_amount" value="${esc(lead?.budget || '')}"></div>
+      <div class="form-group"><label>当前阶段</label><select id="c_stage">${stages.length ? stages.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('') : '<option>初步接触</option><option>需求确认</option><option>方案报价</option><option>商务谈判</option><option>签约</option>'}</select></div>
     </div>
-    <div class="form-group"><label>客户</label><select id="c_cust">${custList.map(cu => `<option value="${cu.id}">${esc(cu.name)}</option>`).join('')}</select></div>
-    <div class="form-group"><label>联系人</label><select id="c_cont"><option value="">无</option>${contList.map(ct => `<option value="${ct.id}">${esc(ct.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label>客户</label><div id="c_cust"></div></div>
+    <div class="form-group"><label>联系人</label><div id="c_cont"></div></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">取消</button>
       <button class="btn btn-success" onclick="saveConvert(${id})">确认转化</button>
     </div>
   `);
+  // Prefill lead's existing customer_id and cascade contacts
+  window._convertHolder = await setupCustomerContactCascade('c_cust', 'c_cont', lead?.customer_id || null, null);
 }
 
 async function saveConvert(id) {
@@ -491,54 +825,105 @@ async function saveConvert(id) {
     title: document.getElementById('c_title').value,
     amount: document.getElementById('c_amount').value,
     stage: document.getElementById('c_stage').value,
-    customer_id: parseInt(document.getElementById('c_cust').value) || null,
-    contact_id: parseInt(document.getElementById('c_cont').value) || null,
+    customer_id: (window._convertHolder && window._convertHolder.customerSelect.getValue()) || null,
+    contact_id: (window._convertHolder && window._convertHolder.contactSelect && window._convertHolder.contactSelect.getValue()) || null,
   };
   if (!body.title) return toast('请填写标题', 'error');
   await api('/leads/' + id + '/convert', { method: 'POST', body: JSON.stringify(body) });
   toast('已转为商机', 'success');
   closeModal();
-  loadLeads();
+  loadLeads(window._leadsPage || 1);
 }
 
 async function abandonLead(id) {
-  if (!confirm('确认废弃此线索？')) return;
+  const ok = await confirmDialog('废弃线索', '确认废弃此线索？', { danger: true, confirmText: '废弃' });
+  if (!ok) return;
   await api('/leads/' + id + '/abandon', { method: 'POST', body: '{}' });
   toast('已废弃', 'success');
-  loadLeads();
+  loadLeads(window._leadsPage || 1);
 }
 
 async function deleteLead(id) {
-  if (!confirm('确认删除此线索？此操作不可恢复。')) return;
+  const ok = await confirmDialog('删除线索', '确认删除此线索？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
   await api('/leads/' + id, { method: 'DELETE' });
   toast('已删除', 'success');
-  loadLeads();
+  loadLeads(window._leadsPage || 1);
 }
 
 async function triggerCrawl() {
   const res = await api('/crawl', { method: 'POST', body: JSON.stringify({}) });
   toast(res?.message || '爬取任务已启动', 'success');
-  setTimeout(loadLeads, 2000);
+  setTimeout(() => loadLeads(window._leadsPage || 1), 2000);
 }
 
 // ===== OPPORTUNITIES =====
 async function renderOpportunities(c) {
-  const d = await api('/opportunities');
-  const list = Array.isArray(d) ? d : (d.data || []);
-  window._oppList = list;
+  const { params } = parseHashQuery();
+  const search = params.search || '';
+  const page = parseInt(params.page) || 1;
+  window._oppPage = page;
+  window._oppPageSize = 20;
   c.innerHTML = `
     <div class="search-bar">
-      <input placeholder="搜索商机..." id="oSearch" style="flex:1;min-width:200px" oninput="filterOpp()">
+      <input placeholder="搜索商机…" id="oSearch" name="opp_search" autocomplete="off" value="${esc(search)}" style="flex:1;min-width:200px" oninput="oppSearchDebounce()" onkeydown="if(event.key==='Enter')loadOpportunities(1)">
+      <button class="btn btn-primary" onclick="loadOpportunities(1)">搜索</button>
       <button class="btn btn-success" onclick="showOppForm()">+ 新增商机</button>
     </div>
     <div class="card">
       <table>
         <thead><tr><th>标题</th><th>客户</th><th>联系人</th><th>金额</th><th>当前阶段</th><th>操作</th></tr></thead>
-        <tbody id="oTableBody"></tbody>
+        <tbody id="oTableBody"><tr><td colspan="6" class="empty-state">加载中…</td></tr></tbody>
       </table>
+      <div class="pagination" id="oPagination"></div>
     </div>
   `;
+  await loadOpportunities(page);
+}
+
+let _oppSearchTimer = null;
+function oppSearchDebounce() {
+  clearTimeout(_oppSearchTimer);
+  _oppSearchTimer = setTimeout(() => loadOpportunities(1), 350);
+}
+
+async function loadOpportunities(page) {
+  page = page || 1;
+  const search = (document.getElementById('oSearch')?.value || '').trim();
+  window._oppPage = page;
+  updateHashQuery('opportunities', { search, page });
+  let url = '/opportunities?page=' + page + '&page_size=' + (window._oppPageSize || 20);
+  if (search) url += '&search=' + encodeURIComponent(search);
+  const d = await api(url);
+  const list = Array.isArray(d) ? d : (d.data || []);
+  const total = (d && d.total != null) ? d.total : list.length;
+  window._oppList = list;
+  window._oppTotal = total;
   renderOppTable(list);
+  renderOppPagination(page, total);
+}
+
+function renderOppPagination(page, total) {
+  const el = document.getElementById('oPagination');
+  if (!el) return;
+  const pageSize = window._oppPageSize || 20;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) { el.innerHTML = `<span class="pg-info">共 ${total} 条</span>`; return; }
+  let html = `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="loadOpportunities(${page - 1})">上一页</button>`;
+  const maxBtns = 7;
+  let start = Math.max(1, page - 3);
+  let end = Math.min(totalPages, start + maxBtns - 1);
+  start = Math.max(1, end - maxBtns + 1);
+  if (start > 1) html += `<button class="btn btn-sm" onclick="loadOpportunities(1)">1</button>`;
+  if (start > 2) html += '<span class="pg-info">…</span>';
+  for (let i = start; i <= end; i++) {
+    html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : ''}" onclick="loadOpportunities(${i})">${i}</button>`;
+  }
+  if (end < totalPages - 1) html += '<span class="pg-info">…</span>';
+  if (end < totalPages) html += `<button class="btn btn-sm" onclick="loadOpportunities(${totalPages})">${totalPages}</button>`;
+  html += `<button class="btn btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="loadOpportunities(${page + 1})">下一页</button>`;
+  html += `<span class="pg-info">第 ${page}/${totalPages} 页 · 共 ${total} 条</span>`;
+  el.innerHTML = html;
 }
 
 function renderOppTable(list) {
@@ -550,7 +935,7 @@ function renderOppTable(list) {
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.title)}">${esc(o.title)}</td>
       <td>${esc(o.customer_name || '-')}</td>
       <td>${esc(o.contact_name || '-')}</td>
-      <td>${esc(o.amount || '-')}</td>
+      <td class="num">${esc(o.amount || '-')}</td>
       <td><span class="badge badge-active">${esc(o.current_stage || '-')}</span></td>
       <td><div class="btn-group">
         <button class="btn btn-sm btn-info" onclick="viewOppDetail(${o.id})">详情</button>
@@ -561,37 +946,27 @@ function renderOppTable(list) {
   `).join('');
 }
 
-function filterOpp() {
-  const q = (document.getElementById('oSearch').value || '').toLowerCase();
-  const filtered = (window._oppList || []).filter(o =>
-    !q || (o.title || '').toLowerCase().includes(q) || (o.customer_name || '').toLowerCase().includes(q)
-  );
-  renderOppTable(filtered);
-}
-
-function showOppForm(id) {
+async function showOppForm(id) {
   const data = id ? (window._oppList || []).find(o => o.id === id) : null;
   const isEdit = !!data;
-  api('/customers').then(custs => {
-    const customers = Array.isArray(custs) ? custs : (custs.data || []);
-    api('/contacts').then(conts => {
-      const contacts = Array.isArray(conts) ? conts : (conts.data || []);
-      openModal(`
-        <h3>${isEdit ? '编辑商机' : '新增商机'}</h3>
-        <div class="form-group"><label>标题 *</label><input id="o_title" value="${esc(data?.title || '')}"></div>
-        <div class="form-row">
-          <div class="form-group"><label>金额</label><input id="o_amount" value="${esc(data?.amount || '')}"></div>
-          <div class="form-group"><label>当前阶段</label><input id="o_stage" value="${esc(data?.current_stage || '初步接触')}"></div>
-        </div>
-        <div class="form-group"><label>客户</label><select id="o_cust">${customers.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}</select></div>
-        <div class="form-group"><label>联系人</label><select id="o_cont"><option value="">无</option>${contacts.map(ct => `<option value="${ct.id}" ${data?.contact_id === ct.id ? 'selected' : ''}>${esc(ct.name)}</option>`).join('')}</select></div>
-        <div class="modal-actions">
-          <button class="btn" onclick="closeModal()">取消</button>
-          <button class="btn btn-primary" onclick="saveOpp(${id || ''})">${isEdit ? '保存' : '创建'}</button>
-        </div>
-      `);
-    });
-  });
+  const stagesResp = await api('/stages');
+  const stages = Array.isArray(stagesResp) ? stagesResp : [];
+  const stageOpts = stages.length ? stages.map(s => `<option value="${esc(s.name)}" ${data?.current_stage === s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('') : `<option value="初步接触">初步接触</option><option value="需求确认">需求确认</option><option value="方案报价">方案报价</option><option value="商务谈判">商务谈判</option><option value="签约">签约</option>`;
+  openModal(`
+    <h3>${isEdit ? '编辑商机' : '新增商机'}</h3>
+    <div class="form-group"><label>标题 *</label><input id="o_title" name="opp_title" autocomplete="off" value="${esc(data?.title || '')}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>金额</label><input id="o_amount" value="${esc(data?.amount || '')}"></div>
+      <div class="form-group"><label>当前阶段</label><select id="o_stage">${stageOpts}</select></div>
+    </div>
+    <div class="form-group"><label>客户</label><div id="o_cust"></div></div>
+    <div class="form-group"><label>联系人</label><div id="o_cont"></div></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveOpp(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+    </div>
+  `);
+  window._oppHolder = await setupCustomerContactCascade('o_cust', 'o_cont', data?.customer_id || null, data?.contact_id || null);
 }
 
 async function saveOpp(id) {
@@ -599,8 +974,8 @@ async function saveOpp(id) {
     title: document.getElementById('o_title').value,
     amount: document.getElementById('o_amount').value,
     current_stage: document.getElementById('o_stage').value,
-    customer_id: parseInt(document.getElementById('o_cust').value) || null,
-    contact_id: parseInt(document.getElementById('o_cont').value) || null,
+    customer_id: (window._oppHolder && window._oppHolder.customerSelect.getValue()) || null,
+    contact_id: (window._oppHolder && window._oppHolder.contactSelect && window._oppHolder.contactSelect.getValue()) || null,
   };
   if (!body.title) return toast('请填写标题', 'error');
   const url = id ? '/opportunities/' + id : '/opportunities';
@@ -608,7 +983,7 @@ async function saveOpp(id) {
   await api(url, { method, body: JSON.stringify(body) });
   toast(id ? '更新成功' : '创建成功', 'success');
   closeModal();
-  render('opportunities');
+  loadOpportunities(window._oppPage || 1);
 }
 
 async function viewOppDetail(id) {
@@ -644,22 +1019,27 @@ async function viewOppDetail(id) {
   `);
 }
 
-function showAddStage(oppId) {
+async function showAddStage(oppId) {
   closeModal();
+  const stagesResp = await api('/stages');
+  const stages = Array.isArray(stagesResp) ? stagesResp : [];
+  const boards = await loadKanbanBoardsForSelect();
   openModal(`
     <h3>添加阶段记录</h3>
-    <div class="form-group"><label>阶段名称 *</label><input id="s_stage" value=""></div>
+    <div class="form-group"><label>阶段名称 *</label><select id="s_stage">${stages.length ? stages.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('') : '<option>初步接触</option><option>需求确认</option><option>方案报价</option><option>商务谈判</option><option>签约</option>'}</select></div>
     <div class="form-group"><label>内容</label><textarea id="s_content"></textarea></div>
     <div class="form-row">
       <div class="form-group"><label>截止日期</label><input id="s_deadline" type="date"></div>
       <div class="form-group"><label>状态</label><select id="s_status"><option value="pending">进行中</option><option value="completed">已完成</option></select></div>
     </div>
-    <div class="form-group"><label><input type="checkbox" id="s_kanban"> 添加到看板</label></div>
+    <div class="form-group"><label><input type="checkbox" id="s_kanban"> 加入看板</label></div>
+    <div class="form-group" id="s_kanban_wrap" style="display:none"><label>目标看板</label><div id="s_kanban_board"></div></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveStage(${oppId})">添加</button>
     </div>
   `);
+  bindKanbanCheckbox('s_kanban', 's_kanban_board', boards, null);
 }
 
 async function saveStage(oppId) {
@@ -671,6 +1051,11 @@ async function saveStage(oppId) {
     add_to_kanban: document.getElementById('s_kanban').checked,
   };
   if (!body.stage_name) return toast('请填写阶段名称', 'error');
+  if (body.add_to_kanban) {
+    const boardId = parseInt(document.getElementById('s_kanban_board_sel')?.value);
+    if (!boardId) return toast('请选择目标看板', 'error');
+    body.board_id = boardId;
+  }
   await api('/opportunities/' + oppId + '/stages', { method: 'POST', body: JSON.stringify(body) });
   toast('阶段记录已添加', 'success');
   closeModal();
@@ -678,30 +1063,82 @@ async function saveStage(oppId) {
 }
 
 async function deleteOpp(id) {
-  if (!confirm('确认删除此商机？')) return;
+  const ok = await confirmDialog('删除商机', '确认删除此商机？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
   await api('/opportunities/' + id, { method: 'DELETE' });
   toast('已删除', 'success');
-  render('opportunities');
+  loadOpportunities(window._oppPage || 1);
 }
 
 // ===== CONTACTS =====
 async function renderContacts(c) {
-  const d = await api('/contacts');
-  const list = Array.isArray(d) ? d : (d.data || []);
-  window._contactsList = list;
+  const { params } = parseHashQuery();
+  const search = params.search || '';
+  const page = parseInt(params.page) || 1;
+  window._contactsPage = page;
+  window._contactsSearch = search;
+  window._contactsPageSize = 20;
   c.innerHTML = `
     <div class="search-bar">
-      <input placeholder="搜索联系人..." id="cSearch" style="flex:1;min-width:200px" oninput="filterContacts()">
+      <input placeholder="搜索联系人…" id="cSearch" name="contact_search" autocomplete="off" value="${esc(search)}" style="flex:1;min-width:200px" oninput="contactSearchDebounce()" onkeydown="if(event.key==='Enter')loadContacts(1)">
+      <button class="btn btn-primary" onclick="loadContacts(1)">搜索</button>
       <button class="btn btn-success" onclick="showContactForm()">+ 新增联系人</button>
     </div>
     <div class="card">
       <table>
-        <thead><tr><th>姓名</th><th>职位</th><th>电话</th><th>邮箱</th><th>微信</th><th>公司</th><th>操作</th></tr></thead>
-        <tbody id="cTableBody"></tbody>
+        <thead><tr><th>姓名</th><th>职位</th><th>电话</th><th>邮箱</th><th>微信</th><th>所属客户</th><th>操作</th></tr></thead>
+        <tbody id="cTableBody"><tr><td colspan="7" class="empty-state">加载中…</td></tr></tbody>
       </table>
+      <div class="pagination" id="cPagination"></div>
     </div>
   `;
+  await loadContacts(page);
+}
+
+let _contactSearchTimer = null;
+function contactSearchDebounce() {
+  clearTimeout(_contactSearchTimer);
+  _contactSearchTimer = setTimeout(() => loadContacts(1), 350);
+}
+
+async function loadContacts(page) {
+  const search = (document.getElementById('cSearch')?.value || '').trim();
+  page = page || 1;
+  window._contactsPage = page;
+  window._contactsSearch = search;
+  updateHashQuery('contacts', { search, page });
+  let url = '/contacts?page=' + page + '&page_size=' + (window._contactsPageSize || 20);
+  if (search) url += '&search=' + encodeURIComponent(search);
+  const d = await api(url);
+  const list = Array.isArray(d) ? d : (d.data || []);
+  const total = (d && d.total != null) ? d.total : list.length;
+  window._contactsList = list;
+  window._contactsTotal = total;
   renderContactTable(list);
+  renderContactPagination(page, total);
+}
+
+function renderContactPagination(page, total) {
+  const el = document.getElementById('cPagination');
+  if (!el) return;
+  const pageSize = window._contactsPageSize || 20;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) { el.innerHTML = `<span class="pg-info">共 ${total} 条</span>`; return; }
+  let html = `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="loadContacts(${page - 1})">上一页</button>`;
+  const maxBtns = 7;
+  let start = Math.max(1, page - 3);
+  let end = Math.min(totalPages, start + maxBtns - 1);
+  start = Math.max(1, end - maxBtns + 1);
+  if (start > 1) html += `<button class="btn btn-sm" onclick="loadContacts(1)">1</button>`;
+  if (start > 2) html += '<span class="pg-info">…</span>';
+  for (let i = start; i <= end; i++) {
+    html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : ''}" onclick="loadContacts(${i})">${i}</button>`;
+  }
+  if (end < totalPages - 1) html += '<span class="pg-info">…</span>';
+  if (end < totalPages) html += `<button class="btn btn-sm" onclick="loadContacts(${totalPages})">${totalPages}</button>`;
+  html += `<button class="btn btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="loadContacts(${page + 1})">下一页</button>`;
+  html += `<span class="pg-info">第 ${page}/${totalPages} 页 · 共 ${total} 条</span>`;
+  el.innerHTML = html;
 }
 
 function renderContactTable(list) {
@@ -715,7 +1152,7 @@ function renderContactTable(list) {
       <td>${esc(ct.phone || '-')}</td>
       <td>${esc(ct.email || '-')}</td>
       <td>${esc(ct.wechat || '-')}</td>
-      <td>${esc(ct.company || '-')}</td>
+      <td>${esc(ct.customer_name || '-')}</td>
       <td><div class="btn-group">
         <button class="btn btn-sm btn-primary" onclick="showContactForm(${ct.id})">编辑</button>
         <button class="btn btn-sm btn-danger" onclick="deleteContact(${ct.id})">删除</button>
@@ -724,43 +1161,41 @@ function renderContactTable(list) {
   `).join('');
 }
 
-function filterContacts() {
-  const q = (document.getElementById('cSearch').value || '').toLowerCase();
-  const filtered = (window._contactsList || []).filter(ct =>
-    !q || (ct.name || '').toLowerCase().includes(q) || (ct.phone || '').toLowerCase().includes(q) || (ct.company || '').toLowerCase().includes(q)
-  );
-  renderContactTable(filtered);
-}
-
-function showContactForm(id) {
+async function showContactForm(id) {
   const data = id ? (window._contactsList || []).find(c => c.id === id) : null;
   const isEdit = !!data;
-  api('/customers').then(custs => {
-    const customers = Array.isArray(custs) ? custs : (custs.data || []);
-    openModal(`
-      <h3>${isEdit ? '编辑联系人' : '新增联系人'}</h3>
-      <div class="form-row">
-        <div class="form-group"><label>姓名 *</label><input id="ct_name" value="${esc(data?.name || '')}"></div>
-        <div class="form-group"><label>职位</label><input id="ct_title" value="${esc(data?.title || '')}"></div>
+  const custsResp = await api('/customers?page=1&page_size=200');
+  const customers = Array.isArray(custsResp) ? custsResp : (custsResp?.data || []);
+  const impResp = await api('/dictionary?category=contact_importance');
+  const impItems = Array.isArray(impResp) ? impResp : (impResp?.data || []);
+  const custItems = customers.map(cu => ({ id: cu.id, name: cu.name, sub: cu.short_name || '' }));
+  openModal(`
+    <h3>${isEdit ? '编辑联系人' : '新增联系人'}</h3>
+    <div class="form-row">
+      <div class="form-group"><label>姓名 *</label><input id="ct_name" name="contact_name" autocomplete="off" value="${esc(data?.name || '')}"></div>
+      <div class="form-group"><label>职位</label><input id="ct_title" value="${esc(data?.title || '')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>电话</label><input id="ct_phone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(data?.phone || '')}"></div>
+      <div class="form-group"><label>邮箱</label><input id="ct_email" type="email" autocomplete="email" value="${esc(data?.email || '')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>微信</label><input id="ct_wechat" value="${esc(data?.wechat || '')}"></div>
+      <div class="form-group"><label>重要程度</label>
+        <select id="ct_importance"><option value=""></option>${impItems.map(i => `<option value="${esc(i.label)}" ${data?.importance === i.label ? 'selected' : ''}>${esc(i.label)}</option>`).join('')}</select>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>电话</label><input id="ct_phone" value="${esc(data?.phone || '')}"></div>
-        <div class="form-group"><label>邮箱</label><input id="ct_email" type="email" value="${esc(data?.email || '')}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>微信</label><input id="ct_wechat" value="${esc(data?.wechat || '')}"></div>
-        <div class="form-group"><label>所属客户</label>
-          <select id="ct_customer"><option value="">无</option>
-            ${customers.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <div class="form-group"><label>备注</label><textarea id="ct_notes">${esc(data?.notes || '')}</textarea></div>
-      <div class="modal-actions">
-        <button class="btn" onclick="closeModal()">取消</button>
-        <button class="btn btn-primary" onclick="saveContact(${id || ''})">${isEdit ? '保存' : '创建'}</button>
-      </div>
-    `);
+    </div>
+    <div class="form-group"><label>所属客户</label><div id="ct_customer"></div></div>
+    <div class="form-group"><label>经营范围</label><textarea id="ct_business_scope">${esc(data?.business_scope || '')}</textarea></div>
+    <div class="form-group"><label>备注</label><textarea id="ct_notes">${esc(data?.notes || '')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveContact(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+    </div>
+  `);
+  window._ctCustSelect = searchableSelect('ct_customer', data?.customer_id || null, custItems, {
+    placeholder: '无',
+    onChange: () => {}
   });
 }
 
@@ -771,7 +1206,9 @@ async function saveContact(id) {
     phone: document.getElementById('ct_phone').value,
     email: document.getElementById('ct_email').value,
     wechat: document.getElementById('ct_wechat').value,
-    customer_id: parseInt(document.getElementById('ct_customer').value) || null,
+    importance: document.getElementById('ct_importance').value,
+    customer_id: (window._ctCustSelect && window._ctCustSelect.getValue()) || null,
+    business_scope: document.getElementById('ct_business_scope').value,
     notes: document.getElementById('ct_notes').value,
   };
   if (!body.name) return toast('请填写姓名', 'error');
@@ -780,34 +1217,86 @@ async function saveContact(id) {
   await api(url, { method, body: JSON.stringify(body) });
   toast(id ? '更新成功' : '创建成功', 'success');
   closeModal();
-  render('contacts');
+  loadContacts(window._contactsPage || 1);
 }
 
 async function deleteContact(id) {
-  if (!confirm('确认删除此联系人？')) return;
+  const ok = await confirmDialog('删除联系人', '确认删除此联系人？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
   await api('/contacts/' + id, { method: 'DELETE' });
   toast('已删除', 'success');
-  render('contacts');
+  loadContacts(window._contactsPage || 1);
 }
 
 // ===== CUSTOMERS =====
 async function renderCustomers(c) {
-  const d = await api('/customers');
-  const list = Array.isArray(d) ? d : (d.data || []);
-  window._custList = list;
+  const { params } = parseHashQuery();
+  const search = params.search || '';
+  const page = parseInt(params.page) || 1;
+  window._custPage = page;
+  window._custSearch = search;
+  window._custPageSize = 20;
   c.innerHTML = `
     <div class="search-bar">
-      <input placeholder="搜索客户..." id="cuSearch" style="flex:1;min-width:200px" oninput="filterCustomers()">
+      <input placeholder="搜索客户…" id="cuSearch" name="customer_search" autocomplete="off" value="${esc(search)}" style="flex:1;min-width:200px" oninput="custSearchDebounce()" onkeydown="if(event.key==='Enter')loadCustomers(1)">
+      <button class="btn btn-primary" onclick="loadCustomers(1)">搜索</button>
       <button class="btn btn-success" onclick="showCustomerForm()">+ 新增客户</button>
     </div>
     <div class="card">
       <table>
-        <thead><tr><th>名称</th><th>简称</th><th>类型</th><th>等级</th><th>区域</th><th>联系人</th><th>动态</th><th>操作</th></tr></thead>
-        <tbody id="cuTableBody"></tbody>
+        <thead><tr><th>名称</th><th>简称</th><th>类型</th><th>等级</th><th>区域</th><th class="num">联系人</th><th class="num">动态</th><th>操作</th></tr></thead>
+        <tbody id="cuTableBody"><tr><td colspan="8" class="empty-state">加载中…</td></tr></tbody>
       </table>
+      <div class="pagination" id="cuPagination"></div>
     </div>
   `;
+  await loadCustomers(page);
+}
+
+let _custSearchTimer = null;
+function custSearchDebounce() {
+  clearTimeout(_custSearchTimer);
+  _custSearchTimer = setTimeout(() => loadCustomers(1), 350);
+}
+
+async function loadCustomers(page) {
+  const search = (document.getElementById('cuSearch')?.value || '').trim();
+  page = page || 1;
+  window._custPage = page;
+  window._custSearch = search;
+  updateHashQuery('customers', { search, page });
+  let url = '/customers?page=' + page + '&page_size=' + (window._custPageSize || 20);
+  if (search) url += '&search=' + encodeURIComponent(search);
+  const d = await api(url);
+  const list = Array.isArray(d) ? d : (d.data || []);
+  const total = (d && d.total != null) ? d.total : list.length;
+  window._custList = list;
+  window._custTotal = total;
   renderCustomerTable(list);
+  renderCustomerPagination(page, total);
+}
+
+function renderCustomerPagination(page, total) {
+  const el = document.getElementById('cuPagination');
+  if (!el) return;
+  const pageSize = window._custPageSize || 20;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) { el.innerHTML = `<span class="pg-info">共 ${total} 条</span>`; return; }
+  let html = `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="loadCustomers(${page - 1})">上一页</button>`;
+  const maxBtns = 7;
+  let start = Math.max(1, page - 3);
+  let end = Math.min(totalPages, start + maxBtns - 1);
+  start = Math.max(1, end - maxBtns + 1);
+  if (start > 1) html += `<button class="btn btn-sm" onclick="loadCustomers(1)">1</button>`;
+  if (start > 2) html += '<span class="pg-info">…</span>';
+  for (let i = start; i <= end; i++) {
+    html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : ''}" onclick="loadCustomers(${i})">${i}</button>`;
+  }
+  if (end < totalPages - 1) html += '<span class="pg-info">…</span>';
+  if (end < totalPages) html += `<button class="btn btn-sm" onclick="loadCustomers(${totalPages})">${totalPages}</button>`;
+  html += `<button class="btn btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="loadCustomers(${page + 1})">下一页</button>`;
+  html += `<span class="pg-info">第 ${page}/${totalPages} 页 · 共 ${total} 条</span>`;
+  el.innerHTML = html;
 }
 
 function renderCustomerTable(list) {
@@ -821,8 +1310,8 @@ function renderCustomerTable(list) {
       <td>${esc(cu.type || '-')}</td>
       <td><span class="badge badge-${cu.level === '高匹配' ? 'high' : cu.level === '中匹配' ? 'medium' : 'low'}">${esc(cu.level || '-')}</span></td>
       <td>${esc(cu.region || '-')}</td>
-      <td>${cu.contact_count || 0}</td>
-      <td>${cu.news_count || 0}</td>
+      <td class="num">${cu.contact_count || 0}</td>
+      <td class="num">${cu.news_count || 0}</td>
       <td><div class="btn-group">
         <button class="btn btn-sm btn-info" onclick="viewCustomerDetail(${cu.id})">详情</button>
         <button class="btn btn-sm btn-primary" onclick="showCustomerForm(${cu.id})">编辑</button>
@@ -832,35 +1321,39 @@ function renderCustomerTable(list) {
   `).join('');
 }
 
-function filterCustomers() {
-  const q = (document.getElementById('cuSearch').value || '').toLowerCase();
-  const filtered = (window._custList || []).filter(cu =>
-    !q || (cu.name || '').toLowerCase().includes(q) || (cu.short_name || '').toLowerCase().includes(q)
-  );
-  renderCustomerTable(filtered);
-}
-
-function showCustomerForm(id) {
+async function showCustomerForm(id) {
   const data = id ? (window._custList || []).find(c => c.id === id) : null;
   const isEdit = !!data;
+  // Load dictionary options in parallel
+  const [typeDict, levelDict, sourceDict, regionDict] = await Promise.all([
+    api('/dictionary?category=customer_type'),
+    api('/dictionary?category=customer_level'),
+    api('/dictionary?category=customer_source'),
+    api('/dictionary?category=region'),
+  ]);
+  const typeItems = Array.isArray(typeDict) ? typeDict : (typeDict?.data || []);
+  const levelItems = Array.isArray(levelDict) ? levelDict : (levelDict?.data || []);
+  const sourceItems = Array.isArray(sourceDict) ? sourceDict : (sourceDict?.data || []);
+  const regionItems = Array.isArray(regionDict) ? regionDict : (regionDict?.data || []);
+  const opt = (items, cur) => '<option value=""></option>' + items.map(i => `<option value="${esc(i.label)}" ${cur === i.label ? 'selected' : ''}>${esc(i.label)}</option>`).join('');
   openModal(`
     <h3>${isEdit ? '编辑客户' : '新增客户'}</h3>
     <div class="form-row">
-      <div class="form-group"><label>名称 *</label><input id="cu_name" value="${esc(data?.name || '')}"></div>
+      <div class="form-group"><label>名称 *</label><input id="cu_name" name="customer_name" autocomplete="off" value="${esc(data?.name || '')}"></div>
       <div class="form-group"><label>简称</label><input id="cu_short" value="${esc(data?.short_name || '')}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>类型</label><input id="cu_type" value="${esc(data?.type || '')}"></div>
-      <div class="form-group"><label>等级</label><input id="cu_level" value="${esc(data?.level || '')}"></div>
-      <div class="form-group"><label>区域</label><input id="cu_region" value="${esc(data?.region || '')}"></div>
+      <div class="form-group"><label>类型</label><select id="cu_type">${opt(typeItems, data?.type)}</select></div>
+      <div class="form-group"><label>等级</label><select id="cu_level">${opt(levelItems, data?.level)}</select></div>
+      <div class="form-group"><label>区域</label><select id="cu_region">${opt(regionItems, data?.region)}</select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>来源</label><input id="cu_source" value="${esc(data?.source || '')}"></div>
+      <div class="form-group"><label>来源</label><select id="cu_source">${opt(sourceItems, data?.source)}</select></div>
       <div class="form-group"><label>注册资本</label><input id="cu_capital" value="${esc(data?.capital || '')}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>地址</label><input id="cu_address" value="${esc(data?.address || '')}"></div>
-      <div class="form-group"><label>网站</label><input id="cu_website" value="${esc(data?.website || '')}"></div>
+      <div class="form-group"><label>地址</label><input id="cu_address" autocomplete="street-address" value="${esc(data?.address || '')}"></div>
+      <div class="form-group"><label>网站</label><input id="cu_website" type="url" autocomplete="url" value="${esc(data?.website || '')}"></div>
     </div>
     <div class="form-group"><label>经营范围</label><textarea id="cu_scope">${esc(data?.scope || '')}</textarea></div>
     <div class="form-group"><label>备注</label><textarea id="cu_remark">${esc(data?.remark || '')}</textarea></div>
@@ -875,6 +1368,7 @@ async function saveCustomer(id) {
   const body = {
     name: document.getElementById('cu_name').value,
     short_name: document.getElementById('cu_short').value,
+    customer_type: document.getElementById('cu_type').value,
     type: document.getElementById('cu_type').value,
     level: document.getElementById('cu_level').value,
     region: document.getElementById('cu_region').value,
@@ -891,7 +1385,7 @@ async function saveCustomer(id) {
   await api(url, { method, body: JSON.stringify(body) });
   toast(id ? '更新成功' : '创建成功', 'success');
   closeModal();
-  render('customers');
+  loadCustomers(window._custPage || 1);
 }
 
 async function viewCustomerDetail(id) {
@@ -928,10 +1422,11 @@ async function viewCustomerDetail(id) {
 }
 
 async function deleteCustomer(id) {
-  if (!confirm('确认删除此客户？关联的联系人也会被删除。')) return;
+  const ok = await confirmDialog('删除客户', '确认删除此客户？关联的联系人也会被删除。此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
   await api('/customers/' + id, { method: 'DELETE' });
   toast('已删除', 'success');
-  render('customers');
+  loadCustomers(window._custPage || 1);
 }
 
 // ===== KANBAN =====
@@ -1046,31 +1541,35 @@ async function moveCard(cardId) {
 }
 
 async function deleteCard(cardId) {
-  if (!confirm('确认删除此卡片？')) return;
-  await api('/kanban/cards/' + cardId + '/move', { method: 'DELETE' });
+  const ok = await confirmDialog('删除卡片', '确认删除此卡片？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
+  await api('/kanban/cards/' + cardId, { method: 'DELETE' });
   toast('已删除', 'success');
   render('kanban');
 }
 
 async function createBoard() {
-  const name = prompt('看板名称:');
-  if (!name) return;
-  await api('/kanban/boards', { method: 'POST', body: JSON.stringify({ name }) });
+  const name = await promptDialog('新建看板', '请输入看板名称：', '');
+  if (name === null) return;
+  if (!name.trim()) return toast('请输入看板名称', 'error');
+  await api('/kanban/boards', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
   toast('看板已创建', 'success');
   render('kanban');
 }
 
 async function addColumn() {
-  const name = prompt('列表名称:');
-  if (!name) return;
+  const name = await promptDialog('添加列表', '请输入列表名称：', '');
+  if (name === null) return;
+  if (!name.trim()) return toast('请输入列表名称', 'error');
   const boardId = parseInt(document.getElementById('kBoard').value);
-  await api('/kanban/boards/' + boardId + '/columns', { method: 'POST', body: JSON.stringify({ name }) });
+  await api('/kanban/boards/' + boardId + '/columns', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
   toast('列表已添加', 'success');
   render('kanban');
 }
 
 async function deleteBoard() {
-  if (!confirm('确认删除此看板？')) return;
+  const ok = await confirmDialog('删除看板', '确认删除此看板？看板下所有列与卡片都会被删除，此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
   const boardId = parseInt(document.getElementById('kBoard').value);
   await api('/kanban/boards/' + boardId, { method: 'DELETE' });
   toast('看板已删除', 'success');
@@ -1080,7 +1579,7 @@ async function deleteBoard() {
 function showAddCard(colId) {
   openModal(`
     <h3>添加卡片</h3>
-    <div class="form-group"><label>标题 *</label><input id="kc_title"></div>
+    <div class="form-group"><label>标题 *</label><input id="kc_title" name="card_title" autocomplete="off"></div>
     <div class="form-group"><label>描述</label><textarea id="kc_desc"></textarea></div>
     <div class="form-row">
       <div class="form-group"><label>颜色</label>
@@ -1104,8 +1603,7 @@ async function saveCard(colId) {
     label_color: document.getElementById('kc_color').value,
     deadline: document.getElementById('kc_deadline').value || null,
   };
-  // Use import API to add a single card to the first column
-  await api('/kanban/import', { method: 'POST', body: JSON.stringify({ board_id: parseInt(document.getElementById('kBoard').value), items: [body] }) });
+  await api('/kanban/columns/' + colId + '/cards', { method: 'POST', body: JSON.stringify(body) });
   toast('卡片已添加', 'success');
   closeModal();
   render('kanban');
@@ -1139,23 +1637,75 @@ async function saveImport() {
 
 // ===== ACTIVITIES =====
 async function renderActivities(c) {
-  const d = await api('/activities');
-  const list = Array.isArray(d) ? d : (d.data || []);
-  window._actList = list;
+  const { params } = parseHashQuery();
+  const search = params.search || '';
+  const method = params.method || '';
+  const page = parseInt(params.page) || 1;
+  window._actPage = page;
+  window._actPageSize = 20;
   c.innerHTML = `
     <div class="search-bar">
-      <input placeholder="搜索活动内容..." id="aSearch" style="flex:1;min-width:200px" oninput="filterActivities()">
-      <select id="aMethod" onchange="filterActivities()"><option value="">全部方式</option><option>电话</option><option>拜访</option><option>微信</option><option>邮件</option><option>会议</option></select>
+      <input placeholder="搜索活动内容…" id="aSearch" name="activity_search" autocomplete="off" value="${esc(search)}" style="flex:1;min-width:200px" oninput="actSearchDebounce()" onkeydown="if(event.key==='Enter')loadActivities(1)">
+      <select id="aMethod" onchange="loadActivities(1)"><option value="">全部方式</option><option value="电话" ${method === '电话' ? 'selected' : ''}>电话</option><option value="拜访" ${method === '拜访' ? 'selected' : ''}>拜访</option><option value="微信" ${method === '微信' ? 'selected' : ''}>微信</option><option value="邮件" ${method === '邮件' ? 'selected' : ''}>邮件</option><option value="会议" ${method === '会议' ? 'selected' : ''}>会议</option></select>
+      <button class="btn btn-primary" onclick="loadActivities(1)">搜索</button>
       <button class="btn btn-success" onclick="showActivityForm()">+ 新增活动</button>
     </div>
     <div class="card">
       <table>
         <thead><tr><th>客户</th><th>联系人</th><th>方式</th><th>内容</th><th>活动时间</th><th>下次跟进</th><th>操作</th></tr></thead>
-        <tbody id="aTableBody"></tbody>
+        <tbody id="aTableBody"><tr><td colspan="7" class="empty-state">加载中…</td></tr></tbody>
       </table>
+      <div class="pagination" id="aPagination"></div>
     </div>
   `;
+  await loadActivities(page);
+}
+
+let _actSearchTimer = null;
+function actSearchDebounce() {
+  clearTimeout(_actSearchTimer);
+  _actSearchTimer = setTimeout(() => loadActivities(1), 350);
+}
+
+async function loadActivities(page) {
+  page = page || 1;
+  const search = (document.getElementById('aSearch')?.value || '').trim();
+  const method = document.getElementById('aMethod')?.value || '';
+  window._actPage = page;
+  updateHashQuery('activities', { search, method, page });
+  let url = '/activities?page=' + page + '&page_size=' + (window._actPageSize || 20);
+  if (search) url += '&search=' + encodeURIComponent(search);
+  if (method) url += '&method=' + encodeURIComponent(method);
+  const d = await api(url);
+  const list = Array.isArray(d) ? d : (d.data || []);
+  const total = (d && d.total != null) ? d.total : list.length;
+  window._actList = list;
+  window._actTotal = total;
   renderActivityTable(list);
+  renderActivityPagination(page, total);
+}
+
+function renderActivityPagination(page, total) {
+  const el = document.getElementById('aPagination');
+  if (!el) return;
+  const pageSize = window._actPageSize || 20;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) { el.innerHTML = `<span class="pg-info">共 ${total} 条</span>`; return; }
+  let html = `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="loadActivities(${page - 1})">上一页</button>`;
+  const maxBtns = 7;
+  let start = Math.max(1, page - 3);
+  let end = Math.min(totalPages, start + maxBtns - 1);
+  start = Math.max(1, end - maxBtns + 1);
+  if (start > 1) html += `<button class="btn btn-sm" onclick="loadActivities(1)">1</button>`;
+  if (start > 2) html += '<span class="pg-info">…</span>';
+  for (let i = start; i <= end; i++) {
+    html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : ''}" onclick="loadActivities(${i})">${i}</button>`;
+  }
+  if (end < totalPages - 1) html += '<span class="pg-info">…</span>';
+  if (end < totalPages) html += `<button class="btn btn-sm" onclick="loadActivities(${totalPages})">${totalPages}</button>`;
+  html += `<button class="btn btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="loadActivities(${page + 1})">下一页</button>`;
+  html += `<span class="pg-info">第 ${page}/${totalPages} 页 · 共 ${total} 条</span>`;
+  el.innerHTML = html;
 }
 
 function renderActivityTable(list) {
@@ -1178,37 +1728,26 @@ function renderActivityTable(list) {
   `).join('');
 }
 
-function filterActivities() {
-  const q = (document.getElementById('aSearch').value || '').toLowerCase();
-  const mf = document.getElementById('aMethod').value;
-  const filtered = (window._actList || []).filter(a => {
-    if (mf && a.method !== mf) return false;
-    if (q && !(a.content || '').toLowerCase().includes(q) && !(a.customer_name || '').toLowerCase().includes(q)) return false;
-    return true;
-  });
-  renderActivityTable(filtered);
-}
-
 async function showActivityForm(id) {
   const data = id ? (window._actList || []).find(a => a.id === id) : null;
   const isEdit = !!data;
-  const customers = await api('/customers') || [];
-  const custList = Array.isArray(customers) ? customers : (customers.data || []);
-  const contacts = await api('/contacts') || [];
-  const contList = Array.isArray(contacts) ? contacts : (contacts.data || []);
+  // Pre-load all opportunities & leads for filtering by customer
+  const [oppResp, leadResp, boards] = await Promise.all([
+    api('/opportunities?page=1&page_size=500'),
+    api('/leads?page=1&page_size=500'),
+    loadKanbanBoardsForSelect(),
+  ]);
+  window._actAllOpps = Array.isArray(oppResp) ? oppResp : (oppResp?.data || []);
+  window._actAllLeads = Array.isArray(leadResp) ? leadResp : (leadResp?.data || []);
   openModal(`
     <h3>${isEdit ? '编辑活动' : '新增活动'}</h3>
     <div class="form-row">
-      <div class="form-group"><label>客户</label>
-        <select id="a_cust"><option value="">无</option>
-          ${custList.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label>联系人</label>
-        <select id="a_cont"><option value="">无</option>
-          ${contList.map(ct => `<option value="${ct.id}" ${data?.contact_id === ct.id ? 'selected' : ''}>${esc(ct.name)}</option>`).join('')}
-        </select>
-      </div>
+      <div class="form-group"><label>客户</label><div id="a_cust"></div></div>
+      <div class="form-group"><label>联系人</label><div id="a_cont"></div></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>关联商机</label><select id="a_opp"><option value="">无</option></select></div>
+      <div class="form-group"><label>关联线索</label><select id="a_lead"><option value="">无</option></select></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>方式</label>
@@ -1221,56 +1760,132 @@ async function showActivityForm(id) {
       <div class="form-group"><label>下次跟进时间</label><input id="a_next_time" type="date" value="${dateInput(data?.next_followup_time)}"></div>
     </div>
     <div class="form-group"><label>下次跟进内容</label><textarea id="a_next_content">${esc(data?.next_followup_content || '')}</textarea></div>
+    <div class="form-group"><label><input type="checkbox" id="a_kanban"> 加入看板</label></div>
+    <div class="form-group" id="a_kanban_wrap" style="display:none"><label>目标看板</label><div id="a_kanban_board"></div></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveActivity(${id || ''})">${isEdit ? '保存' : '创建'}</button>
     </div>
   `);
+  window._actHolder = await setupCustomerContactCascade('a_cust', 'a_cont', data?.customer_id || null, data?.contact_id || null, {
+    onCustomerChange: (custId) => refreshActOppLeads(custId)
+  });
+  refreshActOppLeads(data?.customer_id || null, data?.opportunity_id || null, data?.lead_id || null);
+  bindKanbanCheckbox('a_kanban', 'a_kanban_board', boards, null);
+}
+
+function refreshActOppLeads(custId, selOppId, selLeadId) {
+  const oppSel = document.getElementById('a_opp');
+  const leadSel = document.getElementById('a_lead');
+  if (!oppSel || !leadSel) return;
+  const opps = (window._actAllOpps || []).filter(o => !custId || o.customer_id === custId);
+  const leads = (window._actAllLeads || []).filter(l => !custId || l.customer_id === custId);
+  oppSel.innerHTML = '<option value="">无</option>' + opps.map(o => `<option value="${o.id}" ${selOppId === o.id ? 'selected' : ''}>${esc(o.title)}</option>`).join('');
+  leadSel.innerHTML = '<option value="">无</option>' + leads.map(l => `<option value="${l.id}" ${selLeadId === l.id ? 'selected' : ''}>${esc(l.title)}</option>`).join('');
 }
 
 async function saveActivity(id) {
   const body = {
-    customer_id: parseInt(document.getElementById('a_cust').value) || null,
-    contact_id: parseInt(document.getElementById('a_cont').value) || null,
+    customer_id: (window._actHolder && window._actHolder.customerSelect.getValue()) || null,
+    contact_id: (window._actHolder && window._actHolder.contactSelect && window._actHolder.contactSelect.getValue()) || null,
+    opportunity_id: parseInt(document.getElementById('a_opp').value) || null,
+    lead_id: parseInt(document.getElementById('a_lead').value) || null,
     method: document.getElementById('a_method').value,
     content: document.getElementById('a_content').value,
     time: document.getElementById('a_time').value || null,
     next_time: document.getElementById('a_next_time').value || null,
     next_content: document.getElementById('a_next_content').value,
   };
+  const addToKanban = document.getElementById('a_kanban').checked;
+  body.add_to_kanban = addToKanban;
+  if (addToKanban) {
+    const boardId = parseInt(document.getElementById('a_kanban_board_sel')?.value);
+    if (!boardId) return toast('请选择目标看板', 'error');
+    body.board_id = boardId;
+  }
   const url = id ? '/activities/' + id : '/activities';
   const method = id ? 'PUT' : 'POST';
   await api(url, { method, body: JSON.stringify(body) });
   toast(id ? '更新成功' : '创建成功', 'success');
   closeModal();
-  render('activities');
+  loadActivities(window._actPage || 1);
 }
 
 async function deleteActivity(id) {
-  if (!confirm('确认删除此活动？')) return;
+  const ok = await confirmDialog('删除活动', '确认删除此活动记录？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
   await api('/activities/' + id, { method: 'DELETE' });
   toast('已删除', 'success');
-  render('activities');
+  loadActivities(window._actPage || 1);
 }
 
 // ===== FOLLOWUPS =====
 async function renderFollowups(c) {
-  const d = await api('/followups');
-  const list = Array.isArray(d) ? d : (d.data || []);
-  window._fuList = list;
+  const { params } = parseHashQuery();
+  const search = params.search || '';
+  const page = parseInt(params.page) || 1;
+  window._fuPage = page;
+  window._fuPageSize = 20;
   c.innerHTML = `
     <div class="search-bar">
-      <input placeholder="搜索跟进内容..." id="fSearch" style="flex:1;min-width:200px" oninput="filterFollowups()">
+      <input placeholder="搜索跟进内容…" id="fSearch" name="followup_search" autocomplete="off" value="${esc(search)}" style="flex:1;min-width:200px" oninput="fuSearchDebounce()" onkeydown="if(event.key==='Enter')loadFollowups(1)">
+      <button class="btn btn-primary" onclick="loadFollowups(1)">搜索</button>
       <button class="btn btn-success" onclick="showFollowupForm()">+ 新增跟进</button>
     </div>
     <div class="card">
       <table>
         <thead><tr><th>客户</th><th>联系人</th><th>计划日期</th><th>内容</th><th>AI建议</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody id="fTableBody"></tbody>
+        <tbody id="fTableBody"><tr><td colspan="7" class="empty-state">加载中…</td></tr></tbody>
       </table>
+      <div class="pagination" id="fPagination"></div>
     </div>
   `;
+  await loadFollowups(page);
+}
+
+let _fuSearchTimer = null;
+function fuSearchDebounce() {
+  clearTimeout(_fuSearchTimer);
+  _fuSearchTimer = setTimeout(() => loadFollowups(1), 350);
+}
+
+async function loadFollowups(page) {
+  page = page || 1;
+  const search = (document.getElementById('fSearch')?.value || '').trim();
+  window._fuPage = page;
+  updateHashQuery('followups', { search, page });
+  let url = '/followups?page=' + page + '&page_size=' + (window._fuPageSize || 20);
+  if (search) url += '&search=' + encodeURIComponent(search);
+  const d = await api(url);
+  const list = Array.isArray(d) ? d : (d.data || []);
+  const total = (d && d.total != null) ? d.total : list.length;
+  window._fuList = list;
+  window._fuTotal = total;
   renderFollowupTable(list);
+  renderFollowupPagination(page, total);
+}
+
+function renderFollowupPagination(page, total) {
+  const el = document.getElementById('fPagination');
+  if (!el) return;
+  const pageSize = window._fuPageSize || 20;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) { el.innerHTML = `<span class="pg-info">共 ${total} 条</span>`; return; }
+  let html = `<button class="btn btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="loadFollowups(${page - 1})">上一页</button>`;
+  const maxBtns = 7;
+  let start = Math.max(1, page - 3);
+  let end = Math.min(totalPages, start + maxBtns - 1);
+  start = Math.max(1, end - maxBtns + 1);
+  if (start > 1) html += `<button class="btn btn-sm" onclick="loadFollowups(1)">1</button>`;
+  if (start > 2) html += '<span class="pg-info">…</span>';
+  for (let i = start; i <= end; i++) {
+    html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : ''}" onclick="loadFollowups(${i})">${i}</button>`;
+  }
+  if (end < totalPages - 1) html += '<span class="pg-info">…</span>';
+  if (end < totalPages) html += `<button class="btn btn-sm" onclick="loadFollowups(${totalPages})">${totalPages}</button>`;
+  html += `<button class="btn btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="loadFollowups(${page + 1})">下一页</button>`;
+  html += `<span class="pg-info">第 ${page}/${totalPages} 页 · 共 ${total} 条</span>`;
+  el.innerHTML = html;
 }
 
 function renderFollowupTable(list) {
@@ -1296,89 +1911,82 @@ function renderFollowupTable(list) {
   `}).join('');
 }
 
-function filterFollowups() {
-  const q = (document.getElementById('fSearch').value || '').toLowerCase();
-  const filtered = (window._fuList || []).filter(f =>
-    !q || (f.content || '').toLowerCase().includes(q) || (f.customer_name || '').toLowerCase().includes(q)
-  );
-  renderFollowupTable(filtered);
-}
-
-function showFollowupForm(id) {
+async function showFollowupForm(id) {
   const data = id ? (window._fuList || []).find(f => f.id === id) : null;
   const isEdit = !!data;
-  api('/customers').then(custs => {
-    const customers = Array.isArray(custs) ? custs : (custs.data || []);
-    api('/contacts').then(conts => {
-      const contacts = Array.isArray(conts) ? conts : (conts.data || []);
-      openModal(`
-        <h3>${isEdit ? '编辑跟进' : '新增跟进'}</h3>
-        <div class="form-row">
-          <div class="form-group"><label>客户</label>
-            <select id="fu_cust"><option value="">无</option>
-              ${customers.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group"><label>联系人</label>
-            <select id="fu_cont"><option value="">无</option>
-              ${contacts.map(ct => `<option value="${ct.id}" ${data?.contact_id === ct.id ? 'selected' : ''}>${esc(ct.name)}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>计划日期</label><input id="fu_date" type="date" value="${dateInput(data?.plan_date)}"></div>
-        </div>
-        <div class="form-group"><label>跟进内容</label><textarea id="fu_content">${esc(data?.content || '')}</textarea></div>
-        <div class="form-group"><label>AI建议内容</label><textarea id="fu_ai">${esc(data?.ai_suggested_content || '')}</textarea></div>
-        ${isEdit && data?.actual_date ? `
-          <div class="form-row">
-            <div class="form-group"><label>实际完成日期</label><input id="fu_actual_date" type="date" value="${dateInput(data?.actual_date)}"></div>
-          </div>
-          <div class="form-group"><label>实际跟进内容</label><textarea id="fu_actual">${esc(data?.actual_content || '')}</textarea></div>
-        ` : ''}
-        <div class="modal-actions">
-          <button class="btn" onclick="closeModal()">取消</button>
-          <button class="btn btn-primary" onclick="saveFollowup(${id || ''})">${isEdit ? '保存' : '创建'}</button>
-        </div>
-      `);
-    });
-  });
+  const boards = await loadKanbanBoardsForSelect();
+  openModal(`
+    <h3>${isEdit ? '编辑跟进' : '新增跟进'}</h3>
+    <div class="form-row">
+      <div class="form-group"><label>客户</label><div id="fu_cust"></div></div>
+      <div class="form-group"><label>联系人</label><div id="fu_cont"></div></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>计划日期</label><input id="fu_date" type="date" value="${dateInput(data?.plan_date)}"></div>
+    </div>
+    <div class="form-group"><label>跟进内容</label><textarea id="fu_content">${esc(data?.content || '')}</textarea></div>
+    <div class="form-group"><label>AI建议内容</label><textarea id="fu_ai">${esc(data?.ai_suggested_content || '')}</textarea></div>
+    ${isEdit && data?.actual_date ? `
+      <div class="form-row">
+        <div class="form-group"><label>实际完成日期</label><input id="fu_actual_date" type="date" value="${dateInput(data?.actual_date)}"></div>
+      </div>
+      <div class="form-group"><label>实际跟进内容</label><textarea id="fu_actual">${esc(data?.actual_content || '')}</textarea></div>
+    ` : ''}
+    <div class="form-group"><label><input type="checkbox" id="fu_kanban"> 加入看板</label></div>
+    <div class="form-group" id="fu_kanban_wrap" style="display:none"><label>目标看板</label><div id="fu_kanban_board"></div></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveFollowup(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+    </div>
+  `);
+  window._fuHolder = await setupCustomerContactCascade('fu_cust', 'fu_cont', data?.customer_id || null, data?.contact_id || null);
+  bindKanbanCheckbox('fu_kanban', 'fu_kanban_board', boards, null);
 }
 
 async function saveFollowup(id) {
   const body = {
-    customer_id: parseInt(document.getElementById('fu_cust').value) || null,
-    contact_id: parseInt(document.getElementById('fu_cont').value) || null,
+    customer_id: (window._fuHolder && window._fuHolder.customerSelect.getValue()) || null,
+    contact_id: (window._fuHolder && window._fuHolder.contactSelect && window._fuHolder.contactSelect.getValue()) || null,
     plan_date: document.getElementById('fu_date').value || null,
     content: document.getElementById('fu_content').value,
     ai_content: document.getElementById('fu_ai').value,
   };
   if (id) {
-    body.actual_date = document.getElementById('fu_actual_date')?.value || null;
-    body.actual_content = document.getElementById('fu_actual')?.value || '';
+    const ad = document.getElementById('fu_actual_date');
+    const ac = document.getElementById('fu_actual');
+    if (ad) body.actual_date = ad.value || null;
+    if (ac) body.actual_content = ac.value || '';
+  }
+  const addToKanban = document.getElementById('fu_kanban').checked;
+  body.add_to_kanban = addToKanban;
+  if (addToKanban) {
+    const boardId = parseInt(document.getElementById('fu_kanban_board_sel')?.value);
+    if (!boardId) return toast('请选择目标看板', 'error');
+    body.board_id = boardId;
   }
   const url = id ? '/followups/' + id : '/followups';
   const method = id ? 'PUT' : 'POST';
   await api(url, { method, body: JSON.stringify(body) });
   toast(id ? '更新成功' : '创建成功', 'success');
   closeModal();
-  render('followups');
+  loadFollowups(window._fuPage || 1);
 }
 
 async function completeFollowup(id) {
-  const content = prompt('实际跟进内容:');
+  const content = await promptDialog('完成跟进', '请输入实际跟进内容：', '');
   if (content === null) return;
   const today = new Date().toISOString().slice(0, 10);
   await api('/followups/' + id, { method: 'PUT', body: JSON.stringify({ actual_date: today, actual_content: content }) });
   toast('已标记完成', 'success');
-  render('followups');
+  loadFollowups(window._fuPage || 1);
 }
 
 async function deleteFollowup(id) {
-  if (!confirm('确认删除此跟进？')) return;
+  const ok = await confirmDialog('删除跟进', '确认删除此跟进提醒？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
   await api('/followups/' + id, { method: 'DELETE' });
   toast('已删除', 'success');
-  render('followups');
+  loadFollowups(window._fuPage || 1);
 }
 
 // ===== SETTINGS =====
@@ -1387,6 +1995,10 @@ async function renderSettings(c) {
   const config = d && d.data ? d : (d || {});
   const sk = await api('/skills');
   const skillList = Array.isArray(sk) ? sk : (sk?.skills || sk?.data || []);
+  const dictGrouped = await api('/dictionary');
+  const stagesList = await api('/stages');
+  window._dictGrouped = (dictGrouped && typeof dictGrouped === 'object' && !Array.isArray(dictGrouped)) ? dictGrouped : {};
+  window._stagesList = Array.isArray(stagesList) ? stagesList : [];
   c.innerHTML = `
     <div class="card">
       <div class="section-title">⚙️ 系统配置</div>
@@ -1397,7 +2009,7 @@ async function renderSettings(c) {
     </div>
     <div class="card">
       <div class="section-title">🧠 AI 配置</div>
-      <div class="settings-row"><span class="settings-label">API Key</span><input id="cfg_ai_key" type="password" value="${esc(config.ai_api_key?.value || '')}" placeholder="sk-..." style="width:300px"></div>
+      <div class="settings-row"><span class="settings-label">API Key</span><input id="cfg_ai_key" type="password" value="${esc(config.ai_api_key?.value || '')}" placeholder="sk-…" style="width:300px"></div>
       <div class="settings-row"><span class="settings-label">API Endpoint</span><input id="cfg_ai_endpoint" value="${esc(config.ai_api_endpoint?.value || '')}" placeholder="https://api.openai.com/v1" style="width:300px"></div>
       <div class="settings-row"><span class="settings-label">AI 模型</span><input id="cfg_ai_model" value="${esc(config.ai_model?.value || 'gpt-4o')}" style="width:200px"></div>
       <button class="btn btn-primary" onclick="saveAIConfig()" style="margin-top:12px">保存AI配置</button>
@@ -1408,10 +2020,31 @@ async function renderSettings(c) {
     </div>
     <div class="card">
       <div class="section-title">🕷️ 数据采集</div>
-      <div class="form-group"><label>目标URL</label><input id="crawlUrl" placeholder="https://example.com" value="${esc(config.crawl_urls?.value || '')}"></div>
+      <div class="form-group"><label>目标URL</label><input id="crawlUrl" type="url" placeholder="https://example.com" value="${esc(config.crawl_urls?.value || '')}"></div>
       <button class="btn btn-success" onclick="startCrawl()">开始采集</button>
     </div>
+    <div class="card">
+      <div class="section-title">📚 数据字典</div>
+      <div class="search-bar" style="margin-bottom:12px">
+        <select id="dict_cat" onchange="renderDictItems()" style="min-width:200px"></select>
+        <button class="btn btn-success" onclick="showDictForm()">+ 新增选项</button>
+      </div>
+      <table>
+        <thead><tr><th>标签</th><th>键</th><th class="num">排序</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="dict_body"><tr><td colspan="5" class="empty-state">加载中…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="section-title">🎯 商机阶段管理</div>
+      <button class="btn btn-success" onclick="showStageForm()" style="margin-bottom:12px">+ 新增阶段</button>
+      <table>
+        <thead><tr><th>阶段名称</th><th class="num">排序</th><th>操作</th></tr></thead>
+        <tbody id="stage_body"><tr><td colspan="3" class="empty-state">加载中…</td></tr></tbody>
+      </table>
+    </div>
   `;
+  renderDictSettings();
+  renderStageSettings();
 }
 
 async function saveConfig() {
@@ -1444,6 +2077,191 @@ async function startCrawl() {
   if (!url) return toast('请输入URL', 'error');
   const res = await api('/crawl', { method: 'POST', body: JSON.stringify({ url }) });
   toast(res?.message || '采集任务已启动', 'success');
+}
+
+// ===== DICTIONARY MANAGEMENT =====
+const DICT_CATEGORIES = [
+  { key: 'customer_type', label: '客户类型' },
+  { key: 'customer_level', label: '客户等级' },
+  { key: 'customer_source', label: '客户来源' },
+  { key: 'region', label: '区域' },
+  { key: 'contact_importance', label: '联系人重要程度' },
+  { key: 'activity_method', label: '活动方式' },
+  { key: 'opportunity_stage', label: '商机阶段' },
+];
+
+function renderDictSettings() {
+  const sel = document.getElementById('dict_cat');
+  if (!sel) return;
+  const grouped = window._dictGrouped || {};
+  const known = DICT_CATEGORIES.map(c => c.key);
+  const extra = Object.keys(grouped).filter(k => known.indexOf(k) < 0);
+  const allKeys = known.concat(extra);
+  sel.innerHTML = allKeys.map(k => {
+    const label = (DICT_CATEGORIES.find(c => c.key === k) || {}).label || k;
+    return `<option value="${esc(k)}">${esc(label)}</option>`;
+  }).join('');
+  renderDictItems();
+}
+
+function renderDictItems() {
+  const tbody = document.getElementById('dict_body');
+  if (!tbody) return;
+  const sel = document.getElementById('dict_cat');
+  const cat = sel ? sel.value : '';
+  const grouped = window._dictGrouped || {};
+  const items = (grouped[cat] || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  if (!items.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">暂无选项</td></tr>'; return; }
+  tbody.innerHTML = items.map(i => `
+    <tr>
+      <td>${esc(i.label || '-')}</td>
+      <td>${esc(i.item_key || '-')}</td>
+      <td class="num">${esc(i.sort_order != null ? i.sort_order : '-')}</td>
+      <td><span class="badge badge-${i.is_active ? 'active' : 'abandoned'}">${i.is_active ? '启用' : '已停用'}</span></td>
+      <td><div class="btn-group">
+        <button class="btn btn-sm btn-primary" onclick="showDictForm(${i.id})">编辑</button>
+        <button class="btn btn-sm ${i.is_active ? 'btn-warning' : 'btn-success'}" onclick="toggleDictItem(${i.id}, ${!i.is_active})">${i.is_active ? '停用' : '启用'}</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteDictItem(${i.id})">删除</button>
+      </div></td>
+    </tr>
+  `).join('');
+}
+
+function findDictItem(id) {
+  const grouped = window._dictGrouped || {};
+  for (const k of Object.keys(grouped)) {
+    const found = grouped[k].find(i => i.id === id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function showDictForm(id) {
+  const item = id ? findDictItem(id) : null;
+  const isEdit = !!item;
+  const sel = document.getElementById('dict_cat');
+  const curCat = sel ? sel.value : '';
+  openModal(`
+    <h3>${isEdit ? '编辑字典选项' : '新增字典选项'}</h3>
+    <div class="form-group"><label>分类 *</label>
+      <select id="d_cat" ${isEdit ? 'disabled' : ''}>${DICT_CATEGORIES.map(c => `<option value="${esc(c.key)}" ${((item && item.category) || curCat) === c.key ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+    </div>
+    <div class="form-group"><label>标签 *</label><input id="d_label" name="dict_label" autocomplete="off" value="${esc(item?.label || '')}"></div>
+    <div class="form-group"><label>键（item_key）</label><input id="d_key" name="dict_key" autocomplete="off" value="${esc(item?.item_key || '')}" placeholder="留空则使用标签"></div>
+    <div class="form-group"><label>排序</label><input id="d_sort" type="number" inputmode="numeric" value="${item?.sort_order != null ? item.sort_order : 0}"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveDictItem(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+    </div>
+  `);
+}
+
+async function saveDictItem(id) {
+  const cat = document.getElementById('d_cat').value;
+  const label = document.getElementById('d_label').value.trim();
+  if (!label) return toast('请填写标签', 'error');
+  let key = document.getElementById('d_key').value.trim();
+  if (!key) key = label;
+  const sort_order = parseInt(document.getElementById('d_sort').value) || 0;
+  if (id) {
+    await api('/dictionary/' + id, { method: 'PUT', body: JSON.stringify({ label, item_key: key, sort_order }) });
+  } else {
+    await api('/dictionary', { method: 'POST', body: JSON.stringify({ category: cat, item_key: key, label, sort_order, is_active: true }) });
+  }
+  toast(id ? '更新成功' : '创建成功', 'success');
+  closeModal();
+  await refreshDictSettings();
+}
+
+async function toggleDictItem(id, active) {
+  await api('/dictionary/' + id, { method: 'PUT', body: JSON.stringify({ is_active: !!active }) });
+  toast(active ? '已启用' : '已停用', 'success');
+  await refreshDictSettings();
+}
+
+async function deleteDictItem(id) {
+  const ok = await confirmDialog('删除字典选项', '确认删除此字典选项？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
+  await api('/dictionary/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  await refreshDictSettings();
+}
+
+async function refreshDictSettings() {
+  const grouped = await api('/dictionary');
+  window._dictGrouped = (grouped && typeof grouped === 'object' && !Array.isArray(grouped)) ? grouped : {};
+  renderDictItems();
+}
+
+// ===== STAGE MANAGEMENT =====
+function renderStageSettings() {
+  const tbody = document.getElementById('stage_body');
+  if (!tbody) return;
+  const stages = (window._stagesList || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  window._stagesList = stages;
+  if (!stages.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty-state">暂无阶段</td></tr>'; return; }
+  tbody.innerHTML = stages.map((s, idx) => `
+    <tr>
+      <td>${esc(s.name || '-')}</td>
+      <td class="num">${esc(s.sort_order != null ? s.sort_order : idx)}</td>
+      <td><div class="btn-group">
+        <button class="btn btn-sm" ${idx === 0 ? 'disabled' : ''} onclick="moveStage(${s.id}, -1)">上移</button>
+        <button class="btn btn-sm" ${idx === stages.length - 1 ? 'disabled' : ''} onclick="moveStage(${s.id}, 1)">下移</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteStageItem(${s.id})">删除</button>
+      </div></td>
+    </tr>
+  `).join('');
+}
+
+function showStageForm() {
+  openModal(`
+    <h3>新增阶段</h3>
+    <div class="form-group"><label>阶段名称 *</label><input id="st_name" name="stage_name" autocomplete="off"></div>
+    <div class="form-group"><label>排序</label><input id="st_sort" type="number" inputmode="numeric" value="${(window._stagesList || []).length}"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveStageItem()">创建</button>
+    </div>
+  `);
+}
+
+async function saveStageItem() {
+  const name = document.getElementById('st_name').value.trim();
+  if (!name) return toast('请填写阶段名称', 'error');
+  const sort_order = parseInt(document.getElementById('st_sort').value) || 0;
+  await api('/stages', { method: 'POST', body: JSON.stringify({ name, sort_order }) });
+  toast('创建成功', 'success');
+  closeModal();
+  await refreshStageSettings();
+}
+
+async function moveStage(id, direction) {
+  const stages = (window._stagesList || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const idx = stages.findIndex(s => s.id === id);
+  if (idx < 0) return;
+  const target = idx + direction;
+  if (target < 0 || target >= stages.length) return;
+  const a = stages[idx], b = stages[target];
+  await Promise.all([
+    api('/stages/' + a.id, { method: 'PUT', body: JSON.stringify({ sort_order: b.sort_order }) }),
+    api('/stages/' + b.id, { method: 'PUT', body: JSON.stringify({ sort_order: a.sort_order }) }),
+  ]);
+  toast('排序已更新', 'success');
+  await refreshStageSettings();
+}
+
+async function deleteStageItem(id) {
+  const ok = await confirmDialog('删除阶段', '确认删除此商机阶段？此操作不可恢复。', { danger: true, confirmText: '删除' });
+  if (!ok) return;
+  await api('/stages/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  await refreshStageSettings();
+}
+
+async function refreshStageSettings() {
+  const list = await api('/stages');
+  window._stagesList = Array.isArray(list) ? list : [];
+  renderStageSettings();
 }
 
 // ===== INIT =====

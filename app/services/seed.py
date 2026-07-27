@@ -1,5 +1,5 @@
 from app import db
-from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig
+from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig, DataDictionary
 from datetime import datetime
 
 def seed_if_empty():
@@ -69,5 +69,17 @@ def seed_if_empty():
         SystemConfig(key="crawl_enabled", value="true", description="是否启用自动爬取"),
         SystemConfig(key="daily_brief_enabled", value="true", description="是否启用每日简报"),
     ])
+    dict_data = {
+        'customer_type': ['政府', '运营商', '科研院所', '科技公司', '国企', '民营企业'],
+        'customer_level': ['省级', '市级', '县级', '区级', '国家级'],
+        'customer_source': ['招标平台', '主动开发', '客户转介', '合作伙伴', '线索转化'],
+        'region': ['北京', '上海', '杭州', '福州', '南昌', '深圳', '昆明', '成都', '广州', '全国'],
+        'contact_importance': ['关键', '重要', '一般'],
+        'activity_method': ['电话', '拜访', '微信', '邮件', '会议'],
+        'opportunity_stage': ['初步接触', '需求调研', '方案报价', '方案评审', '签约谈判', '合同签约', '项目交付', '售后服务'],
+    }
+    for category, items in dict_data.items():
+        for i, label in enumerate(items):
+            db.session.add(DataDictionary(category=category, item_key=label, label=label, sort_order=i))
     db.session.commit()
     print("Seed complete!")

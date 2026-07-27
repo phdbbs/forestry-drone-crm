@@ -15,6 +15,7 @@ def create_app():
         CORS(app)
     except ImportError:
         pass
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db.init_app(app)
     from app.routes import api
     app.register_blueprint(api, url_prefix='/api')
