@@ -4,9 +4,35 @@ from datetime import datetime
 from app import db
 from app.models import Lead
 from app.services.matcher import match_lead
-import re, time
+import re, time, json
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+def get_crawl_keywords():
+    """Get keywords from system config"""
+    from app.models import SystemConfig
+    configs = {c.key: c.value for c in SystemConfig.query.all()}
+    keywords = []
+    # First try crawl_targets JSON config
+    targets = configs.get('crawl_targets', '')
+    if targets:
+        try:
+            for t in json.loads(targets):
+                if t.get('enabled'):
+                    for kw in (t.get('keywords') or '').split(','):
+                        kw = kw.strip()
+                        if kw and kw not in keywords:
+                            keywords.append(kw)
+        except:
+            pass
+    # Also read from keywords config (comma-separated)
+    kw_config = configs.get('keywords', '')
+    if kw_config:
+        for kw in kw_config.split(','):
+            kw = kw.strip()
+            if kw and kw not in keywords:
+                keywords.append(kw)
+    return keywords or ["无人机", "林业", "病虫害", "巡检"]
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
 def extract_budget(text):
     for p in [r"预算[金额价格]*[:：]\s*([\d,.]+)\s*[万]?元", r"项目预算[:：]\s*([\d,.]+)", r"总预算[:：]\s*([\d,.]+)"]:
@@ -30,11 +56,12 @@ def extract_deadline(text):
 
 def crawl_gov_ccgp():
     results = []
-    keywords = ["无人机", "林业", "病虫害", "巡检"]
+    keywords = get_crawl_keywords()
     for keyword in keywords:
         try:
             params = {"fields":"","kw":keyword,"page_index":1,"bidSort":0,"buyerName":"","projectId":"","pinMu":0,"bidType":0,"dbselect":"bidx","kw_type":1,"start_time":"","end_time":"","timeType":0,"displayZone":"","zoneId":"","pppStatus":0,"agentName":""}
             resp = requests.get("http://search.ccgp.gov.cn/bxsearch", params=params, headers=HEADERS, timeout=15)
+            resp.encoding = resp.apparent_encoding or 'utf-8'
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
                 for item in soup.select(".vT-srch-result li"):
@@ -42,6 +69,8 @@ def crawl_gov_ccgp():
                     if not a: continue
                     title = a.get_text(strip=True)
                     url = a.get("href","")
+                    if not title or len(title) < 5: continue
+                    if not url.startswith('http'): url = "http://search.ccgp.gov.cn" + url
                     lead = Lead(title=title, budget=extract_budget(title), deadline=extract_deadline(title), region=extract_region(title), purchaser="", service_content=title, source_url=url, source_platform="中国政府采购网")
                     results.append(lead)
             time.sleep(2)

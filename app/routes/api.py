@@ -8,23 +8,49 @@ from app.models import (
 from app.services.matcher import match_lead
 from app.services.skills import SkillRegistry
 from datetime import datetime, timedelta
+import requests as http_requests
+import json
 
 api = Blueprint('api', __name__)
 
 @api.route('/skills', methods=['GET'])
 def list_skills():
-    skills = Skill.query.filter_by(is_active=True).all()
+    skills = Skill.query.order_by(Skill.is_builtin.desc(), Skill.created_at).all()
     builtin = SkillRegistry.get_all()
-    db_skills = [{"name": s.name, "description": s.description, "icon": s.icon or "🔧"} for s in skills]
-    return jsonify(builtin + db_skills)
+    db_skills = [{"id": s.id, "name": s.name, "description": s.description, "icon": s.icon or "🔧", "is_builtin": s.is_builtin, "is_active": s.is_active, "config_json": s.config_json} for s in skills]
+    return jsonify({"builtin": builtin, "custom": db_skills})
 
 @api.route('/skills', methods=['POST'])
 def create_skill():
     d = request.get_json()
-    s = Skill(name=d['name'], description=d.get('description',''), icon=d.get('icon','🔧'), is_builtin=False)
+    if Skill.query.filter_by(name=d['name']).first():
+        return jsonify({"error": "技能名称已存在"}), 400
+    s = Skill(name=d['name'], description=d.get('description',''), icon=d.get('icon','🔧'), is_builtin=False, is_active=True, config_json=d.get('config_json'))
     db.session.add(s)
     db.session.commit()
-    return jsonify({"id": s.id, "name": s.name})
+    return jsonify({"id": s.id, "name": s.name, "message": "创建成功"})
+
+@api.route('/skills/<int:id>', methods=['PUT'])
+def update_skill(id):
+    s = Skill.query.get_or_404(id)
+    if s.is_builtin:
+        return jsonify({"error": "内置技能不可编辑"}), 400
+    d = request.get_json()
+    if 'name' in d: s.name = d['name']
+    if 'description' in d: s.description = d['description']
+    if 'icon' in d: s.icon = d['icon']
+    if 'config_json' in d: s.config_json = d['config_json']
+    db.session.commit()
+    return jsonify({"id": s.id, "message": "更新成功"})
+
+@api.route('/skills/<int:id>/toggle', methods=['POST'])
+def toggle_skill(id):
+    s = Skill.query.get_or_404(id)
+    if s.is_builtin:
+        return jsonify({"error": "内置技能不可禁用"}), 400
+    s.is_active = not s.is_active
+    db.session.commit()
+    return jsonify({"id": s.id, "is_active": s.is_active, "message": "已" + ("启用" if s.is_active else "禁用")})
 
 @api.route('/skills/<int:id>', methods=['DELETE'])
 def delete_skill(id):
@@ -207,8 +233,10 @@ def delete_stage(id):
 @api.route('/contacts', methods=['GET'])
 def list_contacts():
     q = request.args.get('search', '')
+    customer_id = request.args.get('customer_id', '')
     query = Contact.query
     if q: query = query.filter(Contact.name.contains(q))
+    if customer_id: query = query.filter_by(customer_id=int(customer_id))
     return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes} for c in query.all()])
 
 @api.route('/contacts', methods=['POST'])
@@ -258,6 +286,22 @@ def create_activity():
     a = Activity(title=d.get('title',''), customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), opportunity_id=d.get('opportunity_id'), lead_id=d.get('lead_id'), method=d.get('method',''), content=d.get('content',''), activity_time=datetime.strptime(d['time'],'%Y-%m-%d %H:%M') if d.get('time') else datetime.utcnow(), next_followup_time=datetime.strptime(d['next_time'],'%Y-%m-%d') if d.get('next_time') else None, next_followup_content=d.get('next_content',''), add_to_kanban=d.get('add_to_kanban', False))
     db.session.add(a)
     db.session.commit()
+    # Auto-create follow-up with source activity info
+    if d.get('next_time'):
+        fu_content = d.get('next_content', '') or f"跟进: {d.get('content', '')[:80]}"
+        ai_suggested = f"来源于活动记录 [{(d.get('method','') or '活动')}] 客户: {a.customer.name if a.customer else '-'} | 内容: {d.get('content','')[:100]}"
+        fu = FollowUp(
+            contact_id=d.get('contact_id'),
+            customer_id=d.get('customer_id'),
+            opportunity_id=d.get('opportunity_id'),
+            plan_date=datetime.strptime(d['next_time'], '%Y-%m-%d'),
+            content=fu_content,
+            ai_suggested_content=ai_suggested,
+            source_activity_id=a.id,
+            add_to_kanban=d.get('add_to_kanban', False)
+        )
+        db.session.add(fu)
+        db.session.commit()
     return jsonify({"id": a.id, "message": "创建成功"})
 
 @api.route('/activities/<int:id>', methods=['GET'])
@@ -291,15 +335,19 @@ def list_followups():
     if q: query = query.filter(FollowUp.content.contains(q))
     items = query.order_by(FollowUp.plan_date).all()
     return jsonify([{
-        "id": f.id, "contact_id": f.contact_id,
+        "id": f.id, "contact_id": f.contact_id, "opportunity_id": f.opportunity_id, "lead_id": f.lead_id,
         "contact_name": f.contact.name if f.contact else None,
         "customer_id": f.customer_id,
         "customer_name": f.customer.name if f.customer else None,
+        "opportunity_title": f.opportunity.title if f.opportunity else None,
         "plan_date": str(f.plan_date) if f.plan_date else None,
         "content": f.content, "ai_suggested_content": f.ai_suggested_content,
         "actual_date": str(f.actual_date) if f.actual_date else None,
-        "actual_content": f.actual_content,
-        "add_to_kanban": f.add_to_kanban
+        "actual_content": f.actual_content, "source_activity_id": f.source_activity_id,
+        "add_to_kanban": f.add_to_kanban,
+        "source_activity_content": f.source_activity.content[:100] if f.source_activity else None,
+        "source_activity_method": f.source_activity.method if f.source_activity else None,
+        "source_activity_time": str(f.source_activity.activity_time) if f.source_activity else None
     } for f in items])
 
 @api.route('/followups', methods=['POST'])
@@ -410,6 +458,13 @@ def move_card(card_id):
     db.session.commit()
     return jsonify({"ok": True})
 
+@api.route('/kanban/cards/<int:card_id>', methods=['DELETE'])
+def delete_card(card_id):
+    card = KanbanCard.query.get_or_404(card_id)
+    db.session.delete(card)
+    db.session.commit()
+    return jsonify({"ok": True})
+
 @api.route('/kanban/import', methods=['POST'])
 def import_to_kanban():
     d = request.get_json()
@@ -444,11 +499,62 @@ def update_config():
     db.session.commit()
     return jsonify({"message": "配置已更新"})
 
+@api.route('/config/test-ai', methods=['POST'])
+def test_ai_connection():
+    configs = {c.key: c.value for c in SystemConfig.query.all()}
+    api_key = configs.get('ai_api_key', '')
+    endpoint = configs.get('ai_api_endpoint', 'https://api.openai.com/v1')
+    model = configs.get('ai_model', 'gpt-4o')
+    if not api_key:
+        return jsonify({"ok": False, "error": "请先配置 API Key"}), 400
+    try:
+        resp = http_requests.post(
+            endpoint.rstrip('/') + '/chat/completions',
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": model, "messages": [{"role": "user", "content": "hello"}], "max_tokens": 10},
+            timeout=15
+        )
+        if resp.status_code == 200:
+            return jsonify({"ok": True, "message": f"连接成功！模型 {model} 响应正常", "model": model})
+        else:
+            return jsonify({"ok": False, "error": f"连接失败 (HTTP {resp.status_code}): {resp.text[:200]}"}), 200
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"连接异常: {str(e)}"}), 200
+
+@api.route('/config/crawl-targets', methods=['GET'])
+def get_crawl_targets():
+    configs = {c.key: c.value for c in SystemConfig.query.all()}
+    targets = configs.get('crawl_targets', '')
+    if targets:
+        try:
+            return jsonify(json.loads(targets))
+        except:
+            pass
+    return jsonify([
+        {"name": "中国政府采购网", "url": "http://search.ccgp.gov.cn/bxsearch", "enabled": True, "keywords": "无人机,林业,病虫害,巡检"},
+        {"name": "中国采购与招标网", "url": "https://www.chinabidding.com", "enabled": False, "keywords": "无人机,林业"},
+    ])
+
+@api.route('/config/crawl-targets', methods=['PUT'])
+def save_crawl_targets():
+    d = request.get_json()
+    config = SystemConfig.query.filter_by(key='crawl_targets').first()
+    val = json.dumps(d, ensure_ascii=False)
+    if config: config.value = val
+    else:
+        config = SystemConfig(key='crawl_targets', value=val, description='爬取目标站点配置')
+        db.session.add(config)
+    db.session.commit()
+    return jsonify({"message": "爬取站点已保存"})
+
 @api.route('/crawl', methods=['POST'])
 def trigger_crawl():
     from app.services.crawler import run_crawl
-    count = run_crawl()
-    return jsonify({"message": f"爬取完成，新增 {count} 条线索", "count": count})
+    try:
+        count = run_crawl()
+        return jsonify({"ok": True, "message": f"爬取完成，新增 {count} 条线索", "count": count})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"爬取失败: {str(e)}"}), 200
 
 @api.route('/leads/<int:id>', methods=['DELETE'])
 def delete_lead(id):
@@ -480,3 +586,20 @@ def delete_opportunity(id):
     db.session.delete(o)
     db.session.commit()
     return jsonify({"message": "已删除"})
+
+@api.route('/options', methods=['GET'])
+def get_options():
+    configs = {c.key: c.value for c in SystemConfig.query.all()}
+    def parse_list(key, default):
+        val = configs.get(key, '')
+        if val:
+            try:
+                return json.loads(val)
+            except:
+                return [v.strip() for v in val.split(',') if v.strip()]
+        return default
+    return jsonify({
+        "customer_types": parse_list('opt_customer_types', ['政府部门', '事业单位', '国有企业', '民营企业', '科研院所', '其他']),
+        "customer_levels": parse_list('opt_customer_levels', ['A-重点客户', 'B-重要客户', 'C-一般客户', 'D-潜在客户']),
+        "regions": parse_list('opt_regions', ['北京','上海','重庆','天津','河北','山西','辽宁','吉林','黑龙江','江苏','浙江','安徽','福建','江西','山东','河南','湖北','湖南','广东','海南','四川','贵州','云南','陕西','甘肃','青海','内蒙古','广西','西藏','宁夏','新疆']),
+    })
