@@ -1,3 +1,4 @@
+import os
 from app import db
 from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig
 from datetime import datetime
@@ -71,3 +72,17 @@ def seed_if_empty():
     ])
     db.session.commit()
     print("Seed complete!")
+
+
+def seed_admin():
+    """创建默认管理员账号（仅当不存在任何用户时）。密码可由环境变量 CRM_ADMIN_PASSWORD 覆盖。"""
+    from app.models.user import User
+    if User.query.first():
+        return
+    username = os.environ.get('CRM_ADMIN_USERNAME', 'admin')
+    password = os.environ.get('CRM_ADMIN_PASSWORD', 'admin123')
+    admin = User(username=username, display_name='管理员', role='admin')
+    admin.set_password(password)
+    db.session.add(admin)
+    db.session.commit()
+    print(f"已创建默认管理员账号 '{username}'（密码为环境变量 CRM_ADMIN_PASSWORD 或默认 'admin123'，请尽快修改）")

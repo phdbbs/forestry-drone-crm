@@ -13,6 +13,10 @@ import json
 
 api = Blueprint('api', __name__)
 
+@api.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
+
 @api.route('/skills', methods=['GET'])
 def list_skills():
     skills = Skill.query.order_by(Skill.is_builtin.desc(), Skill.created_at).all()

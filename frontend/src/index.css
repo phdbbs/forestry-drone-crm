@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === 原型自定义样式（由 extract_prototype.py 注入到此处之后） === */
+
+/* === 原型样式（由 extract_prototype.py 注入） === */
+* { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background:#f8fafc; color:#0f172a; }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:3px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    .sidebar-item { transition: all 0.15s ease; cursor:pointer; }
+    .sidebar-item:hover { background:rgba(255,255,255,0.12); }
+    .sidebar-item.active { background:rgba(255,255,255,0.18); border-right:3px solid #f59e0b; }
+    .card { background:#fff; border-radius:12px; border:1px solid #e2e8f0; transition:box-shadow 0.2s; }
+    .card:hover { box-shadow:0 4px 12px rgba(0,0,0,0.06); }
+    .badge { display:inline-flex; align-items:center; padding:2px 10px; border-radius:9999px; font-size:12px; font-weight:500; }
+    .btn { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; transition:all 0.15s; border:none; }
+    .btn-primary { background:#166534; color:#fff; }
+    .btn-primary:hover { background:#14532d; }
+    .btn-secondary { background:#f1f5f9; color:#475569; }
+    .btn-secondary:hover { background:#e2e8f0; }
+    .btn-amber { background:#f59e0b; color:#fff; }
+    .btn-amber:hover { background:#d97706; }
+    .table-header { background:#f8fafc; font-weight:600; color:#475569; font-size:13px; }
+    .kanban-card { cursor:grab; transition: box-shadow 0.15s, transform 0.15s; }
+    .kanban-card:active { cursor:grabbing; }
+    .kanban-card.dragging { opacity:0.5; transform:rotate(2deg); }
+    .kanban-col.drag-over { background:#f0fdf4; border-color:#166534; }
+    .progress-bar { height:8px; border-radius:4px; background:#e2e8f0; overflow:hidden; }
+    .progress-fill { height:100%; border-radius:4px; transition:width 0.5s ease; }
+    .tab-btn { padding:8px 16px; font-size:13px; font-weight:500; border:none; background:transparent; cursor:pointer; color:#64748b; border-bottom:2px solid transparent; }
+    .tab-btn.active { color:#166534; border-bottom-color:#166534; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    .fade-in { animation: fadeIn 0.3s ease; }
+    .urgency-high { background:#fef2f2; border-left:4px solid #ef4444; }
+    .urgency-medium { background:#fff7ed; border-left:4px solid #f97316; }
+    .urgency-low { background:#fffbeb; border-left:4px solid #f59e0b; }

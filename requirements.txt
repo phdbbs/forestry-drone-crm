@@ -1,6 +1,9 @@
 flask>=3.0
 flask-sqlalchemy>=3.1
+flask-login>=0.6
 requests>=2.34
 beautifulsoup4>=4.15
 lxml>=5.0
 apscheduler>=3.11
+alembic>=1.13
+python-dotenv>=1.0
