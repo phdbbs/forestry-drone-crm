@@ -7,12 +7,19 @@ AICS - Automated Integration & Compliance Suite
 import json
 import sys
 import os
+import tempfile
+import atexit
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, db
 
-app = create_app()
+# Use a temporary database so each test run starts fresh (seeded)
+_db_fd, _db_path = tempfile.mkstemp(suffix='.db')
+os.close(_db_fd)
+atexit.register(lambda: os.unlink(_db_path) if os.path.exists(_db_path) else None)
+
+app = create_app(config={'SQLALCHEMY_DATABASE_URI': 'sqlite:///' + _db_path})
 client = app.test_client()
 
 results = {"pass": 0, "fail": 0, "errors": []}

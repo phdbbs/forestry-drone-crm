@@ -1,0 +1,1661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>林业无人机CRM系统</title>
+<style>
+*{margin:0;padding:0;box-sizing;border-box}
+:root{--primary:#15803d;--pl:#22c55e;--pd:#14532d;--sw:220px;--bg:#f0fdf4;--cb:#fff;--tx:#1a1a1a;--tl:#6b7280;--brd:#d1fae5;--dn:#dc2626;--wn:#f59e0b;--ok:#16a34a;--if:#3b82f6}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;display:flex}
+.sidebar{position:fixed;left:0;top:0;width:var(--sw);height:100vh;background:linear-gradient(180deg,var(--pd),var(--primary));color:#fff;z-index:100;overflow-y:auto;display:flex;flex-direction:column;transition:transform .3s}
+.sidebar-logo{padding:20px 16px;font-size:17px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.15);text-align:center;white-space:nowrap}
+.sidebar-nav{padding:8px 0;flex:1}
+.sidebar-nav a{display:flex;align-items:center;gap:10px;padding:12px 20px;color:rgba(255,255,255,.8);text-decoration:none;font-size:14px;transition:all .2s;cursor:pointer;border-left:3px solid transparent}
+.sidebar-nav a:hover,.sidebar-nav a.active{background:rgba(255,255,255,.15);color:#fff;border-left-color:var(--pl)}
+.sidebar-nav a .icon{font-size:16px;width:20px;text-align:center}
+.main{margin-left:var(--sw);min-height:100vh;display:flex;flex-direction:column;flex:1}
+.header{background:#fff;padding:16px 24px;border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.header h1{font-size:20px;color:var(--pd)}
+.header-actions{display:flex;gap:8px;align-items:center}
+.content{flex:1;padding:24px;overflow-y:auto}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat{background:var(--cb);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:1px solid var(--brd)}
+.stat-num{font-size:28px;font-weight:700;color:var(--primary)}
+.stat-label{font-size:13px;color:var(--tl);margin-top:4px}
+.card{background:var(--cb);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:1px solid var(--brd);margin-bottom:16px}
+.card-title{font-size:15px;font-weight:600;color:var(--pd);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:none;font-size:14px;cursor:pointer;transition:all .2s;text-decoration:none;font-family:inherit;background:#e5e7eb;color:var(--tx)}
+.btn:hover{opacity:.85}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--pd)}
+.btn-success{background:var(--ok);color:#fff}.btn-success:hover{background:#15803d}
+.btn-danger{background:var(--dn);color:#fff}.btn-danger:hover{background:#b91c1c}
+.btn-warning{background:var(--wn);color:#fff}
+.btn-info{background:var(--if);color:#fff}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-group{display:flex;gap:6px;flex-wrap:wrap}
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:500}
+.badge-high{background:#fef3c7;color:#92400e}
+.badge-medium{background:#dbeafe;color:#1e40af}
+.badge-low{background:#f3f4f6;color:#4b5563}
+.badge-active{background:#d1fae5;color:#065f46}
+.badge-converted{background:#e0e7ff;color:#3730a3}
+.badge-abandoned{background:#fee2e2;color:#991b1b}
+.badge-pending{background:#fef3c7;color:#92400e}
+.badge-completed{background:#d1fae5;color:#065f46}
+.search-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.search-bar input,.search-bar select{min-width:160px;flex:0 1 auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--brd);font-size:13px}
+th{background:#f0fdf4;color:var(--pd);font-weight:600;position:sticky;top:0}
+tr:hover{background:#f0fdf4}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--tl)}
+.form-row{display:flex;gap:12px;flex-wrap:wrap}.form-row .form-group{flex:1;min-width:180px}
+input,select,textarea{width:100%;padding:8px 12px;border:1px solid var(--brd);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(21,128,61,.1)}
+textarea{resize:vertical;min-height:80px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:#fff;border-radius:16px;padding:24px;width:90%;max-width:600px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal h3{margin-bottom:16px;color:var(--pd);font-size:18px}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.detail-row{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:14px}
+.detail-row .lbl{color:var(--tl);min-width:80px;font-weight:500;flex-shrink:0}
+.kanban-board{display:flex;gap:16px;overflow-x:auto;padding-bottom:16px;min-height:400px}
+.kanban-col{min-width:280px;background:#f9fafb;border-radius:12px;padding:12px;flex-shrink:0;display:flex;flex-direction:column}
+.kanban-col-header{font-weight:600;padding:10px;border-radius:8px;margin-bottom:10px;text-align:center;font-size:14px;background:#e5e7eb}
+.kanban-col-body{flex:1;min-height:100px}
+.kanban-col-body.drag-over{background:#d1fae5;border-radius:8px}
+.kanban-card{background:#fff;border-radius:8px;padding:12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.06);cursor:grab;transition:transform .1s,box-shadow .2s;border-left:4px solid #d1d5db}
+.kanban-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.kanban-card.dragging{opacity:.5;transform:rotate(2deg)}
+.kanban-card-red{border-left-color:var(--dn)}
+.kanban-card-yellow{border-left-color:var(--wn)}
+.kanban-card-green{border-left-color:var(--ok)}
+.kanban-card-blue{border-left-color:var(--if)}
+.kanban-card .card-title{font-weight:600;font-size:14px;margin-bottom:4px}
+.kanban-card .card-desc{font-size:12px;color:var(--tl);margin-bottom:6px}
+.kanban-card .card-deadline{font-size:11px;color:var(--dn);margin-bottom:6px}
+.timeline{position:relative;padding-left:24px}
+.timeline::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--brd)}
+.timeline-item{position:relative;padding-bottom:16px}
+.timeline-item::before{content:'';position:absolute;left:-20px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--primary);border:2px solid #fff;box-shadow:0 0 0 2px var(--primary)}
+.timeline-item .tl-stage{font-weight:600;color:var(--pd)}
+.timeline-item .tl-content{font-size:13px;color:var(--tl);margin-top:4px}
+.timeline-item .tl-deadline{font-size:12px;color:var(--dn);margin-top:2px}
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;z-index:300;animation:slideIn .3s ease;max-width:300px}
+.toast-success{background:var(--ok)}
+.toast-error{background:var(--dn)}
+.toast-info{background:var(--if)}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.empty-state{text-align:center;padding:40px;color:var(--tl);font-size:14px}
+.section-title{font-size:16px;font-weight:600;color:var(--pd);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.settings-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6}
+.settings-label{min-width:100px;font-size:14px;font-weight:500;color:var(--tl)}
+.skill-badge{display:inline-block;padding:6px 14px;background:#f0fdf4;border:1px solid var(--brd);border-radius:20px;font-size:13px;margin:4px;cursor:pointer;transition:all .2s}
+.skill-badge:hover{background:var(--primary);color:#fff}
+.mobile-toggle{display:none;position:fixed;bottom:16px;right:16px;z-index:150;width:48px;height:48px;border-radius:50%;background:var(--primary);color:#fff;border:none;font-size:20px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .grid2{grid-template-columns:1fr}
+  .detail-grid{grid-template-columns:1fr}
+  .mobile-toggle{display:flex;align-items:center;justify-content:center}
+  .header{padding:12px 16px}
+  .content{padding:16px}
+  table{font-size:12px}
+  th,td{padding:8px 6px}
+}
+</style>
+</head>
+<body>
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🚁 林业无人机CRM</div>
+  <nav class="sidebar-nav">
+    <a href="#dashboard" class="active" data-page="dashboard"><span class="icon">📊</span> 仪表盘</a>
+    <a href="#leads" data-page="leads"><span class="icon">📋</span> 线索管理</a>
+    <a href="#opportunities" data-page="opportunities"><span class="icon">💼</span> 商机管理</a>
+    <a href="#contacts" data-page="contacts"><span class="icon">👤</span> 联系人</a>
+    <a href="#customers" data-page="customers"><span class="icon">🏢</span> 客户管理</a>
+    <a href="#kanban" data-page="kanban"><span class="icon">📌</span> 看板</a>
+    <a href="#activities" data-page="activities"><span class="icon">📝</span> 活动记录</a>
+    <a href="#followups" data-page="followups"><span class="icon">🔔</span> 跟进提醒</a>
+    <a href="#settings" data-page="settings"><span class="icon">⚙️</span> 系统设置</a>
+  </nav>
+</div>
+
+<div class="main">
+  <div class="header">
+    <h1 id="pageTitle">仪表盘</h1>
+    <div class="header-actions">
+      <span id="headerInfo" style="font-size:13px;color:var(--tl)"></span>
+    </div>
+  </div>
+  <div class="content" id="content"></div>
+</div>
+
+<button class="mobile-toggle" id="mobileToggle" onclick="toggleSidebar()">☰</button>
+
+<div class="modal-overlay" id="modalOverlay" style="display:none" onclick="if(event.target===this)closeModal()"></div>
+
+<script>
+const API = '/api';
+
+// ===== UTILITIES =====
+async function api(path, opts = {}) {
+  const url = API + path;
+  const def = { headers: { 'Content-Type': 'application/json' } };
+  const res = await fetch(url, { ...def, ...opts });
+  const text = await res.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function toast(msg, type = 'info') {
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+function fmtDate(d) {
+  if (!d) return '-';
+  const dt = new Date(d);
+  if (isNaN(dt)) return d;
+  return dt.toLocaleDateString('zh-CN');
+}
+
+function fmtDateTime(d) {
+  if (!d) return '-';
+  const dt = new Date(d);
+  if (isNaN(dt)) return d;
+  return dt.toLocaleString('zh-CN');
+}
+
+function dateInput(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt)) return '';
+  return dt.toISOString().slice(0, 10);
+}
+
+function datetimeInput(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt)) return '';
+  return dt.toISOString().slice(0, 16);
+}
+
+
+// ===== SEARCHABLE SELECT =====
+function makeSearchable(selectId, placeholder) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'relative';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = placeholder || '搜索...';
+  input.style.width = '100%';
+  input.style.marginBottom = '4px';
+  input.style.padding = '6px 10px';
+  input.style.border = '1px solid var(--brd)';
+  input.style.borderRadius = '6px';
+  input.style.fontSize = '13px';
+  input.oninput = function() {
+    const q = this.value.toLowerCase();
+    Array.from(sel.options).forEach(opt => {
+      opt.style.display = (!q || opt.text.toLowerCase().includes(q) || opt.value === '') ? '' : 'none';
+    });
+  };
+  sel.parentNode.insertBefore(wrapper, sel);
+  wrapper.appendChild(input);
+  wrapper.appendChild(sel);
+  sel._searchInput = input;
+}
+
+function initSearchableInModal() {
+  // Find all selects in modal and make them searchable
+  const modal = document.querySelector('.modal');
+  if (!modal) return;
+  const selects = modal.querySelectorAll('select');
+  selects.forEach(s => {
+    if (s.id && s.options.length > 5) {
+      makeSearchable(s.id, '🔍 搜索...');
+    }
+  });
+}
+
+// ===== MODAL =====
+function openModal(html) {
+  document.getElementById('modalOverlay').style.display = 'flex';
+  document.getElementById('modalOverlay').innerHTML = '<div class="modal">' + html + '</div>';
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').style.display = 'none';
+  document.getElementById('modalOverlay').innerHTML = '';
+}
+
+// ===== NAVIGATION =====
+const pageTitles = {
+  dashboard: '仪表盘', leads: '线索管理', opportunities: '商机管理',
+  contacts: '联系人', customers: '客户管理', kanban: '看板管理',
+  activities: '活动记录', followups: '跟进提醒', settings: '系统设置'
+};
+
+function navigate(page) {
+  window.location.hash = page;
+}
+
+function onHashChange() {
+  const page = window.location.hash.slice(1) || 'dashboard';
+  document.querySelectorAll('.sidebar-nav a').forEach(a => {
+    a.classList.toggle('active', a.dataset.page === page);
+  });
+  document.getElementById('pageTitle').textContent = pageTitles[page] || page;
+  if (typeof render === 'function') render(page);
+}
+
+window.addEventListener('hashchange', onHashChange);
+
+// ===== RENDER DISPATCHER =====
+async function render(page) {
+  const c = document.getElementById('content');
+  const h = document.getElementById('pageTitle');
+  if (!c) return;
+  c.innerHTML = '<div class="empty-state">加载中...</div>';
+  h.textContent = pageTitles[page] || page;
+  document.querySelectorAll('.sidebar-nav a').forEach(a => {
+    a.classList.toggle('active', a.dataset.page === page);
+  });
+  // Close mobile sidebar
+  document.getElementById('sidebar').classList.remove('open');
+
+  try {
+    switch (page) {
+      case 'dashboard': await renderDashboard(c); break;
+      case 'leads': await renderLeads(c); break;
+      case 'opportunities': await renderOpportunities(c); break;
+      case 'contacts': await renderContacts(c); break;
+      case 'customers': await renderCustomers(c); break;
+      case 'kanban': await renderKanban(c); break;
+      case 'activities': await renderActivities(c); break;
+      case 'followups': await renderFollowups(c); break;
+      case 'settings': await renderSettings(c); break;
+      default: c.innerHTML = '<div class="empty-state">页面不存在</div>';
+    }
+  } catch (e) {
+    console.error(e);
+    c.innerHTML = '<div class="empty-state">加载失败: ' + esc(String(e.message || e)) + '</div>';
+  }
+}
+
+// ===== SIDEBAR CLICK HANDLERS =====
+document.querySelectorAll('.sidebar-nav a').forEach(a => {
+  a.addEventListener('click', function (e) {
+    e.preventDefault();
+    navigate(this.dataset.page);
+  });
+});
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+
+// ===== DASHBOARD =====
+async function renderDashboard(c) {
+  const d = await api('/dashboard');
+  if (!d) { c.innerHTML = '<div class="empty-state">加载失败</div>'; return; }
+  const s = d.stats || {};
+  c.innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="stat-num">${s.active_leads || 0}</div><div class="stat-label">活跃线索</div></div>
+      <div class="stat"><div class="stat-num">${s.opportunities || 0}</div><div class="stat-label">商机总数</div></div>
+      <div class="stat"><div class="stat-num">${s.today_activities || 0}</div><div class="stat-label">今日活动</div></div>
+      <div class="stat"><div class="stat-num">${s.urgent_leads || 0}</div><div class="stat-label">紧急线索</div></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-title">🔥 紧急线索</div>
+        ${(d.urgent_leads || []).length === 0 ? '<div class="empty-state">暂无紧急线索</div>' :
+          '<div>' + (d.urgent_leads || []).map(l => `
+            <div class="detail-row"><span class="lbl">标题</span><span>${esc(l.title)}</span></div>
+            <div class="detail-row"><span class="lbl">匹配度</span><span class="badge badge-${l.level === '高匹配' ? 'high' : l.level === '中匹配' ? 'medium' : 'low'}">${esc(l.level || '-')}</span></div>
+            <div class="detail-row"><span class="lbl">截止日期</span><span>${esc(l.deadline || '-')}</span></div>
+            <div class="detail-row"><span class="lbl">关键词</span><span>${esc(l.match_keywords || '-')}</span></div>
+          `).join('') + '</div>'}
+      </div>
+      <div class="card">
+        <div class="card-title">📋 今日活动</div>
+        ${(d.today_activities || []).length === 0 ? '<div class="empty-state">暂无今日活动</div>' :
+          '<div>' + (d.today_activities || []).map(a => `
+            <div class="detail-row"><span class="lbl">方式</span><span>${esc(a.method || '-')}</span></div>
+            <div class="detail-row"><span class="lbl">内容</span><span>${esc(a.content)}</span></div>
+            <div class="detail-row"><span class="lbl">时间</span><span>${esc(a.time ? fmtDateTime(a.time) : '-')}</span></div>
+            <div class="detail-row"><span class="lbl">客户</span><span>${esc(a.customer_name || '-')}</span></div>
+          `).join('') + '</div>'}
+      </div>
+      <div class="card">
+        <div class="card-title">💼 最新商机</div>
+        ${(d.opportunities || []).length === 0 ? '<div class="empty-state">暂无商机</div>' :
+          '<div>' + (d.opportunities || []).slice(0, 5).map(o => `
+            <div class="detail-row"><span class="lbl">标题</span><span>${esc(o.title)}</span></div>
+            <div class="detail-row"><span class="lbl">阶段</span><span class="badge badge-active">${esc(o.stage || '-')}</span></div>
+            <div class="detail-row"><span class="lbl">金额</span><span>${esc(o.amount || '-')}</span></div>
+            <div class="detail-row"><span class="lbl">客户</span><span>${esc(o.customer_name || '-')}</span></div>
+          `).join('') + '</div>'}
+      </div>
+      <div class="card">
+        <div class="card-title">🔔 今日跟进</div>
+        ${(d.today_followups || []).length === 0 ? '<div class="empty-state">暂无今日跟进</div>' :
+          '<div>' + (d.today_followups || []).map(f => `
+            <div class="detail-row"><span class="lbl">内容</span><span>${esc(f.content)}</span></div>
+            <div class="detail-row"><span class="lbl">联系人</span><span>${esc(f.contact_name || '-')}</span></div>
+            <div class="detail-row"><span class="lbl">计划日期</span><span>${esc(f.plan_date ? fmtDate(f.plan_date) : '-')}</span></div>
+          `).join('') + '</div>'}
+      </div>
+    </div>
+    ${(d.kanban_cards && d.kanban_cards.length) ? `
+    <div class="card">
+      <div class="card-title">📅 即将到来的看板截止日期</div>
+      <table><thead><tr><th>卡片</th><th>截止日期</th><th>颜色</th></tr></thead>
+      <tbody>${d.kanban_cards.map(k => `<tr><td>${esc(k.title)}</td><td>${esc(k.deadline || '-')}</td><td><span class="badge" style="background:${k.color === 'red' ? '#fee2e2' : k.color === 'yellow' ? '#fef3c7' : k.color === 'green' ? '#d1fae5' : '#dbeafe'}">${esc(k.color || '-')}</span></td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
+  `;
+}
+
+// ===== LEADS =====
+async function renderLeads(c) {
+  const d = await api('/leads');
+  const list = Array.isArray(d) ? d : (d.data || []);
+  c.innerHTML = `
+    <div class="search-bar">
+      <input placeholder="搜索线索标题..." id="lSearch" style="flex:1;min-width:200px">
+      <select id="lStatus"><option value="">全部状态</option><option value="active">活跃</option><option value="converted">已转化</option><option value="abandoned">已废弃</option></select>
+      <select id="lLevel"><option value="">全部匹配度</option><option value="高匹配">高匹配</option><option value="中匹配">中匹配</option><option value="低匹配">低匹配</option></select>
+      <button class="btn btn-primary" onclick="loadLeads()">搜索</button>
+      <button class="btn btn-success" onclick="showLeadForm()">+ 新增线索</button>
+      <button class="btn btn-warning" onclick="triggerCrawl()">🕷️ 爬取</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>标号</th><th>标题</th><th>预算</th><th>截止日期</th><th>区域</th><th>匹配度</th><th>状态</th><th>客户</th><th>操作</th></tr></thead>
+        <tbody id="lTableBody"></tbody>
+      </table>
+    </div>
+  `;
+  window._leadsList = list;
+  renderLeadTable(list);
+}
+
+function renderLeadTable(list) {
+  const tbody = document.getElementById('lTableBody');
+  if (!tbody) return;
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无线索</td></tr>'; return; }
+  tbody.innerHTML = list.map(l => `
+    <tr>
+      <td style="white-space:nowrap">${esc(l.bid_number || '-')}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.title)}">${esc(l.title)}</td>
+      <td>${esc(l.budget || '-')}</td>
+      <td>${esc(l.deadline || '-')}</td>
+      <td>${esc(l.region || '-')}</td>
+      <td><span class="badge badge-${l.match_level === '高匹配' ? 'high' : l.match_level === '中匹配' ? 'medium' : 'low'}">${esc(l.match_level || '-')}</span></td>
+      <td><span class="badge badge-${l.status === 'active' ? 'active' : l.status === 'converted' ? 'converted' : 'abandoned'}">${esc(l.status === 'active' ? '活跃' : l.status === 'converted' ? '已转化' : '已废弃')}</span></td>
+      <td>${esc(l.customer_name || '-')}</td>
+      <td><div class="btn-group">
+        <button class="btn btn-sm btn-primary" onclick="showLeadForm(${l.id})">编辑</button>
+        ${l.status === 'active' ? `<button class="btn btn-sm btn-success" onclick="convertLead(${l.id})">转商机</button><button class="btn btn-sm btn-warning" onclick="abandonLead(${l.id})">废弃</button>` : ''}
+        <button class="btn btn-sm btn-danger" onclick="deleteLead(${l.id})">删除</button>
+      </div></td>
+    </tr>
+  `).join('');
+}
+
+async function loadLeads() {
+  const q = document.getElementById('lSearch').value;
+  const st = document.getElementById('lStatus').value;
+  const lv = document.getElementById('lLevel').value;
+  let url = '/leads?search=' + encodeURIComponent(q);
+  if (st) url += '&status=' + st;
+  if (lv) url += '&level=' + encodeURIComponent(lv);
+  const d = await api(url);
+  const list = Array.isArray(d) ? d : (d.data || []);
+  window._leadsList = list;
+  renderLeadTable(list);
+}
+
+function showLeadForm(id) {
+  const data = id ? (window._leadsList || []).find(l => l.id === id) : null;
+  const isEdit = !!data;
+  openModal(`
+    <h3>${isEdit ? '编辑线索' : '新增线索'}</h3>
+    <div class="form-row">
+      <div class="form-group"><label>标题 *</label><input id="f_title" value="${esc(data?.title || '')}"></div>
+      <div class="form-group"><label>标号</label><input id="f_bid" value="${esc(data?.bid_number || '')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>预算</label><input id="f_budget" value="${esc(data?.budget || '')}"></div>
+      <div class="form-group"><label>截止日期</label><input id="f_deadline" type="date" value="${dateInput(data?.deadline)}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>区域</label><input id="f_region" value="${esc(data?.region || '')}"></div>
+      <div class="form-group"><label>采购人</label><input id="f_purchaser" value="${esc(data?.purchaser || '')}"></div>
+    </div>
+    <div class="form-group"><label>服务内容</label><textarea id="f_service">${esc(data?.service_content || '')}</textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>来源平台</label><input id="f_platform" value="${esc(data?.source_platform || '')}"></div>
+      <div class="form-group"><label>来源URL</label><input id="f_url" value="${esc(data?.source_url || '')}"></div>
+    </div>
+    <div class="form-group"><label>关联客户</label>
+      <select id="f_customer"><option value="">无</option></select>
+    </div>
+    ${isEdit ? `<div class="form-row"><div class="form-group"><label>状态</label><select id="f_status"><option value="active" ${data?.status === 'active' ? 'selected' : ''}>活跃</option><option value="converted" ${data?.status === 'converted' ? 'selected' : ''}>已转化</option><option value="abandoned" ${data?.status === 'abandoned' ? 'selected' : ''}>已废弃</option></select></div></div>` : ''}
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveLead(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+    </div>
+  `);
+  // Load customers for dropdown
+  api('/customers').then(d => {
+    const customers = Array.isArray(d) ? d : (d.data || []);
+    const sel = document.getElementById('f_customer');
+    customers.forEach(cu => {
+      const opt = document.createElement('option');
+      opt.value = cu.id;
+      opt.textContent = cu.name;
+      if (data && data.customer_id === cu.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+async function saveLead(id) {
+  const body = {
+    title: document.getElementById('f_title').value,
+    bid_number: document.getElementById('f_bid').value,
+    budget: document.getElementById('f_budget').value,
+    deadline: document.getElementById('f_deadline').value || null,
+    region: document.getElementById('f_region').value,
+    purchaser: document.getElementById('f_purchaser').value,
+    service_content: document.getElementById('f_service').value,
+    source_platform: document.getElementById('f_platform').value,
+    source_url: document.getElementById('f_url').value,
+    customer_id: parseInt(document.getElementById('f_customer').value) || null,
+  };
+  if (!body.title) return toast('请填写标题', 'error');
+  if (id) body.status = document.getElementById('f_status').value;
+  const url = id ? '/leads/' + id : '/leads';
+  const method = id ? 'PUT' : 'POST';
+  await api(url, { method, body: JSON.stringify(body) });
+  toast(id ? '更新成功' : '创建成功', 'success');
+  closeModal();
+  loadLeads();
+}
+
+async function convertLead(id) {
+  const customers = await api('/customers') || [];
+  const custList = Array.isArray(customers) ? customers : (customers.data || []);
+  const allContacts = await api('/contacts') || [];
+  const allContList = Array.isArray(allContacts) ? allContacts : (allContacts.data || []);
+  const leadData = (window._leadsList || []).find(l => l.id === id);
+  const updateContacts = (custId) => {
+    const sel = document.getElementById('c_cont');
+    const filtered = custId ? allContList.filter(ct => ct.customer_id == custId) : allContList;
+    sel.innerHTML = '<option value="">无</option>' + filtered.map(ct => `<option value="${ct.id}">${esc(ct.name)} (${esc(ct.customer_name||'')})</option>`).join('');
+  };
+  openModal(`
+    <h3>转为商机</h3>
+    <div class="form-group"><label>商机标题 *</label><input id="c_title" value="${esc(leadData?.title || '')}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>金额</label><input id="c_amount" value="${esc(leadData?.budget || '')}"></div>
+      <div class="form-group"><label>当前阶段</label><select id="c_stage"><option>初步接触</option><option>需求确认</option><option>方案报价</option><option>商务谈判</option><option>签约</option></select></div>
+    </div>
+    <div class="form-group"><label>客户</label><select id="c_cust" onchange="updateContacts(this.value)"><option value="">无</option>${custList.map(cu => `<option value="${cu.id}" ${leadData?.customer_id===cu.id?'selected':''}>${esc(cu.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label>联系人</label><select id="c_cont"><option value="">无</option></select></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-success" onclick="saveConvert(${id})">确认转化</button>
+    </div>
+  `);
+  // Initialize contacts for pre-selected customer
+  const preCust = leadData?.customer_id || '';
+  if (preCust) updateContacts(preCust);
+  setTimeout(initSearchableInModal, 50);
+}
+
+async function saveConvert(id) {
+  const body = {
+    title: document.getElementById('c_title').value,
+    amount: document.getElementById('c_amount').value,
+    stage: document.getElementById('c_stage').value,
+    customer_id: parseInt(document.getElementById('c_cust').value) || null,
+    contact_id: parseInt(document.getElementById('c_cont').value) || null,
+  };
+  if (!body.title) return toast('请填写标题', 'error');
+  await api('/leads/' + id + '/convert', { method: 'POST', body: JSON.stringify(body) });
+  toast('已转为商机', 'success');
+  closeModal();
+  loadLeads();
+}
+
+async function abandonLead(id) {
+  if (!confirm('确认废弃此线索？')) return;
+  await api('/leads/' + id + '/abandon', { method: 'POST', body: '{}' });
+  toast('已废弃', 'success');
+  loadLeads();
+}
+
+async function deleteLead(id) {
+  if (!confirm('确认删除此线索？此操作不可恢复。')) return;
+  await api('/leads/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  loadLeads();
+}
+
+async function triggerCrawl() {
+  const res = await api('/crawl', { method: 'POST', body: JSON.stringify({}) });
+  toast(res?.message || '爬取任务已启动', 'success');
+  setTimeout(loadLeads, 2000);
+}
+
+// ===== OPPORTUNITIES =====
+async function renderOpportunities(c) {
+  const d = await api('/opportunities');
+  const list = Array.isArray(d) ? d : (d.data || []);
+  window._oppList = list;
+  c.innerHTML = `
+    <div class="search-bar">
+      <input placeholder="搜索商机..." id="oSearch" style="flex:1;min-width:200px" oninput="filterOpp()">
+      <button class="btn btn-success" onclick="showOppForm()">+ 新增商机</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>标题</th><th>客户</th><th>联系人</th><th>金额</th><th>当前阶段</th><th>操作</th></tr></thead>
+        <tbody id="oTableBody"></tbody>
+      </table>
+    </div>
+  `;
+  renderOppTable(list);
+}
+
+function renderOppTable(list) {
+  const tbody = document.getElementById('oTableBody');
+  if (!tbody) return;
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无商机</td></tr>'; return; }
+  tbody.innerHTML = list.map(o => `
+    <tr>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.title)}">${esc(o.title)}</td>
+      <td>${esc(o.customer_name || '-')}</td>
+      <td>${esc(o.contact_name || '-')}</td>
+      <td>${esc(o.amount || '-')}</td>
+      <td><span class="badge badge-active">${esc(o.current_stage || '-')}</span></td>
+      <td><div class="btn-group">
+        <button class="btn btn-sm btn-info" onclick="viewOppDetail(${o.id})">详情</button>
+        <button class="btn btn-sm btn-primary" onclick="showOppForm(${o.id})">编辑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteOpp(${o.id})">删除</button>
+      </div></td>
+    </tr>
+  `).join('');
+}
+
+function filterOpp() {
+  const q = (document.getElementById('oSearch').value || '').toLowerCase();
+  const filtered = (window._oppList || []).filter(o =>
+    !q || (o.title || '').toLowerCase().includes(q) || (o.customer_name || '').toLowerCase().includes(q)
+  );
+  renderOppTable(filtered);
+}
+
+function showOppForm(id) {
+ const data = id ? (window._oppList || []).find(o => o.id === id) : null;
+ const isEdit = !!data;
+ api('/customers').then(custs => {
+   const customers = Array.isArray(custs) ? custs : (custs.data || []);
+   api('/contacts').then(conts => {
+     const allContacts = Array.isArray(conts) ? conts : (conts.data || []);
+     const updateOppContacts = (custId) => {
+       const sel = document.getElementById('o_cont');
+       if (!sel) return;
+       const filtered = custId ? allContacts.filter(ct => ct.customer_id == custId) : allContacts;
+       sel.innerHTML = '<option value="">无</option>' + filtered.map(ct => `<option value="${ct.id}">${esc(ct.name)} (${esc(ct.customer_name||'')})</option>`).join('');
+     };
+     openModal(`
+       <h3>${isEdit ? '编辑商机' : '新增商机'}</h3>
+       <div class="form-group"><label>标题 *</label><input id="o_title" value="${esc(data?.title || '')}"></div>
+       <div class="form-row">
+         <div class="form-group"><label>金额</label><input id="o_amount" value="${esc(data?.amount || '')}"></div>
+         <div class="form-group"><label>当前阶段</label><input id="o_stage" value="${esc(data?.current_stage || '初步接触')}"></div>
+       </div>
+       <div class="form-group"><label>客户</label><select id="o_cust" onchange="updateOppContacts(this.value)"><option value="">无</option>${customers.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}</select></div>
+       <div class="form-group"><label>联系人</label><select id="o_cont"><option value="">无</option></select></div>
+       <div class="modal-actions">
+         <button class="btn" onclick="closeModal()">取消</button>
+         <button class="btn btn-primary" onclick="saveOpp(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+       </div>
+     `);
+     // Initialize contacts for pre-selected customer
+     if (data?.customer_id) { updateOppContacts(data.customer_id); setTimeout(() => { const c = document.getElementById('o_cont'); if(c) c.value = data.contact_id; }, 100); }
+     else updateOppContacts('');
+     setTimeout(initSearchableInModal, 50);
+   });
+ });
+}
+
+async function saveOpp(id) {
+  const body = {
+    title: document.getElementById('o_title').value,
+    amount: document.getElementById('o_amount').value,
+    current_stage: document.getElementById('o_stage').value,
+    customer_id: parseInt(document.getElementById('o_cust').value) || null,
+    contact_id: parseInt(document.getElementById('o_cont').value) || null,
+  };
+  if (!body.title) return toast('请填写标题', 'error');
+  const url = id ? '/opportunities/' + id : '/opportunities';
+  const method = id ? 'PUT' : 'POST';
+  await api(url, { method, body: JSON.stringify(body) });
+  toast(id ? '更新成功' : '创建成功', 'success');
+  closeModal();
+  render('opportunities');
+}
+
+async function viewOppDetail(id) {
+  const d = await api('/opportunities/' + id);
+  if (!d) return toast('加载失败', 'error');
+  const stages = d.stages || [];
+  openModal(`
+    <h3>商机详情: ${esc(d.title)}</h3>
+    <div class="detail-grid">
+      <div class="detail-row"><span class="lbl">金额</span><span>${esc(d.amount || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">阶段</span><span class="badge badge-active">${esc(d.current_stage || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">客户</span><span>${esc(d.customer_name || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">联系人</span><span>${esc(d.contact_name || '-')}</span></div>
+      ${d.lead_title ? `<div class="detail-row"><span class="lbl">来源线索</span><span>${esc(d.lead_title)}</span></div>` : ''}
+    </div>
+    <h4 style="margin:16px 0 8px">阶段时间线</h4>
+    <div class="timeline">
+      ${stages.length === 0 ? '<div class="empty-state">暂无阶段记录</div>' :
+        stages.map(s => `
+          <div class="timeline-item">
+            <div class="tl-stage">${esc(s.stage)} ${s.status === 'completed' ? '✅' : ''}</div>
+            <div class="tl-content">${esc(s.content || '')}</div>
+            ${s.deadline ? `<div class="tl-deadline">截止: ${esc(s.deadline)}</div>` : ''}
+          </div>
+        `).join('')}
+    </div>
+    <div style="margin-top:16px">
+      <button class="btn btn-success" onclick="showAddStage(${d.id})">+ 添加阶段记录</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal()">关闭</button>
+    </div>
+  `);
+}
+
+function showAddStage(oppId) {
+  closeModal();
+  openModal(`
+    <h3>添加阶段记录</h3>
+    <div class="form-group"><label>阶段名称 *</label><input id="s_stage" value=""></div>
+    <div class="form-group"><label>内容</label><textarea id="s_content"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>截止日期</label><input id="s_deadline" type="date"></div>
+      <div class="form-group"><label>状态</label><select id="s_status"><option value="pending">进行中</option><option value="completed">已完成</option></select></div>
+    </div>
+    <div class="form-group"><label><input type="checkbox" id="s_kanban"> 添加到看板</label></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveStage(${oppId})">添加</button>
+    </div>
+  `);
+}
+
+async function saveStage(oppId) {
+  const body = {
+    stage_name: document.getElementById('s_stage').value,
+    content: document.getElementById('s_content').value,
+    deadline: document.getElementById('s_deadline').value || null,
+    status: document.getElementById('s_status').value,
+    add_to_kanban: document.getElementById('s_kanban').checked,
+  };
+  if (!body.stage_name) return toast('请填写阶段名称', 'error');
+  await api('/opportunities/' + oppId + '/stages', { method: 'POST', body: JSON.stringify(body) });
+  toast('阶段记录已添加', 'success');
+  closeModal();
+  viewOppDetail(oppId);
+}
+
+async function deleteOpp(id) {
+  if (!confirm('确认删除此商机？')) return;
+  await api('/opportunities/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  render('opportunities');
+}
+
+// ===== CONTACTS =====
+async function renderContacts(c) {
+  const d = await api('/contacts');
+  const list = Array.isArray(d) ? d : (d.data || []);
+  window._contactsList = list;
+  const customers = await api('/customers') || [];
+  const custList = Array.isArray(customers) ? customers : (customers.data || []);
+  c.innerHTML = `
+    <div class="search-bar">
+      <input placeholder="搜索联系人..." id="cSearch" style="flex:1;min-width:200px" oninput="filterContacts()">
+      <select id="cFilterCust" onchange="filterContacts()" style="min-width:150px">
+        <option value="">全部客户</option>
+        ${custList.map(cu => `<option value="${cu.id}">${esc(cu.name)}</option>`).join('')}
+      </select>
+      <button class="btn btn-success" onclick="showContactForm()">+ 新增联系人</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>姓名</th><th>职位</th><th>电话</th><th>邮箱</th><th>微信</th><th>所属客户</th><th>操作</th></tr></thead>
+        <tbody id="cTableBody"></tbody>
+      </table>
+    </div>
+  `;
+  renderContactTable(list);
+}
+
+function renderContactTable(list) {
+  const tbody = document.getElementById('cTableBody');
+  if (!tbody) return;
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无联系人</td></tr>'; return; }
+  tbody.innerHTML = list.map(ct => `
+    <tr>
+      <td>${esc(ct.name)}</td>
+      <td>${esc(ct.title || '-')}</td>
+      <td>${esc(ct.phone || '-')}</td>
+      <td>${esc(ct.email || '-')}</td>
+      <td>${esc(ct.wechat || '-')}</td>
+      <td>${esc(ct.customer_name || '-')}</td>
+      <td><div class="btn-group">
+        <button class="btn btn-sm btn-primary" onclick="showContactForm(${ct.id})">编辑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteContact(${ct.id})">删除</button>
+      </div></td>
+    </tr>
+  `).join('');
+}
+
+function filterContacts() {
+  const q = (document.getElementById('cSearch').value || '').toLowerCase();
+  const custId = document.getElementById('cFilterCust') ? document.getElementById('cFilterCust').value : '';
+  const filtered = (window._contactsList || []).filter(ct => {
+    const matchQ = !q || (ct.name || '').toLowerCase().includes(q) || (ct.phone || '').toLowerCase().includes(q);
+    const matchC = !custId || ct.customer_id == custId;
+    return matchQ && matchC;
+  });
+  renderContactTable(filtered);
+}
+
+function showContactForm(id) {
+  const data = id ? (window._contactsList || []).find(c => c.id === id) : null;
+  const isEdit = !!data;
+  api('/customers').then(custs => {
+    const customers = Array.isArray(custs) ? custs : (custs.data || []);
+    openModal(`
+      <h3>${isEdit ? '编辑联系人' : '新增联系人'}</h3>
+      <div class="form-row">
+        <div class="form-group"><label>姓名 *</label><input id="ct_name" value="${esc(data?.name || '')}"></div>
+        <div class="form-group"><label>职位</label><input id="ct_title" value="${esc(data?.title || '')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>电话</label><input id="ct_phone" value="${esc(data?.phone || '')}"></div>
+        <div class="form-group"><label>邮箱</label><input id="ct_email" type="email" value="${esc(data?.email || '')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>微信</label><input id="ct_wechat" value="${esc(data?.wechat || '')}"></div>
+        <div class="form-group"><label>所属客户</label>
+          <select id="ct_customer"><option value="">无</option>
+            ${customers.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>备注</label><textarea id="ct_notes">${esc(data?.notes || '')}</textarea></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveContact(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+      </div>
+    `);
+    setTimeout(initSearchableInModal, 50);
+  });
+}
+
+async function saveContact(id) {
+  const body = {
+    name: document.getElementById('ct_name').value,
+    title: document.getElementById('ct_title').value,
+    phone: document.getElementById('ct_phone').value,
+    email: document.getElementById('ct_email').value,
+    wechat: document.getElementById('ct_wechat').value,
+    customer_id: parseInt(document.getElementById('ct_customer').value) || null,
+    notes: document.getElementById('ct_notes').value,
+  };
+  if (!body.name) return toast('请填写姓名', 'error');
+  const url = id ? '/contacts/' + id : '/contacts';
+  const method = id ? 'PUT' : 'POST';
+  await api(url, { method, body: JSON.stringify(body) });
+  toast(id ? '更新成功' : '创建成功', 'success');
+  closeModal();
+  render('contacts');
+}
+
+async function deleteContact(id) {
+  if (!confirm('确认删除此联系人？')) return;
+  await api('/contacts/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  render('contacts');
+}
+
+// ===== CUSTOMERS =====
+async function renderCustomers(c) {
+  const d = await api('/customers');
+  const list = Array.isArray(d) ? d : (d.data || []);
+  window._custList = list;
+  c.innerHTML = `
+    <div class="search-bar">
+      <input placeholder="搜索客户..." id="cuSearch" style="flex:1;min-width:200px" oninput="filterCustomers()">
+      <button class="btn btn-success" onclick="showCustomerForm()">+ 新增客户</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>名称</th><th>简称</th><th>类型</th><th>等级</th><th>区域</th><th>联系人</th><th>动态</th><th>操作</th></tr></thead>
+        <tbody id="cuTableBody"></tbody>
+      </table>
+    </div>
+  `;
+  renderCustomerTable(list);
+}
+
+function renderCustomerTable(list) {
+  const tbody = document.getElementById('cuTableBody');
+  if (!tbody) return;
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无客户</td></tr>'; return; }
+  tbody.innerHTML = list.map(cu => `
+    <tr>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(cu.name)}">${esc(cu.name)}</td>
+      <td>${esc(cu.short_name || '-')}</td>
+      <td>${esc(cu.type || '-')}</td>
+      <td><span class="badge badge-${cu.level === '高匹配' ? 'high' : cu.level === '中匹配' ? 'medium' : 'low'}">${esc(cu.level || '-')}</span></td>
+      <td>${esc(cu.region || '-')}</td>
+      <td>${cu.contact_count || 0}</td>
+      <td>${cu.news_count || 0}</td>
+      <td><div class="btn-group">
+        <button class="btn btn-sm btn-info" onclick="viewCustomerDetail(${cu.id})">详情</button>
+        <button class="btn btn-sm btn-primary" onclick="showCustomerForm(${cu.id})">编辑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${cu.id})">删除</button>
+      </div></td>
+    </tr>
+  `).join('');
+}
+
+function filterCustomers() {
+  const q = (document.getElementById('cuSearch').value || '').toLowerCase();
+  const filtered = (window._custList || []).filter(cu =>
+    !q || (cu.name || '').toLowerCase().includes(q) || (cu.short_name || '').toLowerCase().includes(q)
+  );
+  renderCustomerTable(filtered);
+}
+
+function showCustomerForm(id) {
+  const data = id ? (window._custList || []).find(c => c.id === id) : null;
+  const isEdit = !!data;
+  api('/options').then(opts => {
+    const o = opts?.data || opts || {};
+    const types = o.customer_types || ['政府部门','事业单位','国有企业','民营企业','科研院所','其他'];
+    const levels = o.customer_levels || ['A-重点客户','B-重要客户','C-一般客户','D-潜在客户'];
+    const regions = o.regions || ['北京','上海','广东','江苏','浙江','山东','四川','云南','贵州','湖南','湖北','福建','广西','陕西','辽宁','黑龙江','内蒙古','新疆','西藏','甘肃','青海','河北','山西','吉林','安徽','江西','河南','海南','宁夏','天津','重庆'];
+    const sel = (arr, val) => '<option value="">--选择--</option>' + arr.map(v => `<option value="${esc(v)}" ${val===v?'selected':''}>${esc(v)}</option>`).join('');
+    openModal(`
+      <h3>${isEdit ? '编辑客户' : '新增客户'}</h3>
+      <div class="form-row">
+        <div class="form-group"><label>名称 *</label><input id="cu_name" value="${esc(data?.name || '')}"></div>
+        <div class="form-group"><label>简称</label><input id="cu_short" value="${esc(data?.short_name || '')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>类型</label><select id="cu_type">${sel(types, data?.type)}</select></div>
+        <div class="form-group"><label>等级</label><select id="cu_level">${sel(levels, data?.level)}</select></div>
+        <div class="form-group"><label>区域</label><select id="cu_region">${sel(regions, data?.region)}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>来源</label><input id="cu_source" value="${esc(data?.source || '')}"></div>
+        <div class="form-group"><label>注册资本</label><input id="cu_capital" value="${esc(data?.capital || '')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>地址</label><input id="cu_address" value="${esc(data?.address || '')}"></div>
+        <div class="form-group"><label>网站</label><input id="cu_website" value="${esc(data?.website || '')}"></div>
+      </div>
+      <div class="form-group"><label>经营范围</label><textarea id="cu_scope">${esc(data?.scope || '')}</textarea></div>
+      <div class="form-group"><label>备注</label><textarea id="cu_remark">${esc(data?.remark || '')}</textarea></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveCustomer(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+      </div>
+    `);
+    setTimeout(initSearchableInModal, 50);
+  });
+}
+
+async function saveCustomer(id) {
+  const body = {
+    name: document.getElementById('cu_name').value,
+    short_name: document.getElementById('cu_short').value,
+    type: document.getElementById('cu_type').value,
+    level: document.getElementById('cu_level').value,
+    region: document.getElementById('cu_region').value,
+    source: document.getElementById('cu_source').value,
+    capital: document.getElementById('cu_capital').value,
+    address: document.getElementById('cu_address').value,
+    website: document.getElementById('cu_website').value,
+    scope: document.getElementById('cu_scope').value,
+    remark: document.getElementById('cu_remark').value,
+  };
+  if (!body.name) return toast('请填写名称', 'error');
+  const url = id ? '/customers/' + id : '/customers';
+  const method = id ? 'PUT' : 'POST';
+  await api(url, { method, body: JSON.stringify(body) });
+  toast(id ? '更新成功' : '创建成功', 'success');
+  closeModal();
+  render('customers');
+}
+
+async function viewCustomerDetail(id) {
+  const d = await api('/customers/' + id);
+  if (!d) return toast('加载失败', 'error');
+  const contacts = d.contacts || [];
+  const news = d.news || [];
+  openModal(`
+    <h3>客户详情: ${esc(d.name)}</h3>
+    <div class="detail-grid">
+      <div class="detail-row"><span class="lbl">简称</span><span>${esc(d.short_name || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">类型</span><span>${esc(d.type || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">等级</span><span>${esc(d.level || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">区域</span><span>${esc(d.region || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">来源</span><span>${esc(d.source || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">地址</span><span>${esc(d.address || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">网站</span><span>${esc(d.website || '-')}</span></div>
+      <div class="detail-row"><span class="lbl">注册资本</span><span>${esc(d.capital || '-')}</span></div>
+    </div>
+    <h4 style="margin:16px 0 8px">联系人 (${contacts.length})</h4>
+    ${contacts.length === 0 ? '<div class="empty-state">暂无联系人</div>' :
+      '<table><thead><tr><th>姓名</th><th>职位</th><th>电话</th><th>邮箱</th></tr></thead><tbody>' +
+      contacts.map(ct => `<tr><td>${esc(ct.name)}</td><td>${esc(ct.title || '-')}</td><td>${esc(ct.phone || '-')}</td><td>${esc(ct.email || '-')}</td></tr>`).join('') +
+      '</tbody></table>'}
+    <h4 style="margin:16px 0 8px">企业动态 (${news.length})</h4>
+    ${news.length === 0 ? '<div class="empty-state">暂无动态</div>' :
+      '<div>' + news.map(n => `
+        <div class="detail-row"><span class="lbl">${esc(n.change_type || '动态')}</span><span>${esc(n.title)}</span></div>
+      `).join('') + '</div>'}
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal()">关闭</button>
+    </div>
+  `);
+}
+
+async function deleteCustomer(id) {
+  if (!confirm('确认删除此客户？关联的联系人也会被删除。')) return;
+  await api('/customers/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  render('customers');
+}
+
+// ===== KANBAN =====
+async function renderKanban(c) {
+  const d = await api('/kanban/boards');
+  const boards = Array.isArray(d) ? d : (d.data || []);
+  if (!boards.length) {
+    c.innerHTML = '<div class="card"><div class="empty-state">暂无看板</div><button class="btn btn-success" onclick="createBoard()">创建首个看板</button></div>';
+    return;
+  }
+  window._kanbanBoards = boards;
+  c.innerHTML = `
+    <div class="search-bar">
+      <select id="kBoard" onchange="loadKanbanBoard()">${boards.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select>
+      <button class="btn btn-success" onclick="createBoard()">+ 新建看板</button>
+      <button class="btn btn-primary" onclick="addColumn()">+ 添加列表</button>
+      <button class="btn btn-info" onclick="showImportModal()">📥 导入卡片</button>
+      <button class="btn btn-danger" onclick="deleteBoard()">删除看板</button>
+    </div>
+    <div class="kanban-board" id="kanbanBoard"></div>
+  `;
+  loadKanbanBoard();
+}
+
+function loadKanbanBoard() {
+  const boardId = document.getElementById('kBoard').value;
+  const board = (window._kanbanBoards || []).find(b => b.id === parseInt(boardId));
+  if (!board) return;
+  window._kanban = board;
+  const container = document.getElementById('kanbanBoard');
+  container.innerHTML = (board.columns || []).map(col => `
+    <div class="kanban-col" data-col-id="${col.id}">
+      <div class="kanban-col-header">${esc(col.name)} (${(col.cards || []).length})</div>
+      <div class="kanban-col-body" data-col-id="${col.id}"
+        ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        ${(col.cards || []).map(card => `
+          <div class="kanban-card kanban-card-${card.color || 'blue'}" draggable="true"
+            data-card-id="${card.id}" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)">
+            <div class="card-title">${esc(card.title)}</div>
+            ${card.description ? `<div class="card-desc">${esc(card.description)}</div>` : ''}
+            ${card.deadline ? `<div class="card-deadline">📅 ${esc(card.deadline)}</div>` : ''}
+            <div class="btn-group" style="margin-top:6px">
+              <button class="btn btn-sm" onclick="moveCardPrompt(${card.id})">移动</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteCard(${card.id})">删除</button>
+            </div>
+          </div>
+        `).join('')}
+        <div style="text-align:center;padding:8px;color:var(--tl);font-size:12px" onclick="showAddCard(${col.id})">+ 添加卡片</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+let _dragCardId = null;
+
+function handleDragStart(e) {
+  _dragCardId = parseInt(e.target.dataset.cardId);
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', _dragCardId);
+}
+
+function handleDragEnd(e) {
+  e.target.classList.remove('dragging');
+  _dragCardId = null;
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const body = e.target.closest('.kanban-col-body');
+  if (body) body.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  const body = e.target.closest('.kanban-col-body');
+  if (body) body.classList.remove('drag-over');
+}
+
+async function handleDrop(e) {
+  e.preventDefault();
+  const body = e.target.closest('.kanban-col-body');
+  if (!body || !_dragCardId) return;
+  body.classList.remove('drag-over');
+  const colId = parseInt(body.dataset.colId);
+  await api('/kanban/cards/' + _dragCardId + '/move', { method: 'POST', body: JSON.stringify({ column_id: colId }) });
+  toast('移动成功', 'success');
+  render('kanban');
+}
+
+function moveCardPrompt(cardId) {
+  const cols = (window._kanban || {}).columns || [];
+  if (!cols.length) return;
+  openModal(`
+    <h3>移动卡片</h3>
+    <div class="form-group"><label>目标列</label>
+      <select id="m_col">${cols.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="moveCard(${cardId})">移动</button>
+    </div>
+  `);
+}
+
+async function moveCard(cardId) {
+  const colId = parseInt(document.getElementById('m_col').value);
+  await api('/kanban/cards/' + cardId + '/move', { method: 'POST', body: JSON.stringify({ column_id: colId }) });
+  toast('移动成功', 'success');
+  closeModal();
+  render('kanban');
+}
+
+async function deleteCard(cardId) {
+  if (!confirm('确认删除此卡片？')) return;
+  await api('/kanban/cards/' + cardId, { method: 'DELETE' });
+  toast('已删除', 'success');
+  render('kanban');
+}
+
+async function createBoard() {
+  const name = prompt('看板名称:');
+  if (!name) return;
+  await api('/kanban/boards', { method: 'POST', body: JSON.stringify({ name }) });
+  toast('看板已创建', 'success');
+  render('kanban');
+}
+
+async function addColumn() {
+  const name = prompt('列表名称:');
+  if (!name) return;
+  const boardId = parseInt(document.getElementById('kBoard').value);
+  await api('/kanban/boards/' + boardId + '/columns', { method: 'POST', body: JSON.stringify({ name }) });
+  toast('列表已添加', 'success');
+  render('kanban');
+}
+
+async function deleteBoard() {
+  if (!confirm('确认删除此看板？')) return;
+  const boardId = parseInt(document.getElementById('kBoard').value);
+  await api('/kanban/boards/' + boardId, { method: 'DELETE' });
+  toast('看板已删除', 'success');
+  render('kanban');
+}
+
+function showAddCard(colId) {
+  openModal(`
+    <h3>添加卡片</h3>
+    <div class="form-group"><label>标题 *</label><input id="kc_title"></div>
+    <div class="form-group"><label>描述</label><textarea id="kc_desc"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>颜色</label>
+        <select id="kc_color"><option value="blue">蓝色</option><option value="green">绿色</option><option value="yellow">黄色</option><option value="red">红色</option></select>
+      </div>
+      <div class="form-group"><label>截止日期</label><input id="kc_deadline" type="date"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveCard(${colId})">添加</button>
+    </div>
+  `);
+}
+
+async function saveCard(colId) {
+  const title = document.getElementById('kc_title').value;
+  if (!title) return toast('请填写标题', 'error');
+  const body = {
+    title,
+    description: document.getElementById('kc_desc').value,
+    label_color: document.getElementById('kc_color').value,
+    deadline: document.getElementById('kc_deadline').value || null,
+  };
+  // Use import API to add a single card to the first column
+  await api('/kanban/import', { method: 'POST', body: JSON.stringify({ board_id: parseInt(document.getElementById('kBoard').value), items: [body] }) });
+  toast('卡片已添加', 'success');
+  closeModal();
+  render('kanban');
+}
+
+function showImportModal() {
+  const boards = window._kanbanBoards || [];
+  openModal(`
+    <h3>批量导入卡片</h3>
+    <div class="form-group"><label>目标看板</label>
+      <select id="imp_board">${boards.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select>
+    </div>
+    <div class="form-group"><label>卡片列表（每行一个）</label><textarea id="imp_items" placeholder="任务1&#10;任务2&#10;任务3" style="min-height:120px"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveImport()">导入</button>
+    </div>
+  `);
+}
+
+async function saveImport() {
+  const boardId = parseInt(document.getElementById('imp_board').value);
+  const lines = document.getElementById('imp_items').value.split('\n').filter(l => l.trim());
+  if (!boardId || !lines.length) return toast('请填写完整信息', 'error');
+  const items = lines.map(l => ({ title: l.trim(), description: '', color: 'blue' }));
+  await api('/kanban/import', { method: 'POST', body: JSON.stringify({ board_id: boardId, items }) });
+  toast('导入成功', 'success');
+  closeModal();
+  render('kanban');
+}
+
+// ===== ACTIVITIES =====
+async function renderActivities(c) {
+  const d = await api('/activities');
+  const list = Array.isArray(d) ? d : (d.data || []);
+  window._actList = list;
+  c.innerHTML = `
+    <div class="search-bar">
+      <input placeholder="搜索活动内容..." id="aSearch" style="flex:1;min-width:200px" oninput="filterActivities()">
+      <select id="aMethod" onchange="filterActivities()"><option value="">全部方式</option><option>电话</option><option>拜访</option><option>微信</option><option>邮件</option><option>会议</option></select>
+      <button class="btn btn-success" onclick="showActivityForm()">+ 新增活动</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>客户</th><th>联系人</th><th>方式</th><th>内容</th><th>活动时间</th><th>下次跟进</th><th>操作</th></tr></thead>
+        <tbody id="aTableBody"></tbody>
+      </table>
+    </div>
+  `;
+  renderActivityTable(list);
+}
+
+function renderActivityTable(list) {
+  const tbody = document.getElementById('aTableBody');
+  if (!tbody) return;
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无活动记录</td></tr>'; return; }
+  tbody.innerHTML = list.map(a => `
+    <tr>
+      <td>${esc(a.customer_name || '-')}</td>
+      <td>${esc(a.contact_name || '-')}</td>
+      <td><span class="badge badge-active">${esc(a.method || '-')}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(a.content || '')}">${esc(a.content || '')}</td>
+      <td>${a.activity_time ? fmtDateTime(a.activity_time) : '-'}</td>
+      <td>${a.next_followup_time ? fmtDate(a.next_followup_time) : '-'}</td>
+      <td><div class="btn-group">
+        <button class="btn btn-sm btn-primary" onclick="showActivityForm(${a.id})">编辑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteActivity(${a.id})">删除</button>
+      </div></td>
+    </tr>
+  `).join('');
+}
+
+function filterActivities() {
+  const q = (document.getElementById('aSearch').value || '').toLowerCase();
+  const mf = document.getElementById('aMethod').value;
+  const filtered = (window._actList || []).filter(a => {
+    if (mf && a.method !== mf) return false;
+    if (q && !(a.content || '').toLowerCase().includes(q) && !(a.customer_name || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  renderActivityTable(filtered);
+}
+
+async function showActivityForm(id) {
+  const data = id ? (window._actList || []).find(a => a.id === id) : null;
+  const isEdit = !!data;
+  const customers = await api('/customers') || [];
+  const custList = Array.isArray(customers) ? customers : (customers.data || []);
+  const allContacts = await api('/contacts') || [];
+  const contList = Array.isArray(allContacts) ? allContacts : (allContacts.data || []);
+  const opportunities = await api('/opportunities') || [];
+  const oppList = Array.isArray(opportunities) ? opportunities : (opportunities.data || []);
+  const leads = await api('/leads?status=active') || [];
+  const leadList = Array.isArray(leads) ? leads : (leads.data || []);
+  const updateContactsForCust = (custId) => {
+    const sel = document.getElementById('a_cont');
+    if (!sel) return;
+    const filtered = custId ? contList.filter(ct => ct.customer_id == custId) : contList;
+    sel.innerHTML = '<option value="">无</option>' + filtered.map(ct => `<option value="${ct.id}">${esc(ct.name)}</option>`).join('');
+  };
+  openModal(`
+    <h3>${isEdit ? '编辑活动' : '新增活动'}</h3>
+    <div class="form-row">
+      <div class="form-group"><label>关联客户</label>
+        <select id="a_cust" onchange="updateContactsForCust(this.value)"><option value="">无</option>
+          ${custList.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>联系人</label>
+        <select id="a_cont"><option value="">无</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>关联商机</label>
+        <select id="a_opp"><option value="">无</option>
+          ${oppList.map(o => `<option value="${o.id}" ${data?.opportunity_id === o.id ? 'selected' : ''}>${esc(o.title)} (${esc(o.customer_name||'')})</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>关联线索</label>
+        <select id="a_lead"><option value="">无</option>
+          ${leadList.map(l => `<option value="${l.id}" ${data?.lead_id === l.id ? 'selected' : ''}>${esc(l.title)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>方式</label>
+        <select id="a_method"><option value="电话">电话</option><option value="拜访">拜访</option><option value="微信">微信</option><option value="邮件">邮件</option><option value="会议">会议</option></select>
+      </div>
+      <div class="form-group"><label>活动时间</label><input id="a_time" type="datetime-local" value="${datetimeInput(data?.activity_time)}"></div>
+    </div>
+    <div class="form-group"><label>联系内容</label><textarea id="a_content">${esc(data?.content || '')}</textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>下次跟进时间</label><input id="a_next_time" type="date" value="${dateInput(data?.next_followup_time)}"></div>
+    </div>
+    <div class="form-group"><label>下次跟进内容</label><textarea id="a_next_content">${esc(data?.next_followup_content || '')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveActivity(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+    </div>
+  `);
+  if (data?.customer_id) updateContactsForCust(data.customer_id);
+  if (data?.contact_id) { const c = document.getElementById('a_cont'); if(c) c.value = data.contact_id; }
+  setTimeout(initSearchableInModal, 50);
+}
+
+async function saveActivity(id) {
+  const body = {
+    customer_id: parseInt(document.getElementById('a_cust').value) || null,
+    contact_id: parseInt(document.getElementById('a_cont').value) || null,
+    opportunity_id: parseInt(document.getElementById('a_opp')?.value) || null,
+    lead_id: parseInt(document.getElementById('a_lead')?.value) || null,
+    method: document.getElementById('a_method').value,
+    content: document.getElementById('a_content').value,
+    time: document.getElementById('a_time').value || null,
+    next_time: document.getElementById('a_next_time').value || null,
+    next_content: document.getElementById('a_next_content').value,
+  };
+  const url = id ? '/activities/' + id : '/activities';
+  const method = id ? 'PUT' : 'POST';
+  await api(url, { method, body: JSON.stringify(body) });
+  // Auto-create follow-up if next_time is set
+  if (body.next_time && !id) {
+    const fuBody = {
+      customer_id: body.customer_id,
+      contact_id: body.contact_id,
+      plan_date: body.next_time,
+      content: body.next_content || '跟进: ' + body.content.substring(0, 50),
+      ai_content: '来源于活动记录自动创建',
+    };
+    await api('/followups', { method: 'POST', body: JSON.stringify(fuBody) });
+  }
+  toast(id ? '更新成功' : '创建成功', 'success');
+  closeModal();
+  render('activities');
+}
+
+async function deleteActivity(id) {
+  if (!confirm('确认删除此活动？')) return;
+  await api('/activities/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  render('activities');
+}
+
+// ===== FOLLOWUPS =====
+async function renderFollowups(c) {
+  const d = await api('/followups');
+  const list = Array.isArray(d) ? d : (d.data || []);
+  window._fuList = list;
+  c.innerHTML = `
+    <div class="search-bar">
+      <input placeholder="搜索跟进内容..." id="fSearch" style="flex:1;min-width:200px" oninput="filterFollowups()">
+      <button class="btn btn-success" onclick="showFollowupForm()">+ 新增跟进</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>客户</th><th>联系人</th><th>计划日期</th><th>内容</th><th>AI建议</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="fTableBody"></tbody>
+      </table>
+    </div>
+  `;
+  renderFollowupTable(list);
+}
+
+function renderFollowupTable(list) {
+  const tbody = document.getElementById('fTableBody');
+  if (!tbody) return;
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无跟进提醒</td></tr>'; return; }
+  tbody.innerHTML = list.map(f => {
+    const done = !!f.actual_date;
+    return `
+    <tr>
+      <td>${esc(f.customer_name || '-')}</td>
+      <td>${esc(f.contact_name || '-')}</td>
+      <td>${f.plan_date ? fmtDate(f.plan_date) : '-'}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.content || '')}">${esc(f.content || '')}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.ai_suggested_content || '')}">${esc(f.ai_suggested_content || '-')}</td>
+      <td><span class="badge badge-${done ? 'completed' : 'pending'}">${done ? '已完成' : '待跟进'}</span></td>
+      <td><div class="btn-group">
+        ${!done ? `<button class="btn btn-sm btn-success" onclick="completeFollowup(${f.id})">完成</button>` : ''}
+        <button class="btn btn-sm btn-primary" onclick="showFollowupForm(${f.id})">编辑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteFollowup(${f.id})">删除</button>
+      </div></td>
+    </tr>
+  `}).join('');
+}
+
+function filterFollowups() {
+  const q = (document.getElementById('fSearch').value || '').toLowerCase();
+  const filtered = (window._fuList || []).filter(f =>
+    !q || (f.content || '').toLowerCase().includes(q) || (f.customer_name || '').toLowerCase().includes(q)
+  );
+  renderFollowupTable(filtered);
+}
+
+function showFollowupForm(id) {
+  const data = id ? (window._fuList || []).find(f => f.id === id) : null;
+  const isEdit = !!data;
+  api('/customers').then(custs => {
+    const customers = Array.isArray(custs) ? custs : (custs.data || []);
+    api('/contacts').then(conts => {
+      const contacts = Array.isArray(conts) ? conts : (conts.data || []);
+      const updateFuContacts = (custId) => {
+        const sel = document.getElementById('fu_cont');
+        if (!sel) return;
+        const filtered = custId ? contacts.filter(ct => ct.customer_id == custId) : contacts;
+        sel.innerHTML = '<option value="">无</option>' + filtered.map(ct => `<option value="${ct.id}">${esc(ct.name)} (${esc(ct.customer_name||'')})</option>`).join('');
+      };
+      openModal(`
+        <h3>${isEdit ? '编辑跟进' : '新增跟进'}</h3>
+        <div class="form-row">
+          <div class="form-group"><label>客户</label>
+            <select id="fu_cust" onchange="updateFuContacts(this.value)"><option value="">无</option>
+              ${customers.map(cu => `<option value="${cu.id}" ${data?.customer_id === cu.id ? 'selected' : ''}>${esc(cu.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label>联系人</label>
+            <select id="fu_cont"><option value="">无</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>计划日期</label><input id="fu_date" type="date" value="${dateInput(data?.plan_date)}"></div>
+        </div>
+        <div class="form-group"><label>跟进内容</label><textarea id="fu_content">${esc(data?.content || '')}</textarea></div>
+        <div class="form-group"><label>AI建议内容</label><textarea id="fu_ai">${esc(data?.ai_suggested_content || '')}</textarea></div>
+        ${isEdit && data?.actual_date ? `
+          <div class="form-row">
+            <div class="form-group"><label>实际完成日期</label><input id="fu_actual_date" type="date" value="${dateInput(data?.actual_date)}"></div>
+          </div>
+          <div class="form-group"><label>实际跟进内容</label><textarea id="fu_actual">${esc(data?.actual_content || '')}</textarea></div>
+        ` : ''}
+        <div class="modal-actions">
+          <button class="btn" onclick="closeModal()">取消</button>
+          <button class="btn btn-primary" onclick="saveFollowup(${id || ''})">${isEdit ? '保存' : '创建'}</button>
+        </div>
+      `);
+      if (data?.customer_id) { updateFuContacts(data.customer_id); setTimeout(() => { const c = document.getElementById('fu_cont'); if(c) c.value = data.contact_id; }, 100); }
+      else updateFuContacts('');
+      setTimeout(initSearchableInModal, 50);
+    });
+  });
+}
+
+async function saveFollowup(id) {
+  const body = {
+    customer_id: parseInt(document.getElementById('fu_cust').value) || null,
+    contact_id: parseInt(document.getElementById('fu_cont').value) || null,
+    plan_date: document.getElementById('fu_date').value || null,
+    content: document.getElementById('fu_content').value,
+    ai_content: document.getElementById('fu_ai').value,
+  };
+  if (id) {
+    body.actual_date = document.getElementById('fu_actual_date')?.value || null;
+    body.actual_content = document.getElementById('fu_actual')?.value || '';
+  }
+  const url = id ? '/followups/' + id : '/followups';
+  const method = id ? 'PUT' : 'POST';
+  await api(url, { method, body: JSON.stringify(body) });
+  toast(id ? '更新成功' : '创建成功', 'success');
+  closeModal();
+  render('followups');
+}
+
+async function completeFollowup(id) {
+  const content = prompt('实际跟进内容:');
+  if (content === null) return;
+  const today = new Date().toISOString().slice(0, 10);
+  await api('/followups/' + id, { method: 'PUT', body: JSON.stringify({ actual_date: today, actual_content: content }) });
+  toast('已标记完成', 'success');
+  render('followups');
+}
+
+async function deleteFollowup(id) {
+  if (!confirm('确认删除此跟进？')) return;
+  await api('/followups/' + id, { method: 'DELETE' });
+  toast('已删除', 'success');
+  render('followups');
+}
+
+// ===== SETTINGS =====
+async function renderSettings(c) {
+  const d = await api('/config');
+  const config = d && d.data ? d : (d || {});
+  const sk = await api('/skills');
+  const builtin = sk?.builtin || [];
+  const custom = sk?.custom || [];
+  c.innerHTML = `
+    <div class="card">
+      <div class="section-title">⚙️ 系统配置</div>
+      <div class="settings-row"><span class="settings-label">系统名称</span><input id="cfg_name" value="${esc(config.name?.value || '林业无人机CRM')}" style="width:200px"></div>
+      <div class="settings-row"><span class="settings-label">公司名称</span><input id="cfg_company" value="${esc(config.company?.value || '')}" style="width:200px"></div>
+      <div class="settings-row"><span class="settings-label">主题色</span><input id="cfg_color" value="${esc(config.color?.value || '#15803d')}" type="color" style="width:60px"></div>
+      <button class="btn btn-primary" onclick="saveConfig()" style="margin-top:12px">保存配置</button>
+    </div>
+    <div class="card">
+      <div class="section-title">🧠 AI 模型配置</div>
+      <div class="settings-row"><span class="settings-label">API Key</span><input id="cfg_ai_key" type="password" value="${esc(config.ai_api_key?.value || '')}" placeholder="ak_..." style="width:300px"></div>
+      <div class="settings-row"><span class="settings-label">API Endpoint</span><input id="cfg_ai_endpoint" value="${esc(config.ai_api_endpoint?.value || '')}" placeholder="https://api.longcat.chat/openai" style="width:300px"></div>
+      <div class="settings-row"><span class="settings-label">AI 模型</span><input id="cfg_ai_model" value="${esc(config.ai_model?.value || 'LongCat-2.0')}" style="width:200px"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+        <button class="btn btn-primary" onclick="saveAIConfig()">保存AI配置</button>
+        <button class="btn btn-success" onclick="testAIConnection()">🔌 测试连接</button>
+        <span id="aiTestResult" style="font-size:13px"></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title">🛠️ 技能管理</div>
+      <div style="margin-bottom:12px"><button class="btn btn-sm btn-success" onclick="showSkillForm()">+ 新增技能</button></div>
+      <div id="skillsList">
+        ${builtin.length ? '<div style="margin-bottom:8px"><small style="color:var(--tl)">内置技能</small><br>' + builtin.map(s => '<span class="skill-badge" onclick="executeSkill(\'' + esc(s.name) + '\')" title="' + esc(s.description || '') + '">🔧 ' + esc(s.name) + '</span>').join('') + '</div>' : ''}
+        ${custom.length ? '<div><small style="color:var(--tl)">自定义技能</small><br>' + custom.map(s => '<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 10px;margin:4px;border-radius:20px;font-size:13px;border:1px solid var(--brd);background:' + (s.is_active ? '#f0fdf4' : '#f3f4f6') + '">' + esc(s.icon || '🔧') + ' ' + esc(s.name) + ' <button class="btn btn-sm" onclick="toggleSkill(' + s.id + ',' + (s.is_active ? 'false' : 'true') + ')" title="启用/禁用" style="padding:2px 6px">' + (s.is_active ? '✅' : '⛔') + '</button> <button class="btn btn-sm btn-primary" onclick="showSkillForm(' + s.id + ')" style="padding:2px 6px">✏️</button> <button class="btn btn-sm btn-danger" onclick="deleteSkill(' + s.id + ')" style="padding:2px 6px">🗑️</button></span>').join('') : ''}
+        ${!builtin.length && !custom.length ? '<div class="empty-state">暂无技能</div>' : ''}
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title">🕷️ 数据采集站点</div>
+      <div id="crawlTargetsList"></div>
+      <div style="margin-top:12px">
+        <button class="btn btn-success" onclick="startCrawl()">▶️ 开始采集</button>
+        <span id="crawlResult" style="font-size:13px;margin-left:8px"></span>
+      </div>
+    </div>
+  `;
+  loadCrawlTargets();
+}
+
+async function saveConfig() {
+  const body = {
+    name: document.getElementById('cfg_name').value,
+    company: document.getElementById('cfg_company').value,
+    color: document.getElementById('cfg_color').value,
+  };
+  await api('/config', { method: 'PUT', body: JSON.stringify(body) });
+  toast('配置已保存', 'success');
+}
+
+async function saveAIConfig() {
+  const body = {
+    ai_api_key: document.getElementById('cfg_ai_key').value,
+    ai_api_endpoint: document.getElementById('cfg_ai_endpoint').value,
+    ai_model: document.getElementById('cfg_ai_model').value,
+  };
+  if (!body.ai_api_key) return toast('请先填写 API Key', 'error');
+  await api('/config', { method: 'PUT', body: JSON.stringify(body) });
+  toast('AI配置已保存', 'success');
+}
+
+async function testAIConnection() {
+  const el = document.getElementById('aiTestResult');
+  el.textContent = '⏳ 测试中...';
+  el.style.color = 'var(--tl)';
+  const r = await api('/config/test-ai', { method: 'POST', body: '{}' });
+  if (r?.ok) {
+    el.textContent = '✅ ' + (r.message || '连接成功');
+    el.style.color = 'var(--ok)';
+  } else {
+    el.textContent = '❌ ' + (r?.error || '连接失败');
+    el.style.color = 'var(--dn)';
+  }
+}
+
+async function loadCrawlTargets() {
+  const targets = await api('/config/crawl-targets');
+  const el = document.getElementById('crawlTargetsList');
+  if (!el) return;
+  if (!targets || !targets.length) { el.innerHTML = '<div class="empty-state">暂无采集站点</div>'; return; }
+  el.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' + targets.map((t, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--brd);border-radius:8px;background:#f9fafb">
+      <input type="checkbox" ${t.enabled ? 'checked' : ''} onchange="toggleCrawlTarget(${i}, this.checked)" style="width:auto">
+      <input value="${esc(t.name || '')}" style="width:150px" onchange="targets[${i}].name=this.value">
+      <input value="${esc(t.url || '')}" style="flex:1;min-width:200px" onchange="targets[${i}].url=this.value">
+      <input value="${esc(t.keywords || '')}" style="width:150px" placeholder="关键词" onchange="targets[${i}].keywords=this.value">
+      <button class="btn btn-sm btn-danger" onclick="deleteCrawlTarget(${i})">🗑️</button>
+    </div>
+  `).join('') + '</div><button class="btn btn-sm btn-primary" onclick="addCrawlTarget()" style="margin-top:8px">+ 添加站点</button><button class="btn btn-sm btn-success" onclick="saveCrawlTargets()" style="margin-top:8px;margin-left:8px">保存站点配置</div>';
+  window._crawlTargets = targets;
+}
+
+async function toggleCrawlTarget(i, val) { if (window._crawlTargets) window._crawlTargets[i].enabled = val; }
+async function addCrawlTarget() { if (!window._crawlTargets) window._crawlTargets = []; window._crawlTargets.push({name:'新站点',url:'',enabled:true,keywords:''}); loadCrawlTargets(); }
+async function deleteCrawlTarget(i) { if (window._crawlTargets) { window._crawlTargets.splice(i,1); loadCrawlTargets(); } }
+async function saveCrawlTargets() { if (window._crawlTargets) { await api('/config/crawl-targets', {method:'PUT', body: JSON.stringify(window._crawlTargets)}); toast('站点配置已保存','success'); } }
+async function toggleSkill(id, active) { await api('/skills/'+id+'/toggle',{method:'POST',body:JSON.stringify({active})}); render('settings'); }
+async function deleteSkill(id) { if(!confirm('确认删除此技能？')) return; await api('/skills/'+id,{method:'DELETE'}); render('settings'); }
+async function showSkillForm(id) {
+  const custom = (window._skillsData?.custom || []);
+  const data = id ? custom.find(s => s.id === id) : null;
+  openModal(`
+    <h3>${data ? '编辑技能' : '新增技能'}</h3>
+    <div class="form-group"><label>技能名称 *</label><input id="sk_name" value="${esc(data?.name || '')}"></div>
+    <div class="form-group"><label>描述</label><input id="sk_desc" value="${esc(data?.description || '')}"></div>
+    <div class="form-group"><label>图标(emoji)</label><input id="sk_icon" value="${esc(data?.icon || '🔧')}" style="width:80px"></div>
+    <div class="form-group"><label>配置(JSON)</label><textarea id="sk_config" placeholder='{"type":"crawl","url":"..."}'>${esc(data?.config_json || '')}</textarea></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveSkill(${id || ''})">${data?'保存':'创建'}</button></div>
+  `);
+}
+async function saveSkill(id) {
+  const body = { name: document.getElementById('sk_name').value, description: document.getElementById('sk_desc').value, icon: document.getElementById('sk_icon').value, config_json: document.getElementById('sk_config').value };
+  if (!body.name) return toast('请填写名称','error');
+  const url = id ? '/skills/'+id : '/skills';
+  const method = id ? 'PUT' : 'POST';
+  const r = await api(url, {method, body: JSON.stringify(body)});
+  if (r?.error) return toast(r.error, 'error');
+  toast(id?'更新成功':'创建成功','success');
+  closeModal();
+  render('settings');
+}
+
+async function executeSkill(name) {
+  const r = await api('/skills/' + encodeURIComponent(name) + '/execute', { method: 'POST', body: JSON.stringify({}) });
+  if (r?.error) return toast('执行失败: ' + r.error, 'error');
+  toast('技能执行完成: ' + (r?.message || name), 'success');
+  if (name === 'crawl_leads' || name === 'crawl') { setTimeout(() => render('leads'), 1000); }
+}
+
+async function startCrawl() {
+  const el = document.getElementById('crawlResult');
+  el.textContent = '⏳ 采集中...';
+  el.style.color = 'var(--tl)';
+  const r = await api('/crawl', { method: 'POST', body: JSON.stringify({}) });
+  if (r?.ok) {
+    el.textContent = '✅ ' + (r.message || '采集完成');
+    el.style.color = 'var(--ok)';
+    setTimeout(() => render('leads'), 1000);
+  } else {
+    el.textContent = '❌ ' + (r?.error || '采集失败');
+    el.style.color = 'var(--dn)';
+  }
+}
+
+// ===== INIT =====
+const initialPage = window.location.hash.slice(1) || 'dashboard';
+onHashChange();
+</script>
+</body>
+</html>

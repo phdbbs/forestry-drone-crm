@@ -134,7 +134,11 @@ def list_leads():
     if status: query = query.filter_by(status=status)
     if level: query = query.filter_by(match_level=level)
     leads = query.order_by(Lead.created_at.desc()).all()
-    return jsonify([{"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "region": l.region, "purchaser": l.purchaser, "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_reason": l.match_reason, "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None} for l in leads])
+    result = []
+    for l in leads:
+        days_left = (l.deadline - datetime.now()).days if l.deadline else None
+        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
+    return jsonify(result)
 
 @api.route('/leads', methods=['POST'])
 def create_lead():
@@ -154,7 +158,7 @@ def get_lead(id):
 def update_lead(id):
     l = Lead.query.get_or_404(id)
     d = request.get_json()
-    for key in ['title','bid_number','budget','region','purchaser','service_content','match_keywords','match_level','match_reason','source_platform','source_url','status','customer_id']:
+    for key in ['title','bid_number','budget','region','purchaser','service_content','match_keywords','match_level','match_score','match_reason','assignee','source_platform','source_url','status','customer_id']:
         if key in d: setattr(l, key, d[key])
     if 'deadline' in d and d['deadline']: l.deadline = datetime.strptime(d['deadline'], '%Y-%m-%d')
     db.session.commit()
@@ -181,7 +185,7 @@ def abandon_lead(id):
 @api.route('/opportunities', methods=['GET'])
 def list_opportunities():
     ops = Opportunity.query.order_by(Opportunity.created_at.desc()).all()
-    return jsonify([{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "stages": [{"stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status} for s in o.stage_records]} for o in ops])
+    return jsonify([{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "created_at": str(o.created_at.date()) if o.created_at else None, "stages": [{"stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status, "created_at": str(s.created_at.date()) if s.created_at else None} for s in o.stage_records]} for o in ops])
 
 @api.route('/opportunities/<int:id>', methods=['GET'])
 def get_opportunity(id):
@@ -237,12 +241,12 @@ def list_contacts():
     query = Contact.query
     if q: query = query.filter(Contact.name.contains(q))
     if customer_id: query = query.filter_by(customer_id=int(customer_id))
-    return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes} for c in query.all()])
+    return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or c.name[0] if c.name else '', "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes} for c in query.all()])
 
 @api.route('/contacts', methods=['POST'])
 def create_contact():
     d = request.get_json()
-    c = Contact(name=d['name'], title=d.get('title',''), phone=d.get('phone',''), email=d.get('email',''), wechat=d.get('wechat',''), importance=d.get('importance',''), customer_id=d.get('customer_id'), business_scope=d.get('business_scope',''), notes=d.get('notes',''))
+    c = Contact(name=d['name'], title=d.get('title',''), phone=d.get('phone',''), email=d.get('email',''), wechat=d.get('wechat',''), role=d.get('role',''), tags=d.get('tags',''), avatar=d.get('avatar','') or (d['name'][0] if d.get('name') else ''), importance=d.get('importance',''), customer_id=d.get('customer_id'), business_scope=d.get('business_scope',''), notes=d.get('notes',''))
     db.session.add(c)
     db.session.commit()
     return jsonify({"id": c.id, "message": "创建成功"})
@@ -258,7 +262,7 @@ def get_contact(id):
 def update_contact(id):
     c = Contact.query.get_or_404(id)
     d = request.get_json()
-    for key in ['name','title','phone','email','wechat','importance','customer_id','business_scope','notes']:
+    for key in ['name','title','phone','email','wechat','role','tags','avatar','importance','customer_id','business_scope','notes']:
         if key in d: setattr(c, key, d[key])
     db.session.commit()
     return jsonify({"id": c.id, "message": "更新成功"})
@@ -551,8 +555,11 @@ def save_crawl_targets():
 def trigger_crawl():
     from app.services.crawler import run_crawl
     try:
-        count = run_crawl()
-        return jsonify({"ok": True, "message": f"爬取完成，新增 {count} 条线索", "count": count})
+        count, errors = run_crawl()
+        msg = f"爬取完成，新增 {count} 条线索"
+        if errors:
+            msg += f"（{len(errors)} 个关键词异常）"
+        return jsonify({"ok": True, "message": msg, "count": count, "errors": errors})
     except Exception as e:
         return jsonify({"ok": False, "error": f"爬取失败: {str(e)}"}), 200
 
@@ -566,7 +573,7 @@ def delete_lead(id):
 @api.route('/opportunities', methods=['POST'])
 def create_opportunity():
     d = request.get_json()
-    o = Opportunity(title=d['title'], customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), amount=d.get('amount',''), current_stage=d.get('current_stage','初步接触'))
+    o = Opportunity(title=d['title'], customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), amount=d.get('amount',''), current_stage=d.get('current_stage','初步接触'), probability=d.get('probability', 20), expected_close=datetime.strptime(d['expected_close'],'%Y-%m-%d') if d.get('expected_close') else None)
     db.session.add(o)
     db.session.commit()
     return jsonify({"id": o.id, "message": "创建成功"})
@@ -575,8 +582,10 @@ def create_opportunity():
 def update_opportunity(id):
     o = Opportunity.query.get_or_404(id)
     d = request.get_json()
-    for key in ['title','amount','current_stage','customer_id','contact_id']:
+    for key in ['title','amount','current_stage','customer_id','contact_id','probability']:
         if key in d: setattr(o, key, d[key])
+    if 'expected_close' in d and d['expected_close']:
+        o.expected_close = datetime.strptime(d['expected_close'], '%Y-%m-%d')
     db.session.commit()
     return jsonify({"id": o.id, "message": "更新成功"})
 
@@ -602,4 +611,66 @@ def get_options():
         "customer_types": parse_list('opt_customer_types', ['政府部门', '事业单位', '国有企业', '民营企业', '科研院所', '其他']),
         "customer_levels": parse_list('opt_customer_levels', ['A-重点客户', 'B-重要客户', 'C-一般客户', 'D-潜在客户']),
         "regions": parse_list('opt_regions', ['北京','上海','重庆','天津','河北','山西','辽宁','吉林','黑龙江','江苏','浙江','安徽','福建','江西','山东','河南','湖北','湖南','广东','海南','四川','贵州','云南','陕西','甘肃','青海','内蒙古','广西','西藏','宁夏','新疆']),
+    })
+
+@api.route('/leads/<int:id>/claim', methods=['POST'])
+def claim_lead(id):
+    l = Lead.query.get_or_404(id)
+    if l.status != 'pool':
+        return jsonify({"error": "仅公海池线索可领取"}), 400
+    d = request.get_json() or {}
+    l.status = 'active'
+    l.assignee = d.get('assignee', '李明')
+    db.session.commit()
+    return jsonify({"id": l.id, "message": f"已领取线索: {l.title[:30]}"})
+
+@api.route('/leads/<int:id>/release', methods=['POST'])
+def release_lead(id):
+    l = Lead.query.get_or_404(id)
+    l.status = 'pool'
+    l.assignee = ''
+    db.session.commit()
+    return jsonify({"message": "已释放至公海池"})
+
+@api.route('/analytics', methods=['GET'])
+def analytics():
+    from sqlalchemy import func as sa_func
+    import re as _re
+    def safe_amount(val):
+        if not val: return 0.0
+        m = _re.search(r'[\d.]+', str(val))
+        return float(m.group()) if m else 0.0
+    leads = Lead.query.all()
+    opportunities = Opportunity.query.all()
+    activities = Activity.query.all()
+    # Monthly leads trend (last 6 months)
+    monthly = []
+    now = datetime.now()
+    for i in range(5, -1, -1):
+        d = now - timedelta(days=30*i)
+        month_str = d.strftime('%Y-%m')
+        month_leads = [l for l in leads if l.created_at and l.created_at.strftime('%Y-%m') == month_str]
+        converted = [l for l in month_leads if l.status == 'converted']
+        monthly.append({"month": d.strftime('%m月'), "leads": len(month_leads), "converted": len(converted)})
+    # Funnel by stage
+    stages_list = ['初步接触','需求确认','方案报价','商务谈判','合同签订']
+    funnel = []
+    for s in stages_list:
+        stage_opps = [o for o in opportunities if o.current_stage == s]
+        total_amount = sum(safe_amount(o.amount) for o in stage_opps)
+        funnel.append({"stage": s, "count": len(stage_opps), "amount": total_amount})
+    # Win/loss
+    won = len([o for o in opportunities if o.current_stage == '合同签订'])
+    active = len([o for o in opportunities if o.current_stage != '合同签订'])
+    lost = len([o for o in opportunities if o.current_stage == '已丢单'])
+    win_loss = [{"name": "赢单", "value": won}, {"name": "进行中", "value": active}, {"name": "丢单", "value": lost}]
+    # Summary stats
+    total_amount = sum(safe_amount(o.amount) for o in opportunities)
+    won_amount = sum(safe_amount(o.amount) for o in opportunities if o.current_stage == '合同签订')
+    conversion_rate = round(len([l for l in leads if l.status == 'converted']) / max(len(leads), 1) * 100, 1)
+    return jsonify({
+        "summary": {"total_leads": len(leads), "total_opportunities": len(opportunities), "total_amount": total_amount, "won_amount": won_amount, "conversion_rate": conversion_rate, "total_activities": len(activities)},
+        "monthly_leads": monthly,
+        "funnel": funnel,
+        "win_loss": win_loss
     })
