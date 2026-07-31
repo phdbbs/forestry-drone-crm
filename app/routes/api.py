@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
 from app import db
 from app.models import (
     Customer, CustomerNews, Lead, Opportunity, OpportunityStage,
@@ -7,11 +7,65 @@ from app.models import (
 )
 from app.services.matcher import match_lead
 from app.services.skills import SkillRegistry
+from sqlalchemy.orm import joinedload
 from datetime import datetime, timedelta
 import requests as http_requests
 import json
 
 api = Blueprint('api', __name__)
+
+def _require_fields(d, *fields):
+    missing = [f for f in fields if not d.get(f)]
+    if missing:
+        abort(400, description=f"缺少必填字段: {', '.join(missing)}")
+
+def _parse_date(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d'):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"日期格式不正确: {text}")
+
+def _parse_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S'):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"时间格式不正确: {text}")
+
+def _first_board_column():
+    board = KanbanBoard.query.order_by(KanbanBoard.id).first()
+    if not board:
+        return None
+    if board.columns:
+        return board.columns[0]
+    col = KanbanColumn(board_id=board.id, name='待处理', sort_order=0)
+    db.session.add(col)
+    db.session.flush()
+    return col
+
+def _add_kanban_card(title, description='', deadline=None, color='blue',
+                     source_type='', source_id=None):
+    col = _first_board_column()
+    if not col:
+        return None
+    card = KanbanCard(column_id=col.id, title=title, description=description,
+                      deadline=deadline, label_color=color,
+                      source_type=source_type, source_id=source_id)
+    db.session.add(card)
+    return card
 
 @api.route('/skills', methods=['GET'])
 def list_skills():
@@ -69,14 +123,21 @@ def execute_skill(name):
 
 @api.route('/dashboard', methods=['GET'])
 def dashboard():
-    leads = Lead.query.filter_by(status='active').all()
+    leads = Lead.query.options(joinedload(Lead.customer)).filter_by(status='active').all()
     level_score = {'高匹配': 300, '中匹配': 200, '低匹配': 100}
     leads.sort(key=lambda l: -(level_score.get(l.match_level, 0)))
-    today = datetime.now().strftime('%Y-%m-%d')
-    today_activities = Activity.query.filter(db.func.date(Activity.activity_time) == today).all()
-    today_followups = FollowUp.query.filter(db.func.date(FollowUp.plan_date) == today).all()
-    urgent_leads = [l for l in leads if l.deadline and 0 < (l.deadline - datetime.now()).days <= 3]
-    opportunities = Opportunity.query.all()
+    now = datetime.now()
+    today = now.strftime('%Y-%m-%d')
+    today_activities = Activity.query.options(
+        joinedload(Activity.contact), joinedload(Activity.customer)
+    ).filter(db.func.date(Activity.activity_time) == today).all()
+    today_followups = FollowUp.query.options(
+        joinedload(FollowUp.contact)
+    ).filter(db.func.date(FollowUp.plan_date) == today).all()
+    urgent_leads = [l for l in leads if l.deadline and 0 < (l.deadline - now).days <= 3]
+    opportunities = Opportunity.query.options(
+        joinedload(Opportunity.customer)
+    ).order_by(Opportunity.created_at.desc()).all()
     kanban_cards = KanbanCard.query.filter(KanbanCard.deadline.isnot(None)).order_by(KanbanCard.deadline).limit(10).all()
     return jsonify({
         "stats": {"active_leads": len(leads), "opportunities": len(opportunities), "today_activities": len(today_activities), "urgent_leads": len(urgent_leads), "today_followups": len(today_followups)},
@@ -90,13 +151,16 @@ def dashboard():
 @api.route('/customers', methods=['GET'])
 def list_customers():
     q = request.args.get('search', '')
-    customers = Customer.query.filter_by(is_archived=False)
+    customers = Customer.query.options(
+        joinedload(Customer.contacts), joinedload(Customer.news_items)
+    ).filter_by(is_archived=False)
     if q: customers = customers.filter(Customer.name.contains(q))
     return jsonify([{"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "source": c.source, "contact_count": len(c.contacts), "news_count": len(c.news_items)} for c in customers.all()])
 
 @api.route('/customers', methods=['POST'])
 def create_customer():
-    d = request.get_json()
+    d = request.get_json() or {}
+    _require_fields(d, 'name')
     c = Customer(name=d['name'], short_name=d.get('short_name',''), customer_type=d.get('type',''), level=d.get('level',''), region=d.get('region',''), address=d.get('address',''), website=d.get('website',''), registration_capital=d.get('capital',''), operation_years=d.get('years',''), social_security_count=d.get('social_count'), business_scope=d.get('scope',''), intellectual_property=d.get('ip',''), department=d.get('dept',''), source=d.get('source',''), remark=d.get('remark',''))
     db.session.add(c)
     db.session.commit()
@@ -110,7 +174,7 @@ def get_customer(id):
 @api.route('/customers/<int:id>', methods=['PUT'])
 def update_customer(id):
     c = Customer.query.get_or_404(id)
-    d = request.get_json()
+    d = request.get_json() or {}
     for key in ['name','short_name','customer_type','level','region','address','website','registration_capital','operation_years','business_scope','intellectual_property','department','source','remark']:
         if key in d: setattr(c, key, d[key])
     if 'social_count' in d: c.social_security_count = d['social_count']
@@ -129,7 +193,7 @@ def list_leads():
     q = request.args.get('search', '')
     status = request.args.get('status', '')
     level = request.args.get('level', '')
-    query = Lead.query
+    query = Lead.query.options(joinedload(Lead.customer))
     if q: query = query.filter(Lead.title.contains(q))
     if status: query = query.filter_by(status=status)
     if level: query = query.filter_by(match_level=level)
@@ -142,8 +206,9 @@ def list_leads():
 
 @api.route('/leads', methods=['POST'])
 def create_lead():
-    d = request.get_json()
-    l = Lead(bid_number=d.get('bid_number',''), title=d['title'], budget=d.get('budget',''), deadline=datetime.strptime(d['deadline'],'%Y-%m-%d') if d.get('deadline') else None, region=d.get('region',''), purchaser=d.get('purchaser',''), service_content=d.get('service_content',''), source_url=d.get('source_url',''), source_platform=d.get('source_platform',''), customer_id=d.get('customer_id'))
+    d = request.get_json() or {}
+    _require_fields(d, 'title')
+    l = Lead(bid_number=d.get('bid_number',''), title=d['title'], budget=d.get('budget',''), deadline=_parse_date(d.get('deadline')), region=d.get('region',''), purchaser=d.get('purchaser',''), service_content=d.get('service_content',''), source_url=d.get('source_url',''), source_platform=d.get('source_platform',''), customer_id=d.get('customer_id'))
     match_lead(l)
     db.session.add(l)
     db.session.commit()
@@ -157,10 +222,10 @@ def get_lead(id):
 @api.route('/leads/<int:id>', methods=['PUT'])
 def update_lead(id):
     l = Lead.query.get_or_404(id)
-    d = request.get_json()
+    d = request.get_json() or {}
     for key in ['title','bid_number','budget','region','purchaser','service_content','match_keywords','match_level','match_score','match_reason','assignee','source_platform','source_url','status','customer_id']:
         if key in d: setattr(l, key, d[key])
-    if 'deadline' in d and d['deadline']: l.deadline = datetime.strptime(d['deadline'], '%Y-%m-%d')
+    if 'deadline' in d: l.deadline = _parse_date(d.get('deadline'))
     db.session.commit()
     return jsonify({"id": l.id, "message": "更新成功"})
 
@@ -184,7 +249,11 @@ def abandon_lead(id):
 
 @api.route('/opportunities', methods=['GET'])
 def list_opportunities():
-    ops = Opportunity.query.order_by(Opportunity.created_at.desc()).all()
+    ops = Opportunity.query.options(
+        joinedload(Opportunity.customer),
+        joinedload(Opportunity.contact),
+        joinedload(Opportunity.stage_records),
+    ).order_by(Opportunity.created_at.desc()).all()
     return jsonify([{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "created_at": str(o.created_at.date()) if o.created_at else None, "stages": [{"stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status, "created_at": str(s.created_at.date()) if s.created_at else None} for s in o.stage_records]} for o in ops])
 
 @api.route('/opportunities/<int:id>', methods=['GET'])
@@ -196,12 +265,21 @@ def get_opportunity(id):
 @api.route('/opportunities/<int:id>/stages', methods=['POST'])
 def add_stage_record(id):
     o = Opportunity.query.get_or_404(id)
-    d = request.get_json()
+    d = request.get_json() or {}
     record = StageRecord(opportunity_id=o.id, stage_name=d.get('stage_name',''), content=d.get('content',''), status='pending', add_to_kanban=d.get('add_to_kanban', False))
-    if d.get('deadline'): record.deadline = datetime.strptime(d['deadline'], '%Y-%m-%d')
+    record.deadline = _parse_date(d.get('deadline'))
     if d.get('status'): record.status = d['status']
     o.current_stage = record.stage_name
     db.session.add(record)
+    if record.add_to_kanban:
+        db.session.flush()
+        _add_kanban_card(
+            title=record.stage_name and f"[{record.stage_name}] {o.title[:50]}" or o.title,
+            description=record.content,
+            deadline=record.deadline,
+            source_type='stage',
+            source_id=record.id,
+        )
     db.session.commit()
     return jsonify({"id": record.id, "message": "阶段记录已添加"})
 
@@ -238,14 +316,15 @@ def delete_stage(id):
 def list_contacts():
     q = request.args.get('search', '')
     customer_id = request.args.get('customer_id', '')
-    query = Contact.query
+    query = Contact.query.options(joinedload(Contact.customer))
     if q: query = query.filter(Contact.name.contains(q))
     if customer_id: query = query.filter_by(customer_id=int(customer_id))
     return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or c.name[0] if c.name else '', "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes} for c in query.all()])
 
 @api.route('/contacts', methods=['POST'])
 def create_contact():
-    d = request.get_json()
+    d = request.get_json() or {}
+    _require_fields(d, 'name')
     c = Contact(name=d['name'], title=d.get('title',''), phone=d.get('phone',''), email=d.get('email',''), wechat=d.get('wechat',''), role=d.get('role',''), tags=d.get('tags',''), avatar=d.get('avatar','') or (d['name'][0] if d.get('name') else ''), importance=d.get('importance',''), customer_id=d.get('customer_id'), business_scope=d.get('business_scope',''), notes=d.get('notes',''))
     db.session.add(c)
     db.session.commit()
@@ -261,7 +340,7 @@ def get_contact(id):
 @api.route('/contacts/<int:id>', methods=['PUT'])
 def update_contact(id):
     c = Contact.query.get_or_404(id)
-    d = request.get_json()
+    d = request.get_json() or {}
     for key in ['name','title','phone','email','wechat','role','tags','avatar','importance','customer_id','business_scope','notes']:
         if key in d: setattr(c, key, d[key])
     db.session.commit()
@@ -278,7 +357,10 @@ def delete_contact(id):
 def list_activities():
     q = request.args.get('search', '')
     method = request.args.get('method', '')
-    query = Activity.query
+    query = Activity.query.options(
+        joinedload(Activity.customer), joinedload(Activity.contact),
+        joinedload(Activity.opportunity), joinedload(Activity.lead),
+    )
     if q: query = query.filter(Activity.content.contains(q))
     if method: query = query.filter_by(method=method)
     acts = query.order_by(Activity.activity_time.desc()).all()
@@ -286,9 +368,18 @@ def list_activities():
 
 @api.route('/activities', methods=['POST'])
 def create_activity():
-    d = request.get_json()
-    a = Activity(title=d.get('title',''), customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), opportunity_id=d.get('opportunity_id'), lead_id=d.get('lead_id'), method=d.get('method',''), content=d.get('content',''), activity_time=datetime.strptime(d['time'],'%Y-%m-%d %H:%M') if d.get('time') else datetime.utcnow(), next_followup_time=datetime.strptime(d['next_time'],'%Y-%m-%d') if d.get('next_time') else None, next_followup_content=d.get('next_content',''), add_to_kanban=d.get('add_to_kanban', False))
+    d = request.get_json() or {}
+    a = Activity(title=d.get('title',''), customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), opportunity_id=d.get('opportunity_id'), lead_id=d.get('lead_id'), method=d.get('method',''), content=d.get('content',''), activity_time=_parse_datetime(d.get('time')) or datetime.now(), next_followup_time=_parse_date(d.get('next_time')), next_followup_content=d.get('next_content',''), add_to_kanban=d.get('add_to_kanban', False))
     db.session.add(a)
+    if a.add_to_kanban:
+        db.session.flush()
+        _add_kanban_card(
+            title=d.get('content','')[:60] or d.get('title','') or '活动跟进',
+            description=f"活动: {d.get('method','')} | 客户: {a.customer.name if a.customer else '-'}",
+            deadline=a.next_followup_time,
+            source_type='activity',
+            source_id=a.id,
+        )
     db.session.commit()
     # Auto-create follow-up with source activity info
     if d.get('next_time'):
@@ -298,13 +389,22 @@ def create_activity():
             contact_id=d.get('contact_id'),
             customer_id=d.get('customer_id'),
             opportunity_id=d.get('opportunity_id'),
-            plan_date=datetime.strptime(d['next_time'], '%Y-%m-%d'),
+            plan_date=_parse_date(d.get('next_time')),
             content=fu_content,
             ai_suggested_content=ai_suggested,
             source_activity_id=a.id,
             add_to_kanban=d.get('add_to_kanban', False)
         )
         db.session.add(fu)
+        if fu.add_to_kanban:
+            db.session.flush()
+            _add_kanban_card(
+                title=fu_content[:60],
+                description=ai_suggested[:100],
+                deadline=fu.plan_date,
+                source_type='followup',
+                source_id=fu.id,
+            )
         db.session.commit()
     return jsonify({"id": a.id, "message": "创建成功"})
 
@@ -316,11 +416,15 @@ def get_activity(id):
 @api.route('/activities/<int:id>', methods=['PUT'])
 def update_activity(id):
     a = Activity.query.get_or_404(id)
-    d = request.get_json()
+    d = request.get_json() or {}
     for key in ['title','method','content','next_followup_content','customer_id','contact_id','opportunity_id','lead_id']:
         if key in d: setattr(a, key, d[key])
-    if 'time' in d and d['time']: a.activity_time = datetime.strptime(d['time'], '%Y-%m-%d %H:%M')
-    if 'next_time' in d and d['next_time']: a.next_followup_time = datetime.strptime(d['next_time'], '%Y-%m-%d')
+    if 'time' in d: a.activity_time = _parse_datetime(d.get('time')) or a.activity_time
+    if 'next_time' in d:
+        a.next_followup_time = _parse_date(d.get('next_time'))
+        fu = FollowUp.query.filter_by(source_activity_id=a.id).first()
+        if fu and a.next_followup_time:
+            fu.plan_date = a.next_followup_time
     db.session.commit()
     return jsonify({"id": a.id, "message": "更新成功"})
 
@@ -335,7 +439,11 @@ def delete_activity(id):
 @api.route('/followups', methods=['GET'])
 def list_followups():
     q = request.args.get('search', '')
-    query = FollowUp.query
+    query = FollowUp.query.options(
+        joinedload(FollowUp.customer), joinedload(FollowUp.contact),
+        joinedload(FollowUp.opportunity), joinedload(FollowUp.lead),
+        joinedload(FollowUp.source_activity),
+    )
     if q: query = query.filter(FollowUp.content.contains(q))
     items = query.order_by(FollowUp.plan_date).all()
     return jsonify([{
@@ -356,25 +464,34 @@ def list_followups():
 
 @api.route('/followups', methods=['POST'])
 def create_followup():
-    d = request.get_json()
+    d = request.get_json() or {}
     f = FollowUp(
         contact_id=d.get('contact_id'), customer_id=d.get('customer_id'),
-        plan_date=datetime.strptime(d['plan_date'], '%Y-%m-%d') if d.get('plan_date') else None,
+        plan_date=_parse_date(d.get('plan_date')),
         content=d.get('content',''), ai_suggested_content=d.get('ai_content',''),
         add_to_kanban=d.get('add_to_kanban', False)
     )
     db.session.add(f)
+    if f.add_to_kanban:
+        db.session.flush()
+        _add_kanban_card(
+            title=f.content[:60] or '跟进计划',
+            description=f.ai_suggested_content[:100] if f.ai_suggested_content else '',
+            deadline=f.plan_date,
+            source_type='followup',
+            source_id=f.id,
+        )
     db.session.commit()
     return jsonify({"id": f.id, "message": "创建成功"})
 
 @api.route('/followups/<int:id>', methods=['PUT'])
 def update_followup(id):
     f = FollowUp.query.get_or_404(id)
-    d = request.get_json()
+    d = request.get_json() or {}
     for key in ['content', 'ai_suggested_content', 'actual_content', 'add_to_kanban', 'contact_id', 'customer_id']:
         if key in d: setattr(f, key, d[key])
-    if 'plan_date' in d and d['plan_date']: f.plan_date = datetime.strptime(d['plan_date'], '%Y-%m-%d')
-    if 'actual_date' in d and d['actual_date']: f.actual_date = datetime.strptime(d['actual_date'], '%Y-%m-%d')
+    if 'plan_date' in d: f.plan_date = _parse_date(d.get('plan_date'))
+    if 'actual_date' in d: f.actual_date = _parse_date(d.get('actual_date'))
     db.session.commit()
     return jsonify({"id": f.id, "message": "更新成功"})
 
@@ -418,7 +535,11 @@ def daily_brief():
 
 @api.route('/kanban/boards', methods=['GET'])
 def list_boards():
-    boards = KanbanBoard.query.all()
+    q = request.args.get('search', '')
+    query = KanbanBoard.query
+    if q:
+        query = query.filter(KanbanBoard.name.contains(q))
+    boards = query.all()
     result = []
     for b in boards:
         cols = []
@@ -471,9 +592,11 @@ def delete_card(card_id):
 
 @api.route('/kanban/import', methods=['POST'])
 def import_to_kanban():
-    d = request.get_json()
+    d = request.get_json() or {}
     board_id = d.get('board_id')
     items = d.get('items', [])
+    if not items:
+        abort(400, description="items 不能为空")
     board = KanbanBoard.query.get_or_404(board_id)
     target_col = board.columns[0] if board.columns else None
     if not target_col:
@@ -481,7 +604,7 @@ def import_to_kanban():
         db.session.add(target_col)
         db.session.flush()
     for item in items:
-        card = KanbanCard(column_id=target_col.id, title=item.get('title',''), description=item.get('description',''), label_color=item.get('color','blue'), source_type=item.get('source_type',''), source_id=item.get('source_id'))
+        card = KanbanCard(column_id=target_col.id, title=item.get('title',''), description=item.get('description',''), label_color=item.get('color','blue'), deadline=_parse_date(item.get('deadline')), source_type=item.get('source_type',''), source_id=item.get('source_id'))
         db.session.add(card)
     db.session.commit()
     return jsonify({"message": f"已导入 {len(items)} 张卡片"})
@@ -652,17 +775,19 @@ def analytics():
         month_leads = [l for l in leads if l.created_at and l.created_at.strftime('%Y-%m') == month_str]
         converted = [l for l in month_leads if l.status == 'converted']
         monthly.append({"month": d.strftime('%m月'), "leads": len(month_leads), "converted": len(converted)})
-    # Funnel by stage
-    stages_list = ['初步接触','需求确认','方案报价','商务谈判','合同签订']
+    # Funnel by stage: 优先使用配置阶段，并补充数据中出现的其他阶段
+    configured = [s.name for s in OpportunityStage.query.order_by(OpportunityStage.sort_order).all()]
+    seen = [o.current_stage for o in opportunities if o.current_stage]
+    stages_list = configured + [s for s in seen if s not in configured]
     funnel = []
     for s in stages_list:
         stage_opps = [o for o in opportunities if o.current_stage == s]
         total_amount = sum(safe_amount(o.amount) for o in stage_opps)
         funnel.append({"stage": s, "count": len(stage_opps), "amount": total_amount})
     # Win/loss
-    won = len([o for o in opportunities if o.current_stage == '合同签订'])
-    active = len([o for o in opportunities if o.current_stage != '合同签订'])
+    won = len([o for o in opportunities if o.current_stage in ('合同签订', '合同签约')])
     lost = len([o for o in opportunities if o.current_stage == '已丢单'])
+    active = len(opportunities) - won - lost
     win_loss = [{"name": "赢单", "value": won}, {"name": "进行中", "value": active}, {"name": "丢单", "value": lost}]
     # Summary stats
     total_amount = sum(safe_amount(o.amount) for o in opportunities)

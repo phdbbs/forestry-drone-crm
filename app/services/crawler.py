@@ -12,7 +12,7 @@ HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive",
-    "Referer": "http://www.ccgp.gov.cn/",
+    "Referer": "https://www.ccgp.gov.cn/",
 }
 
 # Delay between keyword requests (seconds) to avoid triggering rate limits
@@ -117,7 +117,7 @@ def parse_search_results(html_text):
         if not title or len(title) < 5:
             continue
         if url and not url.startswith("http"):
-            url = "http://search.ccgp.gov.cn" + url
+            url = "https://search.ccgp.gov.cn" + url
 
         # Extract additional info from the full list item text
         item_text = item.get_text()
@@ -149,7 +149,7 @@ def crawl_gov_ccgp():
 
     # Warm up session by visiting main page (establishes cookies)
     try:
-        session.get("http://www.ccgp.gov.cn/", timeout=10)
+        session.get("https://www.ccgp.gov.cn/", timeout=10)
         time.sleep(1)
     except Exception:
         pass  # Non-critical
@@ -167,7 +167,7 @@ def crawl_gov_ccgp():
                 "pppStatus": 0, "agentName": "",
             }
             resp = session.get(
-                "http://search.ccgp.gov.cn/bxsearch",
+                "https://search.ccgp.gov.cn/bxsearch",
                 params=params, timeout=15
             )
             resp.encoding = resp.apparent_encoding or "utf-8"

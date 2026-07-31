@@ -6,18 +6,21 @@ db = SQLAlchemy()
 
 def create_app(config=None):
     app = Flask(__name__, static_folder='static', template_folder='templates')
-    app.config['SECRET_KEY'] = 'forest-drone-crm-2026'
+    app.config['SECRET_KEY'] = os.environ.get('CRM_SECRET_KEY', 'forest-drone-crm-2026')
     db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'instance', 'crm.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     if config:
         app.config.update(config)
-    try:
-        from flask_cors import CORS
-        CORS(app)
-    except ImportError:
-        pass
+    cors_origins = os.environ.get('CRM_CORS_ORIGINS', '')
+    if cors_origins:
+        try:
+            from flask_cors import CORS
+            CORS(app, origins=[o.strip() for o in cors_origins.split(',') if o.strip()])
+        except ImportError:
+            pass
     db.init_app(app)
+    _register_error_handlers(app)
     from app.routes import api
     app.register_blueprint(api, url_prefix='/api')
 
@@ -63,3 +66,24 @@ def _migrate_db():
             except Exception:
                 pass
         conn.commit()
+
+def _register_error_handlers(app):
+    from flask import jsonify
+    from sqlalchemy.exc import IntegrityError
+
+    @app.errorhandler(400)
+    @app.errorhandler(404)
+    def handle_http_error(e):
+        return jsonify({"error": getattr(e, 'description', None) or '请求错误'}), e.code
+
+    @app.errorhandler(KeyError)
+    @app.errorhandler(ValueError)
+    @app.errorhandler(IntegrityError)
+    def handle_bad_request(e):
+        db.session.rollback()
+        return jsonify({"error": f"参数错误: {e}"}), 400
+
+    @app.errorhandler(500)
+    def handle_server_error(e):
+        db.session.rollback()
+        return jsonify({"error": "服务器内部错误"}), 500

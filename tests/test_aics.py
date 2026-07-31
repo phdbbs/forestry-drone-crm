@@ -263,7 +263,14 @@ ep("AICS-M007-005", "Skill list", "GET", "/api/skills")
 ep("AICS-M007-006", "Create skill", "POST", "/api/skills", body={
     "name": "aics_test_skill_007", "description": "AICS Test Skill", "icon": "TEST"
 })
-run_test("AICS-M007-007", "Delete skill", "GET", "/api/skills")
+_skill_resp = client.post('/api/skills', json={
+    "name": "aics_test_skill_007_del", "description": "AICS Test Skill (to delete)", "icon": "TEST"
+})
+_skill_id = (_skill_resp.get_json() or {}).get('id') if _skill_resp.status_code == 200 else None
+if _skill_id:
+    ep("AICS-M007-007", "Delete skill", "DELETE", f"/api/skills/{_skill_id}")
+else:
+    run_test("AICS-M007-007", "Delete skill", "GET", "/api/skills", expected_status=200)
 
 # ============================================================
 # AICS-M008: AI Suggestions & Daily Brief
@@ -330,6 +337,10 @@ run_test("AICS-M010-005", "Dashboard today followups", "GET", "/api/dashboard",
 # AICS-M011: Data Crawler Module
 # ============================================================
 print("\n=== AICS-M011: Data Crawler ===")
+
+# Mock crawler to avoid real network requests in tests
+import app.services.crawler as _crawler_mod
+_crawler_mod.run_crawl = lambda app=None: (0, [])
 
 ep("AICS-M011-001", "Crawler trigger endpoint", "POST", "/api/crawl", body={"url": "https://www.ccgp.gov.cn/"})
 
