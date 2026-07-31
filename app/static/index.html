@@ -304,6 +304,7 @@ async function renderDashboard(c){
     <div class="grid2">
       <div>
         <div class="card"><div class="card-title">${IC.fire} 紧急事项</div><div id="urgentList"></div></div>
+        <div class="card"><div class="card-title">${IC.lightning} AI 紧急任务 · 当日跟进方案<button class="btn btn-sm" style="margin-left:auto" onclick="loadUrgentTasks(true)">刷新</button></div><div id="aiTasks"><div class="empty-state">AI 分析中，首次约需 1-2 分钟...</div></div></div>
         <div class="card"><div class="card-title">${IC.clock} 今日联络计划</div><div id="todayFollowups"></div></div>
       </div>
       <div>
@@ -323,6 +324,7 @@ async function renderDashboard(c){
       </div>`;
     }).join('');
   } else ul.innerHTML='<div class="empty-state">暂无紧急事项</div>';
+  loadUrgentTasks(false);
   // Today followups
   const tf=document.getElementById('todayFollowups');
   if(data.today_followups&&data.today_followups.length){
@@ -464,11 +466,52 @@ async function viewLeadDetail(id){
     ${l.source_url?`<div style="margin-top:8px"><a href="${esc(l.source_url)}" target="_blank" style="color:var(--if);font-size:13px">查看原文</a></div>`:''}
     <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`);
 }
+let crawlPoller=null;
 async function triggerCrawl(){
-  toast('正在采集...','info');
   const r=await api('/crawl',{method:'POST'});
-  if(r.ok)toast(r.message);else toast(r.error||'采集失败','error');
-  if(window.location.hash==='#leads')renderLeads(document.getElementById('content'));
+  if(r.running){toast('采集已启动，正在抓取并AI分析...','info');startCrawlPolling();}
+  else if(r.ok){toast(r.message||'采集完成');refreshAfterCrawl();}
+  else toast(r.error||'启动失败','error');
+}
+function startCrawlPolling(){
+  if(crawlPoller)return;
+  const bar=document.getElementById('crawlStatus');
+  if(bar)bar.innerHTML='<div style="color:var(--if)">采集进行中，请稍候...</div>';
+  crawlPoller=setInterval(async()=>{
+    try{
+      const s=await api('/crawl/status');
+      const bar=document.getElementById('crawlStatus');
+      if(bar&&s.running)bar.innerHTML=`<div style="color:var(--if)">${esc(s.phase||'')} ${s.progress||0}/${s.total||'-'} ${esc(s.current||'')} 已生成 ${s.count||0} 条线索</div>`;
+      if(!s.running){
+        clearInterval(crawlPoller);crawlPoller=null;
+        if(bar)bar.innerHTML=`<div>${esc(s.message||'采集完成')}${(s.errors&&s.errors.length)?'<br>'+esc(s.errors.slice(0,3).join('<br>')):''}</div>`;
+        toast(s.message||'采集完成');
+        refreshAfterCrawl();
+      }
+    }catch(e){}
+  },6000);
+}
+function refreshAfterCrawl(){
+  const hash=window.location.hash||'#dashboard';
+  const pages={leads:'renderLeads',settings:'renderSettings',dashboard:'renderDashboard',contactlog:'renderContactLog',kanban:'renderKanban'};
+  const fn=pages[hash.slice(1)];
+  if(fn&&window[fn])window[fn](document.getElementById('content'));
+}
+async function loadUrgentTasks(force){
+  const el=document.getElementById('aiTasks');
+  if(!el)return;
+  el.innerHTML='<div class="empty-state">AI 分析中，请稍候（首次约 1-2 分钟）...</div>';
+  let r;
+  try{
+    r=force?await api('/ai/urgent-tasks/refresh',{method:'POST'}):await api('/ai/urgent-tasks');
+  }catch(e){el.innerHTML='<div class="empty-state">AI 分析请求失败</div>';return}
+  if(!r.ok){el.innerHTML=`<div class="empty-state">${esc(r.error||'AI 分析失败')}</div>`;return}
+  if(!r.tasks||!r.tasks.length){el.innerHTML='<div class="empty-state">暂无 AI 跟进任务</div>';return}
+  const pMap={high:'urgency-high',medium:'urgency-medium',low:'urgency-low'};
+  el.innerHTML=r.tasks.map(t=>`<div class="${pMap[t.priority]||'urgency-low'}" style="padding:10px 12px;border-radius:8px;margin-bottom:8px;font-size:13px">
+    <div style="font-weight:500">${esc(t.title)}</div>
+    <div style="font-size:12px;color:var(--tl);margin-top:4px">${esc(t.content)}${t.related?`<br>关联: ${esc(t.related)}`:''}</div>
+  </div>`).join('')+`<div style="font-size:11px;color:var(--tl);margin-top:6px">生成: ${esc(r.generated_at||'')}${r.source==='cache'?'（缓存，可点刷新）':''}</div>`;
 }
 
 // ===== 3. Opportunities =====
@@ -812,6 +855,7 @@ async function renderContactLog(c){
 }
 async function showActivityForm(){
   const [customers,contacts]=await Promise.all([api('/customers'),api('/contacts')]);
+  window._allContacts=contacts;
   openModal(`<h3>新建联络记录</h3>
     <div class="form-row">
       <div class="form-group"><label>客户</label><select id="afCustomer" data-searchable onchange="updateActContacts()"><option value="">请选择</option>${customers.map(cu=>`<option value="${cu.id}">${esc(cu.name)}</option>`).join('')}</select></div>
@@ -828,6 +872,16 @@ async function showActivityForm(){
     </div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveActivity()">保存</button></div>`);
   initSearchableInModal();
+}
+function updateActContacts(){
+  const cuId=document.getElementById('afCustomer')?.value;
+  const sel=document.getElementById('afContact');
+  if(!sel)return;
+  const all=window._allContacts||[];
+  const filtered=cuId?all.filter(c=>String(c.customer_id)===String(cuId)):all;
+  sel.innerHTML='<option value="">请选择</option>'+filtered.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if(sel._ssBuild)sel._ssBuild();
+  if(sel._ssTrigger)sel._ssTrigger.querySelector('span').textContent=sel.options[sel.selectedIndex]?.text||'请选择';
 }
 async function saveActivity(){
   const d={customer_id:document.getElementById('afCustomer').value||null,contact_id:document.getElementById('afContact').value||null,method:document.getElementById('afMethod').value,time:document.getElementById('afTime').value?document.getElementById('afTime').value.replace('T',' '):'',content:document.getElementById('afContent').value,next_time:document.getElementById('afNextTime').value,next_content:document.getElementById('afNextContent').value};
@@ -990,12 +1044,19 @@ async function renderSettings(c){
         </div>
       </div>
       <div class="card">
-        <div class="card-title">爬取配置</div>
+        <div class="card-title">采集配置（AI 真实采集）</div>
+        <div class="form-group"><label>采集来源（每行一个，格式：来源名称|URL）</label><textarea id="cfgSources" rows="5" placeholder="中国政府采购网-中央公告|https://www.ccgp.gov.cn/cggg/zygg/&#10;中国政府采购网-地方公告|https://www.ccgp.gov.cn/cggg/dfgg/"></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>每次 AI 抽取上限（条）</label><input id="cfgLimit" type="number" min="1" max="50" value="5"></div>
+          <div class="form-group"><label>上次采集时间点（下次采集从此开始）</label><input id="lastCrawlAt" readonly style="background:#f1f5f9"></div>
+        </div>
+        <div class="form-group"><label><input type="checkbox" id="cfgKwFilter" checked> 启用关键词过滤（命中少时自动扩大范围）</label></div>
         <div class="form-group"><label>关键词(逗号分隔)</label><input id="cfgKeywords" value="${esc(getV('keywords','无人机,林业,病虫害,巡检'))}"></div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" onclick="saveKeywords()">保存</button>
+          <button class="btn btn-primary" onclick="saveCrawlConfig()">保存采集配置</button>
           <button class="btn" onclick="triggerCrawl()">${IC.lightning} 立即采集</button>
         </div>
+        <div id="crawlStatus" style="margin-top:10px;font-size:13px;color:var(--tl)"></div>
       </div>
     </div>
     <div class="card" style="margin-top:16px">
@@ -1003,7 +1064,28 @@ async function renderSettings(c){
       <div id="skillList">加载中...</div>
     </div>
   </div>`;
+  loadCrawlConfig(config);
   loadSkills();
+}
+function loadCrawlConfig(config){
+  const ta=document.getElementById('cfgSources');
+  if(!ta)return;
+  let sources=[];
+  try{sources=JSON.parse(config.crawl_sources?.value||'[]')}catch(e){}
+  if(Array.isArray(sources)&&sources.length){
+    ta.value=sources.filter(s=>s&&s.url).map(s=>`${s.name||s.url}|${s.url}${s.enabled===false?'':''}`).join('\n');
+  }
+  const lastAt=document.getElementById('lastCrawlAt');
+  if(lastAt)lastAt.value=config.last_crawl_at?.value||'首次采集（自动回溯最近7天）';
+  const limit=document.getElementById('cfgLimit'),kw=document.getElementById('cfgKwFilter');
+  if(limit)limit.value=config.crawl_limit?.value||'5';
+  if(kw)kw.checked=(config.crawl_keyword_filter?.value||'1')!=='0';
+  api('/crawl/status').then(s=>{
+    const bar=document.getElementById('crawlStatus');
+    if(!bar)return;
+    if(s.running)bar.innerHTML=`<div style="color:var(--if)">采集进行中: ${esc(s.phase||'')} ${s.progress||0}/${s.total||'-'} ${esc(s.current||'')} 已生成 ${s.count||0} 条</div>`;
+    else if(s.message)bar.innerHTML=`<div>上次: ${esc(s.message)}</div>`;
+  });
 }
 async function saveAIConfig(){
   await api('/config',{method:'PUT',body:JSON.stringify({ai_api_endpoint:document.getElementById('cfgEndpoint').value,ai_api_key:document.getElementById('cfgKey').value,ai_model:document.getElementById('cfgModel').value})});
@@ -1014,9 +1096,20 @@ async function testAI(){
   const r=await api('/config/test-ai',{method:'POST'});
   if(r.ok)toast(r.message);else toast(r.error||'连接失败','error');
 }
-async function saveKeywords(){
-  await api('/config',{method:'PUT',body:JSON.stringify({keywords:document.getElementById('cfgKeywords').value})});
-  toast('关键词已保存');
+async function saveCrawlConfig(){
+  const lines=(document.getElementById('cfgSources').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const sources=lines.map(l=>{
+    const sep=l.indexOf('|');
+    if(sep>0)return {name:l.slice(0,sep).trim(),url:l.slice(sep+1).trim(),enabled:true};
+    return {name:l,url:l,enabled:true};
+  });
+  await api('/config',{method:'PUT',body:JSON.stringify({
+    keywords:document.getElementById('cfgKeywords').value,
+    crawl_sources:JSON.stringify(sources),
+    crawl_limit:document.getElementById('cfgLimit').value||'5',
+    crawl_keyword_filter:document.getElementById('cfgKwFilter').checked?'1':'0'
+  })});
+  toast('采集配置已保存');
 }
 async function loadSkills(){
   const data=await api('/skills');
@@ -1026,7 +1119,7 @@ async function loadSkills(){
   el.innerHTML=all.map(s=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9">
     <div><span class="skill-badge" style="cursor:default">${s.icon||'🔧'} ${esc(s.name)}</span><span style="font-size:12px;color:var(--tl)">${esc(s.description||'')}</span></div>
     <div style="display:flex;gap:4px;align-items:center">
-      <span class="badge ${s.is_active?'badge-active':'badge-low'}">${s.is_active?'启用':'禁用'}</span>
+      <span class="badge ${s.is_builtin||s.is_active?'badge-active':'badge-low'}">${s.is_builtin?'内置':(s.is_active?'启用':'禁用')}</span>
       ${!s.is_builtin?`<button class="btn btn-sm" style="color:var(--dn)" onclick="deleteSkill(${s.id})">${IC.trash}</button>`:''}
     </div>
   </div>`).join('')||'<div class="empty-state">暂无技能</div>';

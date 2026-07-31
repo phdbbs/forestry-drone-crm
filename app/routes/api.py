@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, abort
+from flask import current_app
 from app import db
 from app.models import (
     Customer, CustomerNews, Lead, Opportunity, OpportunityStage,
@@ -639,7 +640,7 @@ def test_ai_connection():
             endpoint.rstrip('/') + '/chat/completions',
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={"model": model, "messages": [{"role": "user", "content": "hello"}], "max_tokens": 10},
-            timeout=15
+            timeout=180
         )
         if resp.status_code == 200:
             return jsonify({"ok": True, "message": f"连接成功！模型 {model} 响应正常", "model": model})
@@ -676,15 +677,62 @@ def save_crawl_targets():
 
 @api.route('/crawl', methods=['POST'])
 def trigger_crawl():
-    from app.services.crawler import run_crawl
+    from app.services.crawler import start_crawl_background
+    started = start_crawl_background(current_app._get_current_object())
+    if started:
+        return jsonify({"ok": True, "running": True, "message": "采集已启动，正在抓取并 AI 分析..."})
+    return jsonify({"ok": False, "running": True, "error": "采集已在运行中，请稍候"}), 200
+
+@api.route('/crawl/status', methods=['GET'])
+def crawl_status():
+    from app.services.crawler import get_crawl_status
+    return jsonify(get_crawl_status())
+
+@api.route('/ai/urgent-tasks', methods=['GET'])
+def get_urgent_tasks():
+    """AI 分析联系记录与项目数据，生成当日跟进方案（带 30 分钟缓存）。"""
+    from app.services.ai_client import generate_daily_plan
+    now = datetime.now()
+    cached = SystemConfig.query.filter_by(key='ai_urgent_tasks').first()
+    cached_at = SystemConfig.query.filter_by(key='ai_urgent_tasks_at').first()
+    ts = None
+    if cached_at and cached_at.value:
+        try:
+            ts = datetime.strptime(cached_at.value, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            ts = None
+    if cached and cached.value and ts and (now - ts).total_seconds() < 1800:
+        try:
+            return jsonify({"ok": True, "source": "cache", "generated_at": cached_at.value,
+                            **json.loads(cached.value)})
+        except (json.JSONDecodeError, TypeError):
+            pass
     try:
-        count, errors = run_crawl()
-        msg = f"爬取完成，新增 {count} 条线索"
-        if errors:
-            msg += f"（{len(errors)} 个关键词异常）"
-        return jsonify({"ok": True, "message": msg, "count": count, "errors": errors})
+        plan = generate_daily_plan()
+        store = SystemConfig.query.filter_by(key='ai_urgent_tasks').first()
+        if store:
+            store.value = json.dumps(plan, ensure_ascii=False)
+        else:
+            store = SystemConfig(key='ai_urgent_tasks', value=json.dumps(plan, ensure_ascii=False),
+                                 description='AI 每日跟进方案')
+            db.session.add(store)
+        at = SystemConfig.query.filter_by(key='ai_urgent_tasks_at').first()
+        ts_str = now.strftime('%Y-%m-%d %H:%M:%S')
+        if at:
+            at.value = ts_str
+        else:
+            at = SystemConfig(key='ai_urgent_tasks_at', value=ts_str, description='AI 方案生成时间')
+            db.session.add(at)
+        db.session.commit()
+        return jsonify({"ok": True, "source": "ai", "generated_at": ts_str, **plan})
     except Exception as e:
-        return jsonify({"ok": False, "error": f"爬取失败: {str(e)}"}), 200
+        return jsonify({"ok": False, "error": f"AI 分析失败: {str(e)[:200]}"}), 200
+
+@api.route('/ai/urgent-tasks/refresh', methods=['POST'])
+def refresh_urgent_tasks():
+    SystemConfig.query.filter_by(key='ai_urgent_tasks_at').delete()
+    db.session.commit()
+    return get_urgent_tasks()
 
 @api.route('/leads/<int:id>', methods=['DELETE'])
 def delete_lead(id):

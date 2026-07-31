@@ -1,9 +1,11 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
+from urllib.parse import urljoin
 from app import db
-from app.models import Lead
+from app.models import Lead, SystemConfig
 from app.services.matcher import match_lead
+from app.services.ai_client import extract_lead
 import re, time, json
 
 HEADERS = {
@@ -89,124 +91,283 @@ def detect_antibot(html_text):
     return None
 
 
-def parse_search_results(html_text):
-    """Parse search result HTML and extract lead data."""
-    soup = BeautifulSoup(html_text, "html.parser")
-    results = []
+def get_crawl_config():
+    """读取采集配置：多来源 URL、首次回溯天数、抽取上限、关键词过滤开关、上次采集时间点。"""
+    from app.models import SystemConfig
+    configs = {c.key: c.value for c in SystemConfig.query.all()}
 
-    # Try multiple CSS selectors (site structure may vary across versions)
-    selectors = [
-        ".vT-srch-result li",
-        "ul.vT-srch-result li",
-        ".vT_z_result_container li",
-        ".search_results li",
-        "div.vT-srch-result-list li",
-    ]
-    items = []
-    for sel in selectors:
-        items = soup.select(sel)
-        if items:
-            break
-
-    for item in items:
-        a = item.select_one("a")
-        if not a:
-            continue
-        title = a.get_text(strip=True)
-        url = a.get("href", "")
-        if not title or len(title) < 5:
-            continue
-        if url and not url.startswith("http"):
-            url = "https://search.ccgp.gov.cn" + url
-
-        # Extract additional info from the full list item text
-        item_text = item.get_text()
-        lead = Lead(
-            title=title,
-            budget=extract_budget(item_text),
-            deadline=extract_deadline(item_text),
-            region=extract_region(item_text),
-            purchaser="",
-            service_content=title,
-            source_url=url,
-            source_platform="中国政府采购网",
-        )
-        results.append(lead)
-
-    return results
-
-
-def crawl_gov_ccgp():
-    """Crawl the government procurement website.
-    Returns (leads_list, errors_list) tuple.
-    """
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    keywords = get_crawl_keywords()
-    all_results = []
-    errors = []
-
-    # Warm up session by visiting main page (establishes cookies)
-    try:
-        session.get("https://www.ccgp.gov.cn/", timeout=10)
-        time.sleep(1)
-    except Exception:
-        pass  # Non-critical
-
-    for i, keyword in enumerate(keywords):
-        if i > 0:
-            time.sleep(REQUEST_DELAY)
+    sources = []
+    raw_sources = configs.get('crawl_sources', '')
+    if raw_sources:
         try:
-            params = {
-                "fields": "", "kw": keyword, "page_index": 1,
-                "bidSort": 0, "buyerName": "", "projectId": "",
-                "pinMu": 0, "bidType": 0, "dbselect": "bidx",
-                "kw_type": 1, "start_time": "", "end_time": "",
-                "timeType": 0, "displayZone": "", "zoneId": "",
-                "pppStatus": 0, "agentName": "",
-            }
-            resp = session.get(
-                "https://search.ccgp.gov.cn/bxsearch",
-                params=params, timeout=15
-            )
-            resp.encoding = resp.apparent_encoding or "utf-8"
+            parsed = json.loads(raw_sources)
+            if isinstance(parsed, list):
+                for s in parsed:
+                    if isinstance(s, dict) and s.get('url'):
+                        sources.append({
+                            "name": str(s.get('name') or s['url']),
+                            "url": str(s['url']).strip(),
+                            "enabled": bool(s.get('enabled', True)),
+                        })
+        except (json.JSONDecodeError, TypeError):
+            for u in str(raw_sources).replace('，', ',').split(','):
+                u = u.strip()
+                if u:
+                    sources.append({"name": u, "url": u, "enabled": True})
+    if not sources:
+        sources = [
+            {"name": "中国政府采购网-中央公告", "url": "https://www.ccgp.gov.cn/cggg/zygg/", "enabled": True},
+            {"name": "中国政府采购网-地方公告", "url": "https://www.ccgp.gov.cn/cggg/dfgg/", "enabled": True},
+        ]
 
-            if resp.status_code != 200:
-                errors.append(f"[{keyword}] HTTP {resp.status_code}")
-                continue
+    try:
+        days = max(1, min(30, int(configs.get('crawl_days', '7') or 7)))
+    except (TypeError, ValueError):
+        days = 7
+    try:
+        limit = max(1, min(50, int(configs.get('crawl_limit', '5') or 5)))
+    except (TypeError, ValueError):
+        limit = 5
+    keyword_filter = configs.get('crawl_keyword_filter', '1') != '0'
+    last_crawl_at = None
+    raw_at = configs.get('last_crawl_at', '')
+    if raw_at:
+        try:
+            last_crawl_at = datetime.strptime(str(raw_at)[:16], "%Y-%m-%d %H:%M")
+        except ValueError:
+            last_crawl_at = None
+    return {
+        "sources": sources, "days": days, "limit": limit,
+        "keyword_filter": keyword_filter, "last_crawl_at": last_crawl_at,
+    }
 
-            # Check for anti-bot page
-            block_reason = detect_antibot(resp.text)
-            if block_reason:
-                errors.append(f"[{keyword}] {block_reason}")
-                time.sleep(REQUEST_DELAY * 2)
-                continue
 
-            leads = parse_search_results(resp.text)
-            all_results.extend(leads)
+SKIP_TYPES = ("中标", "成交", "废标", "终止", "更正", "结果", "流标")
 
-        except requests.exceptions.Timeout:
-            errors.append(f"[{keyword}] 请求超时(15s)")
-        except requests.exceptions.ConnectionError:
-            errors.append(f"[{keyword}] 网络连接失败")
-        except Exception as e:
-            errors.append(f"[{keyword}] {str(e)[:120]}")
 
-    return all_results, errors
+def parse_list_item(item_html):
+    """解析公告列表项，返回 dict 或 None。"""
+    soup = BeautifulSoup(item_html, "html.parser")
+    a = soup.find("a")
+    if not a:
+        return None
+    title = a.get_text(strip=True)
+    href = a.get("href", "")
+    if not title or len(title) < 5 or not href:
+        return None
+    text = soup.get_text(" ", strip=True)
+    m_date = re.search(r"发布时间[:：]\s*(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)", text)
+    m_region = re.search(r"地域[:：]\s*([^\s]*?)(?=\s*采购人|$)", text)
+    m_purchaser = re.search(r"采购人[:：]\s*(.+)$", text)
+    # 公告类型（标题后第一段，如"公开招标"/"中标公告"）
+    m_type = re.search(rf"{re.escape(title)}\s*(.*?)\s*发布时间", text)
+    atype = m_type.group(1) if m_type else ""
+    if any(k in atype for k in SKIP_TYPES):
+        return None
+    dt = None
+    if m_date:
+        try:
+            dt = datetime.strptime(m_date.group(1), "%Y-%m-%d %H:%M")
+        except ValueError:
+            try:
+                dt = datetime.strptime(m_date.group(1), "%Y-%m-%d")
+            except ValueError:
+                dt = None
+    return {
+        "title": title,
+        "url": href,
+        "date": m_date.group(1) if m_date else None,
+        "dt": dt,
+        "region": m_region.group(1) if m_region else "",
+        "purchaser": m_purchaser.group(1).strip() if m_purchaser else "",
+        "type": atype,
+    }
+
+
+def fetch_list_items(source, session):
+    """抓取来源列表页，返回 (items, error)。"""
+    resp = session.get(source["url"], timeout=20)
+    resp.encoding = resp.apparent_encoding or "utf-8"
+    if resp.status_code != 200:
+        return [], f"[{source['name']}] HTTP {resp.status_code}"
+    block = detect_antibot(resp.text)
+    if block:
+        return [], f"[{source['name']}] {block}"
+    soup = BeautifulSoup(resp.text, "html.parser")
+    items = []
+    for li in soup.find_all("li"):
+        item = parse_list_item(str(li))
+        if item:
+            item["url"] = urljoin(source["url"], item["url"])
+            items.append(item)
+    return items, ""
+
+
+def fetch_detail_text(url, session):
+    """抓取公告详情页并清洗为纯文本。"""
+    resp = session.get(url, timeout=20)
+    resp.encoding = resp.apparent_encoding or "utf-8"
+    if resp.status_code != 200:
+        raise RuntimeError(f"详情页 HTTP {resp.status_code}")
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+    return text[:4000]
+
+
+def _update_status(**kw):
+    _crawl_status.update(kw)
 
 
 def run_crawl(app=None):
-    """Execute crawl and save new leads to database.
-    Returns (count, errors) tuple.
-    """
-    leads, errors = crawl_gov_ccgp()
+    """真实采集：多来源列表页 → 时间范围/关键词过滤 → 详情页 → AI 抽取 → 生成线索。
+    返回 (count, errors)。"""
+    cfg = get_crawl_config()
+    errors = []
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    try:
+        session.get("https://www.ccgp.gov.cn/", timeout=15)
+    except Exception:
+        pass
+
+    candidates = []
+    sources = [s for s in cfg["sources"] if s.get("enabled")]
+    _update_status(phase="抓取列表页", total=len(sources))
+    for source in sources:
+        try:
+            items, err = fetch_list_items(source, session)
+            if err:
+                errors.append(err)
+                continue
+            for it in items:
+                it["source_name"] = source["name"]
+            candidates.extend(items)
+        except Exception as e:
+            errors.append(f"[{source['name']}] 列表页异常: {str(e)[:100]}")
+        time.sleep(1)
+
+    # 增量采集：从上次采集时间点开始；首次采集回溯最近 N 天
+    now = datetime.now()
+    checkpoint = cfg["last_crawl_at"]
+    dated = [it for it in candidates if it.get("dt")]
+    if checkpoint:
+        recent = [it for it in dated if it["dt"] >= checkpoint]
+    else:
+        cutoff = now - timedelta(days=cfg["days"])
+        recent = [it for it in dated if it["dt"] >= cutoff]
+    recent.sort(key=lambda it: it["dt"], reverse=True)
+
+    # 关键词过滤（命中太少时放宽到时间范围内的全部）
+    keywords = get_crawl_keywords()
+    hits = []
+    if cfg["keyword_filter"] and keywords:
+        hits = [it for it in recent if any(kw in it["title"] for kw in keywords)]
+        if len(hits) < 3:
+            errors.append("关键词命中较少，已按时间范围扩大抓取范围")
+    filtered = hits + [it for it in recent if it not in hits]
+    filtered = filtered[: cfg["limit"]]
+
+    _update_status(phase="AI抽取", total=len(filtered), count=0, errors=errors)
+    if checkpoint:
+        _update_status(message=f"增量采集：从 {checkpoint.strftime('%Y-%m-%d %H:%M')} 起，共 {len(recent)} 条候选")
+        _crawl_status["from_at"] = checkpoint.strftime("%Y-%m-%d %H:%M")
     count = 0
-    for lead in leads:
-        existing = Lead.query.filter_by(title=lead.title, source_url=lead.source_url).first()
-        if not existing:
+    for idx, item in enumerate(filtered, 1):
+        _update_status(progress=idx, current=item["title"][:60])
+        try:
+            if Lead.query.filter_by(source_url=item["url"]).first():
+                continue
+            page_text = fetch_detail_text(item["url"], session)
+            ai = extract_lead(item["title"], page_text, item["url"])
+            budget = ai["budget"]
+            if budget is None:
+                budget = extract_budget(page_text)
+            deadline = ai["deadline"]
+            if deadline:
+                try:
+                    deadline = datetime.strptime(str(deadline)[:10], "%Y-%m-%d")
+                except ValueError:
+                    deadline = None
+            region = item["region"] or extract_region(page_text)
+            service = "；".join(
+                f"{k}: {v}" for k, v in [
+                    ("客户方", ai["purchaser"]), ("联系人", ai["contact_name"]),
+                    ("联系方式", ai["contact_phone"]), ("地址", ai["address"]),
+                    ("预算", budget), ("摘要", ai["summary"]),
+                ] if v
+            )
+            lead = Lead(
+                title=ai["title"][:500],
+                budget=str(budget) if budget else "",
+                deadline=deadline,
+                region=region,
+                purchaser=ai["purchaser"],
+                service_content=service,
+                source_url=item["url"],
+                source_platform=item.get("source_name", "中国政府采购网"),
+                status="active",
+            )
             match_lead(lead)
             db.session.add(lead)
+            db.session.commit()
             count += 1
-    db.session.commit()
+            _update_status(count=count)
+        except Exception as e:
+            errors.append(f"[{item['title'][:30]}] {str(e)[:120]}")
+            db.session.rollback()
+        time.sleep(1)
+
+    _update_status(phase="完成", count=count, errors=errors)
+    # 记录本次采集时间点，供下次增量采集使用（仅列表页抓取成功时推进）
+    if candidates:
+        ts = now.strftime("%Y-%m-%d %H:%M")
+        store = SystemConfig.query.filter_by(key='last_crawl_at').first()
+        if store:
+            store.value = ts
+        else:
+            store = SystemConfig(key='last_crawl_at', value=ts, description='上次采集时间点(增量采集)')
+            db.session.add(store)
+        db.session.commit()
     return count, errors
+
+
+_crawl_status = {
+    "running": False, "phase": "", "progress": 0, "total": 0,
+    "current": "", "count": 0, "errors": [], "message": "",
+    "started_at": None, "finished_at": None,
+}
+
+
+def start_crawl_background(app):
+    """后台线程执行采集，避免 AI 抽取长时间阻塞请求。"""
+    import threading
+    if _crawl_status["running"]:
+        return False
+    _crawl_status.update({
+        "running": True, "phase": "准备中", "progress": 0, "total": 0,
+        "current": "", "count": 0, "errors": [], "message": "",
+        "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "finished_at": None,
+    })
+    threading.Thread(target=_crawl_worker, args=(app,), daemon=True).start()
+    return True
+
+
+def _crawl_worker(app):
+    try:
+        with app.app_context():
+            count, errors = run_crawl(app)
+            extra = f"（自 {_crawl_status.get('from_at', '首次/回溯')} 起）" if _crawl_status.get("from_at") else ""
+            _crawl_status.update({
+                "message": f"采集完成，新增 {count} 条线索{extra}" + (f"（{len(errors)} 个异常）" if errors else ""),
+            })
+    except Exception as e:
+        _crawl_status.update({"message": f"采集失败: {str(e)[:200]}"})
+    finally:
+        _crawl_status.update({"running": False, "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+
+def get_crawl_status():
+    return dict(_crawl_status)
