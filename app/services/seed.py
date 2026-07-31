@@ -1,8 +1,11 @@
 from app import db
 from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig
 from datetime import datetime
+import os
 
 def seed_if_empty():
+    if os.environ.get('CRM_SKIP_SEED') == '1':
+        return
     if Customer.query.first():
         return
     print("Seeding demo data...")
