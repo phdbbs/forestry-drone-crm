@@ -1,9 +1,13 @@
 """AI 客户端：调用 OpenAI 兼容接口（本地 qwen3-14b-mlx），用于招标信息抽取与每日跟进分析。"""
 import json
 import re
+import threading
+import time
 import requests
 from app import db
 from app.models import SystemConfig
+
+_ai_lock = threading.Lock()
 
 
 def get_ai_config():
@@ -15,8 +19,10 @@ def get_ai_config():
     }
 
 
-def chat(messages, max_tokens=1200, temperature=0.2, timeout=240):
-    """调用 AI 对话接口，返回 assistant content 文本。失败抛异常。"""
+def chat(messages, max_tokens=1200, temperature=0.2, timeout=240, retries=2):
+    """调用 AI 对话接口，返回 assistant content 文本。
+    本地模型偶发崩溃：串行执行 + 失败自动重试（间隔 15 秒）。
+    """
     cfg = get_ai_config()
     headers = {"Content-Type": "application/json"}
     if cfg["api_key"]:
@@ -27,19 +33,30 @@ def chat(messages, max_tokens=1200, temperature=0.2, timeout=240):
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    resp = requests.post(
-        cfg["endpoint"] + "/chat/completions",
-        headers=headers,
-        json=payload,
-        timeout=timeout,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(f"AI 接口返回 HTTP {resp.status_code}: {resp.text[:200]}")
-    data = resp.json()
-    try:
-        return data["choices"][0]["message"]["content"] or ""
-    except (KeyError, IndexError):
-        raise RuntimeError(f"AI 响应格式异常: {str(data)[:200]}")
+    with _ai_lock:  # 串行调用，避免本地模型并发崩溃
+        for attempt in range(retries + 1):
+            try:
+                resp = requests.post(
+                    cfg["endpoint"] + "/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=timeout,
+                )
+            except Exception as e:
+                if attempt < retries:
+                    time.sleep(15)
+                    continue
+                raise RuntimeError(f"AI 请求异常: {e}")
+            if resp.status_code == 200:
+                data = resp.json()
+                try:
+                    return data["choices"][0]["message"]["content"] or ""
+                except (KeyError, IndexError):
+                    raise RuntimeError(f"AI 响应格式异常: {str(data)[:200]}")
+            if attempt < retries:
+                time.sleep(15)
+                continue
+            raise RuntimeError(f"AI 接口返回 HTTP {resp.status_code}: {resp.text[:200]}")
 
 
 def _extract_json(text):
