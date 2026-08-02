@@ -823,7 +823,34 @@ async function viewContactDetail(id){
       <div><span style="color:var(--tl)">标签：</span>${esc(ct.tags||'-')}</div>
     </div>
     ${ct.notes?`<div style="margin-top:12px;font-size:13px;color:var(--tl)">备注：${esc(ct.notes)}</div>`:''}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:16px;margin-bottom:8px">
+      <span style="font-weight:600;font-size:13px">动态信息（官网/媒体提及）</span>
+      <button class="btn btn-sm btn-primary" onclick="collectContactNews(${id})">${IC.lightning} 采集</button>
+      <span id="cnewsMsg" style="font-size:12px;color:var(--tl)"></span>
+    </div>
+    ${(ct.contact_news||[]).length?`<table style="font-size:12px"><thead><tr><th>采集时间</th><th>来源</th><th>新闻标题</th><th>涉及摘要</th><th>事件时间</th><th></th></tr></thead><tbody>${ct.contact_news.map(n=>`<tr>
+      <td>${fmtDate(n.crawled_at)||'-'}</td>
+      <td>${esc(n.source_name||'-')}</td>
+      <td style="max-width:180px">${n.url?`<a href="${esc(n.url)}" target="_blank" style="color:var(--if)">${esc(n.title||'')}</a>`:esc(n.title||'')}</td>
+      <td style="max-width:200px;color:var(--tl)">${esc(n.summary||'')}</td>
+      <td>${esc(n.event_time||'-')}</td>
+      <td><button class="btn btn-sm" style="color:var(--dn)" onclick="deleteContactNews(${n.id},${id})">${IC.trash}</button></td>
+    </tr>`).join('')}</tbody></table>`:'<div class="empty-state" style="font-size:12px">暂无动态信息，点击采集（按姓名匹配官网/媒体新闻）</div>'}
     <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`);
+}
+async function collectContactNews(id){
+  const msg=document.getElementById('cnewsMsg');
+  if(msg)msg.textContent='采集中，请稍候...';
+  try{
+    const r=await api(`/contacts/${id}/collect-news`,{method:'POST'});
+    toast(r.message||r.error||'完成');
+    closeModal();viewContactDetail(id);
+  }catch(e){if(msg)msg.textContent='采集异常';}
+}
+async function deleteContactNews(id,cid){
+  if(!confirm('确认删除该条动态？'))return;
+  await api(`/news/contact/${id}`,{method:'DELETE'});
+  closeModal();viewContactDetail(cid);
 }
 async function showContactForm(id){
   const customers=await api('/customers');
@@ -926,6 +953,7 @@ async function showCustomerForm(id){
   const opts=await api('/options');
   openModal(`<h3>${id?'编辑':'新增'}客户</h3>
     <div class="form-group"><label>客户名称 *</label><input id="custName" value="${esc(cu.name)}"></div>
+    <div class="form-group"><label>官网（用于新闻采集）</label><input id="custWebsite" value="${esc(cu.website||'')}" placeholder="https://..."></div>
     <div class="form-row">
       <div class="form-group"><label>类型</label><select id="custType"><option value="">请选择</option>${(opts.customer_types||[]).map(t=>`<option ${cu.type===t||cu.customer_type===t?'selected':''}>${t}</option>`).join('')}</select></div>
       <div class="form-group"><label>等级</label><select id="custLevel"><option value="">请选择</option>${(opts.customer_levels||[]).map(l=>`<option ${cu.level===l?'selected':''}>${l}</option>`).join('')}</select></div>
@@ -938,7 +966,7 @@ async function showCustomerForm(id){
     <div class="modal-actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveCustomer(${id||'null'})">保存</button></div>`);
 }
 async function saveCustomer(id){
-  const d={name:document.getElementById('custName').value,type:document.getElementById('custType').value,level:document.getElementById('custLevel').value,region:document.getElementById('custRegion').value,source:document.getElementById('custSource').value,remark:document.getElementById('custRemark').value};
+  const d={name:document.getElementById('custName').value,website:document.getElementById('custWebsite').value,type:document.getElementById('custType').value,level:document.getElementById('custLevel').value,region:document.getElementById('custRegion').value,source:document.getElementById('custSource').value,remark:document.getElementById('custRemark').value};
   if(!d.name){toast('请输入名称','error');return}
   if(id)await api(`/customers/${id}`,{method:'PUT',body:JSON.stringify(d)});
   else await api('/customers',{method:'POST',body:JSON.stringify(d)});
@@ -958,6 +986,7 @@ async function viewCustomerDetail(id){
       <button class="tab-btn ${custTab==='contacts'?'active':''}" onclick="custTab='contacts';renderCustTab(${id})">联系人 (${(cu.contacts||[]).length})</button>
       <button class="tab-btn ${custTab==='opps'?'active':''}" onclick="custTab='opps';renderCustTab(${id})">商机 (${(cu.opportunities||[]).length})</button>
       <button class="tab-btn ${custTab==='acts'?'active':''}" onclick="custTab='acts';renderCustTab(${id})">联络记录</button>
+      <button class="tab-btn ${custTab==='news'?'active':''}" onclick="custTab='news';renderCustTab(${id})">动态信息 (${(cu.news||[]).length})</button>
     </div>
     <div id="custTabBody" style="min-height:80px">加载中...</div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`);
@@ -976,6 +1005,26 @@ async function renderCustTab(id){
     const acts=await api(`/activities?customer_id=${id}`);
     body.innerHTML=`<div style="margin-bottom:8px"><button class="btn btn-primary btn-sm" onclick="closeModal();showActivityForm(null,{customer_id:${id}})">${IC.plus} 新增日常联络</button></div>`+(acts.length?`<table><thead><tr><th>时间</th><th>联系人</th><th>内容</th><th>预计联系</th></tr></thead><tbody>${acts.map(a=>`<tr><td>${fmtDate(a.activity_time)||'-'}</td><td>${esc(a.contact_name||'-')}</td><td style="max-width:240px">${esc(a.content||'-')}</td><td>${fmtDate(a.next_followup_time)||'-'}</td></tr>`).join('')}</tbody></table>`:'<div class="empty-state">暂无联络记录</div>');
   }
+  if(custTab==='news'){
+    const cu=await api(`/customers/${id}`);
+    body.innerHTML=`<div style="margin-bottom:8px"><button class="btn btn-primary btn-sm" onclick="collectCustNews(${id})">${IC.lightning} 采集新闻</button><span id="custNewsMsg" style="font-size:12px;color:var(--tl);margin-left:8px"></span></div>`+(cu.news&&cu.news.length?`<table><thead><tr><th>采集时间</th><th>来源</th><th>新闻标题</th><th>事件时间</th><th>操作</th></tr></thead><tbody>${cu.news.map(n=>`<tr><td>${fmtDate(n.date)||'-'}</td><td>${esc(n.source_name||'-')}</td><td style="max-width:240px">${esc(n.title||'')}${n.content?`<div style="font-size:12px;color:var(--tl)">${esc(n.content.slice(0,80))}</div>`:''}</td><td>${esc(n.event_time||'-')}</td><td><button class="btn btn-sm" style="color:var(--dn)" onclick="deleteNews('customer',${n.id},${id})">${IC.trash}</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty-state">暂无动态信息，点击采集</div>');
+  }
+}
+async function collectCustNews(id){
+  const btn=document.querySelector('#custTabBody .btn-primary');
+  const msg=document.getElementById('custNewsMsg');
+  if(btn)btn.disabled=true;
+  if(msg)msg.textContent='采集中，请稍候...';
+  try{
+    const r=await api(`/customers/${id}/collect-news`,{method:'POST'});
+    toast(r.message||r.error||'完成');
+    custTab='news';renderCustTab(id);
+  }catch(e){if(msg)msg.textContent='采集异常';}
+}
+async function deleteNews(kind,id,custId){
+  if(!confirm('确认删除该条采集信息？'))return;
+  await api(`/news/${kind}/${id}`,{method:'DELETE'});
+  toast('已删除');custTab='news';renderCustTab(custId);
 }
 async function openOppFromCustomer(oppId){
   closeModal();
@@ -1444,9 +1493,64 @@ async function renderSettings(c){
       <div class="card-title">技能管理</div>
       <div id="skillList">加载中...</div>
     </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">${IC.lightning} 新闻/动态采集</div>
+      <div class="form-group"><label>新闻来源（每行一个，格式：来源名称|URL；含客户官网与媒体站点）</label><textarea id="cfgNewsSources" rows="4" placeholder="中国政府采购网-中央公告|https://www.ccgp.gov.cn/cggg/zygg/&#10;中国政府采购网-地方公告|https://www.ccgp.gov.cn/cggg/dfgg/"></textarea></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-primary" onclick="saveNewsConfig()">保存新闻来源</button>
+        <button class="btn" onclick="batchCollectNews()">批量采集客户新闻+联系人动态</button>
+        <span id="newsBatchMsg" style="font-size:12px;color:var(--tl)"></span>
+      </div>
+      <div style="font-weight:600;font-size:13px;margin:16px 0 8px">采集日志</div>
+      <div id="newsLogs" style="max-height:220px;overflow-y:auto;font-size:12px">加载中...</div>
+    </div>
   </div>`;
   loadCrawlConfig(config);
   loadSkills();
+  loadNewsConfig(config);
+  loadNewsLogs();
+}
+function loadNewsConfig(config){
+  const ta=document.getElementById('cfgNewsSources');
+  if(!ta)return;
+  let sources=[];
+  try{sources=JSON.parse(config.news_sources?.value||'[]')}catch(e){}
+  if(Array.isArray(sources)&&sources.length){
+    ta.value=sources.filter(s=>s&&s.url).map(s=>`${s.name||s.url}|${s.url}`).join('\n');
+  }
+}
+async function saveNewsConfig(){
+  const lines=(document.getElementById('cfgNewsSources').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const sources=lines.map(l=>{
+    const sep=l.indexOf('|');
+    if(sep>0)return {name:l.slice(0,sep).trim(),url:l.slice(sep+1).trim(),enabled:true};
+    return {name:l,url:l,enabled:true};
+  });
+  await api('/config',{method:'PUT',body:JSON.stringify({news_sources:JSON.stringify(sources)})});
+  toast('新闻来源已保存');
+}
+async function batchCollectNews(){
+  const msg=document.getElementById('newsBatchMsg');
+  if(msg)msg.textContent='采集中，请稍候（按客户/联系人逐条抓取）...';
+  try{
+    const r=await api('/news/collect-all',{method:'POST',body:JSON.stringify({type:'all'})});
+    toast(r.message||'完成');
+    if(msg)msg.textContent=(r.message||'')+(r.errors&&r.errors.length?`（${r.errors.length} 个异常）`:'');
+    loadNewsLogs();
+  }catch(e){if(msg)msg.textContent='批量采集异常';}
+}
+async function loadNewsLogs(){
+  const el=document.getElementById('newsLogs');
+  if(!el)return;
+  const logs=await api('/news/logs');
+  if(!logs.length){el.innerHTML='<div class="empty-state">暂无采集日志</div>';return}
+  el.innerHTML=logs.map(l=>`<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f1f5f9">
+    <span style="color:var(--tl)">${fmtDate(l.started_at)}</span>
+    <span class="badge ${l.status==='success'?'badge-active':l.status==='partial'?'badge-medium':'badge-abandoned'}">${l.status==='success'?'成功':l.status==='partial'?'部分异常':'失败'}</span>
+    <span>${esc(l.task_type||'')}</span>
+    <span style="color:var(--tl)">新增 ${l.items_count} 条${l.error_count?` / 异常 ${l.error_count}`:''}</span>
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.message||'')}</span>
+  </div>`).join('');
 }
 function loadCrawlConfig(config){
   const ta=document.getElementById('cfgSources');

@@ -4,7 +4,7 @@ from app import db
 from app.models import (
     Customer, CustomerNews, Lead, Opportunity, OpportunityStage,
     StageRecord, Contact, Activity, KanbanBoard, KanbanColumn,
-    KanbanCard, SystemConfig, Skill, FollowUp
+    KanbanCard, SystemConfig, Skill, FollowUp, ContactNews, CrawlLog
 )
 from app.services.matcher import match_lead
 from app.services.skills import SkillRegistry
@@ -170,7 +170,7 @@ def create_customer():
 @api.route('/customers/<int:id>', methods=['GET'])
 def get_customer(id):
     c = Customer.query.get_or_404(id)
-    return jsonify({"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "address": c.address, "website": c.website, "capital": c.registration_capital, "years": c.operation_years, "social_count": c.social_security_count, "scope": c.business_scope, "ip": c.intellectual_property, "dept": c.department, "source": c.source, "remark": c.remark, "contacts": [{"id": ct.id, "name": ct.name, "title": ct.title, "phone": ct.phone, "importance": ct.importance} for ct in c.contacts], "opportunities": [{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None} for o in c.opportunities], "news": [{"id": n.id, "title": n.title, "date": str(n.publish_date.date()) if n.publish_date else None, "type": n.change_type, "url": n.url} for n in c.news_items]})
+    return jsonify({"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "address": c.address, "website": c.website, "capital": c.registration_capital, "years": c.operation_years, "social_count": c.social_security_count, "scope": c.business_scope, "ip": c.intellectual_property, "dept": c.department, "source": c.source, "remark": c.remark, "contacts": [{"id": ct.id, "name": ct.name, "title": ct.title, "phone": ct.phone, "importance": ct.importance} for ct in c.contacts], "opportunities": [{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None} for o in c.opportunities], "news": [{"id": n.id, "title": n.title, "date": str(n.publish_date.date()) if n.publish_date else None, "type": n.change_type, "url": n.url, "source_name": n.source_name or '', "event_time": str(n.event_time.date()) if n.event_time else None, "content": (n.content or '')[:300]} for n in c.news_items]})
 
 @api.route('/customers/<int:id>', methods=['PUT'])
 def update_customer(id):
@@ -383,7 +383,8 @@ def get_contact(id):
     c = Contact.query.get_or_404(id)
     customer = c.customer
     news = [{"id": n.id, "title": n.title, "date": str(n.publish_date.date()) if n.publish_date else None, "url": n.url} for n in customer.news_items] if customer else []
-    return jsonify({"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "importance": c.importance, "customer_id": c.customer_id, "customer_name": customer.name if customer else None, "business_scope": c.business_scope, "notes": c.notes, "news": news})
+    contact_news = [{"id": n.id, "title": n.title, "url": n.url, "source_name": n.source_name or '', "date": str(n.publish_date.date()) if n.publish_date else None, "event_time": str(n.event_time.date()) if n.event_time else None, "summary": n.summary or '', "crawled_at": str(n.crawled_at) if n.crawled_at else None} for n in c.news_items]
+    return jsonify({"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "importance": c.importance, "customer_id": c.customer_id, "customer_name": customer.name if customer else None, "business_scope": c.business_scope, "notes": c.notes, "news": news, "contact_news": contact_news})
 
 @api.route('/contacts/<int:id>', methods=['PUT'])
 def update_contact(id):
@@ -656,6 +657,60 @@ def customer_news(id):
         "publish_date": str(n.publish_date) if n.publish_date else None,
         "crawled_at": str(n.crawled_at) if n.crawled_at else None
     } for n in news])
+
+@api.route('/customers/<int:id>/collect-news', methods=['POST'])
+def collect_customer_news_api(id):
+    from app.services.news_collector import collect_customer_news
+    try:
+        r = collect_customer_news(id)
+        return jsonify({"ok": True, **r})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"采集失败: {str(e)[:200]}"}), 200
+
+@api.route('/contacts/<int:id>/collect-news', methods=['POST'])
+def collect_contact_news_api(id):
+    from app.services.news_collector import collect_contact_news
+    try:
+        r = collect_contact_news(id)
+        return jsonify({"ok": True, **r})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"采集失败: {str(e)[:200]}"}), 200
+
+@api.route('/news/collect-all', methods=['POST'])
+def collect_all_news_api():
+    from app.services.news_collector import collect_all
+    d = request.get_json() or {}
+    kind = d.get('type', 'all')
+    try:
+        r = collect_all(kind)
+        return jsonify({"ok": True, "message": f"批量采集完成，新增 {r['count']} 条", **r})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"批量采集失败: {str(e)[:200]}"}), 200
+
+@api.route('/news/logs', methods=['GET'])
+def news_logs():
+    logs = CrawlLog.query.order_by(CrawlLog.started_at.desc()).limit(50).all()
+    return jsonify([{
+        "id": l.id, "task_type": l.task_type, "sources": l.sources,
+        "status": l.status, "items_count": l.items_count, "error_count": l.error_count,
+        "message": l.message,
+        "started_at": str(l.started_at) if l.started_at else None,
+        "finished_at": str(l.finished_at) if l.finished_at else None,
+    } for l in logs])
+
+@api.route('/news/customer/<int:id>', methods=['DELETE'])
+def delete_customer_news(id):
+    n = CustomerNews.query.get_or_404(id)
+    db.session.delete(n)
+    db.session.commit()
+    return jsonify({"message": "已删除"})
+
+@api.route('/news/contact/<int:id>', methods=['DELETE'])
+def delete_contact_news(id):
+    n = ContactNews.query.get_or_404(id)
+    db.session.delete(n)
+    db.session.commit()
+    return jsonify({"message": "已删除"})
 
 @api.route('/daily-brief', methods=['GET'])
 def daily_brief():

@@ -33,9 +33,41 @@ class CustomerNews(db.Model):
     title = db.Column(db.String(500))
     content = db.Column(db.Text)
     url = db.Column(db.String(1000))
+    source_name = db.Column(db.String(200), default='')
     change_type = db.Column(db.String(20))
     publish_date = db.Column(db.DateTime)
+    event_time = db.Column(db.DateTime)
     crawled_at = db.Column(db.DateTime, default=datetime.now)
+
+class ContactNews(db.Model):
+    """联系人动态信息：官网/媒体新闻中出现联系人姓名/职务时自动关联。"""
+    __tablename__ = 'contact_news'
+    id = db.Column(db.Integer, primary_key=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
+    title = db.Column(db.String(500))
+    content = db.Column(db.Text)
+    url = db.Column(db.String(1000))
+    source_name = db.Column(db.String(200), default='')
+    change_type = db.Column(db.String(20), default='')
+    publish_date = db.Column(db.DateTime)
+    event_time = db.Column(db.DateTime)
+    summary = db.Column(db.Text)
+    crawled_at = db.Column(db.DateTime, default=datetime.now)
+    contact = db.relationship('Contact', backref='news_items')
+
+class CrawlLog(db.Model):
+    """采集任务日志。"""
+    __tablename__ = 'crawl_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    task_type = db.Column(db.String(50))
+    sources = db.Column(db.String(500), default='')
+    status = db.Column(db.String(20), default='success')  # success/partial/failed
+    items_count = db.Column(db.Integer, default=0)
+    error_count = db.Column(db.Integer, default=0)
+    message = db.Column(db.Text)
+    started_at = db.Column(db.DateTime, default=datetime.now)
+    finished_at = db.Column(db.DateTime)
 
 class Lead(db.Model):
     __tablename__ = 'leads'
