@@ -503,12 +503,31 @@ def delete_activity(id):
 @api.route('/followups', methods=['GET'])
 def list_followups():
     q = request.args.get('search', '')
+    customer_id = request.args.get('customer_id', '')
+    contact_id = request.args.get('contact_id', '')
+    status = request.args.get('status', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
     query = FollowUp.query.options(
         joinedload(FollowUp.customer), joinedload(FollowUp.contact),
         joinedload(FollowUp.opportunity), joinedload(FollowUp.lead),
         joinedload(FollowUp.source_activity),
     )
     if q: query = query.filter(FollowUp.content.contains(q))
+    if customer_id:
+        try: query = query.filter_by(customer_id=int(customer_id))
+        except ValueError: pass
+    if contact_id:
+        try: query = query.filter_by(contact_id=int(contact_id))
+        except ValueError: pass
+    if status == 'pending': query = query.filter(FollowUp.actual_date.is_(None))
+    elif status == 'done': query = query.filter(FollowUp.actual_date.isnot(None))
+    if date_from:
+        d = _parse_date(date_from)
+        if d: query = query.filter(FollowUp.plan_date >= d)
+    if date_to:
+        d = _parse_date(date_to)
+        if d: query = query.filter(FollowUp.plan_date < d + timedelta(days=1))
     items = query.order_by(FollowUp.plan_date).all()
     return jsonify([{
         "id": f.id, "contact_id": f.contact_id, "opportunity_id": f.opportunity_id, "lead_id": f.lead_id,
@@ -531,6 +550,7 @@ def create_followup():
     d = request.get_json() or {}
     f = FollowUp(
         contact_id=d.get('contact_id'), customer_id=d.get('customer_id'),
+        opportunity_id=d.get('opportunity_id'),
         plan_date=_parse_date(d.get('plan_date')),
         content=d.get('content',''), ai_suggested_content=d.get('ai_content',''),
         add_to_kanban=d.get('add_to_kanban', False)
@@ -548,11 +568,66 @@ def create_followup():
     db.session.commit()
     return jsonify({"id": f.id, "message": "创建成功"})
 
+@api.route('/followups/<int:id>', methods=['GET'])
+def get_followup(id):
+    f = FollowUp.query.options(
+        joinedload(FollowUp.customer), joinedload(FollowUp.contact),
+        joinedload(FollowUp.opportunity), joinedload(FollowUp.lead),
+    ).get_or_404(id)
+    # 该客户/联系人此前的联系记录（供"详情"展示历史）
+    history = Activity.query.options(
+        joinedload(Activity.contact)
+    ).filter(Activity.customer_id == f.customer_id)
+    if f.contact_id:
+        history = history.filter(Activity.contact_id == f.contact_id)
+    history = history.order_by(Activity.activity_time.desc()).limit(20).all()
+    return jsonify({
+        "id": f.id, "contact_id": f.contact_id, "opportunity_id": f.opportunity_id, "lead_id": f.lead_id,
+        "contact_name": f.contact.name if f.contact else None,
+        "customer_id": f.customer_id,
+        "customer_name": f.customer.name if f.customer else None,
+        "opportunity_title": f.opportunity.title if f.opportunity else None,
+        "plan_date": str(f.plan_date.date()) if f.plan_date else None,
+        "content": f.content, "ai_suggested_content": f.ai_suggested_content,
+        "actual_date": str(f.actual_date.date()) if f.actual_date else None,
+        "actual_content": f.actual_content, "source_activity_id": f.source_activity_id,
+        "history": [{"id": a.id, "time": str(a.activity_time.date()) if a.activity_time else None,
+                     "method": a.method, "content": a.content,
+                     "contact_name": a.contact.name if a.contact else None,
+                     "next_followup_time": str(a.next_followup_time.date()) if a.next_followup_time else None}
+                    for a in history],
+    })
+
+@api.route('/followups/<int:id>/execute', methods=['POST'])
+def execute_followup(id):
+    """执行联络计划：标记完成，并把本次联系内容写入日常联络记录。"""
+    f = FollowUp.query.get_or_404(id)
+    if f.actual_date:
+        return jsonify({"error": "该计划已完成，不能重复执行"}), 400
+    d = request.get_json() or {}
+    content = (d.get('actual_content') or '').strip()
+    if not content:
+        return jsonify({"error": "请填写本次联系内容"}), 400
+    now = datetime.now()
+    f.actual_date = now
+    f.actual_content = content
+    a = Activity(
+        customer_id=f.customer_id, contact_id=f.contact_id, opportunity_id=f.opportunity_id,
+        lead_id=f.lead_id, method=d.get('method', '电话') or '电话',
+        content=content,
+        activity_time=now,
+        next_followup_time=_parse_date(d.get('next_time')),
+        next_followup_content=d.get('next_content', ''),
+    )
+    db.session.add(a)
+    db.session.commit()
+    return jsonify({"id": f.id, "activity_id": a.id, "message": "已记录本次联络，并在日常联络中可见"})
+
 @api.route('/followups/<int:id>', methods=['PUT'])
 def update_followup(id):
     f = FollowUp.query.get_or_404(id)
     d = request.get_json() or {}
-    for key in ['content', 'ai_suggested_content', 'actual_content', 'add_to_kanban', 'contact_id', 'customer_id']:
+    for key in ['content', 'ai_suggested_content', 'actual_content', 'add_to_kanban', 'contact_id', 'customer_id', 'opportunity_id']:
         if key in d: setattr(f, key, d[key])
     if 'plan_date' in d: f.plan_date = _parse_date(d.get('plan_date'))
     if 'actual_date' in d: f.actual_date = _parse_date(d.get('actual_date'))

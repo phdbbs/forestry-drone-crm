@@ -194,11 +194,12 @@ const NAV = [
   {id:'contacts',label:'联系人管理',icon:IC.user},
   {id:'customers',label:'客户管理',icon:IC.users},
   {id:'contactlog',label:'日常联络',icon:IC.phone},
+  {id:'followups',label:'联络计划',icon:IC.clock},
   {id:'kanban',label:'看板管理',icon:IC.kanban},
   {id:'reports',label:'数据报表',icon:IC.chart},
   {id:'settings',label:'系统设置',icon:IC.settings}
 ];
-const TITLES = {dashboard:'智能工作台',leads:'线索管理',opportunities:'商机管理',contacts:'联系人管理',customers:'客户管理',contactlog:'日常联络',kanban:'看板管理',reports:'数据报表',settings:'系统设置'};
+const TITLES = {dashboard:'智能工作台',leads:'线索管理',opportunities:'商机管理',contacts:'联系人管理',customers:'客户管理',contactlog:'日常联络',followups:'联络计划',kanban:'看板管理',reports:'数据报表',settings:'系统设置'};
 
 // ===== Utilities =====
 async function api(path, opts={}){
@@ -283,6 +284,7 @@ async function render(page){
     case 'contacts': await renderContacts(c);break;
     case 'customers': await renderCustomers(c);break;
     case 'contactlog': await renderContactLog(c);break;
+    case 'followups': await renderFollowups(c);break;
     case 'kanban': await renderKanban(c);break;
     case 'reports': await renderReports(c);break;
     case 'settings': await renderSettings(c);break;
@@ -344,8 +346,10 @@ async function renderDashboard(c){
 // ===== 2. Leads (with Pool) =====
 let leadsTab='active';
 let leadFilter={q:'',region:'',from:'',to:''};
+let leadDraft={q:'',region:'',from:'',to:''};
+let leadSort={key:'created_at',dir:-1};
 async function renderLeads(c){
-  const [leads,opts]=await Promise.all([api('/leads'),api('/options')]);
+  const leads=await api('/leads');
   const activeLeads=leads.filter(l=>l.status==='active');
   const convertedLeads=leads.filter(l=>l.status==='converted');
   const abandonedLeads=leads.filter(l=>l.status==='abandoned');
@@ -362,16 +366,17 @@ async function renderLeads(c){
       </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
-      <div class="form-group" style="margin:0;flex:1;min-width:180px"><label>名称</label><input id="lfSearch" placeholder="搜索线索标题..." value="${esc(leadFilter.q)}" oninput="leadFilter.q=this.value;renderLeads(document.getElementById('content'))"></div>
-      <div class="form-group" style="margin:0;min-width:120px"><label>地区</label><input id="lfRegion" placeholder="如: 浙江" value="${esc(leadFilter.region)}" oninput="leadFilter.region=this.value;renderLeads(document.getElementById('content'))"></div>
-      <div class="form-group" style="margin:0"><label>创建时间从</label><input id="lfFrom" type="date" value="${esc(leadFilter.from)}" onchange="leadFilter.from=this.value;renderLeads(document.getElementById('content'))"></div>
-      <div class="form-group" style="margin:0"><label>至</label><input id="lfTo" type="date" value="${esc(leadFilter.to)}" onchange="leadFilter.to=this.value;renderLeads(document.getElementById('content'))"></div>
-      <button class="btn" onclick="leadFilter={q:'',region:'',from:'',to:''};renderLeads(document.getElementById('content'))">重置</button>
+      <div class="form-group" style="margin:0;flex:1;min-width:180px"><label>名称</label><input id="lfSearch" placeholder="搜索线索标题..." value="${esc(leadDraft.q)}" oninput="leadDraft.q=this.value"></div>
+      <div class="form-group" style="margin:0;min-width:120px"><label>地区</label><input id="lfRegion" placeholder="如: 浙江" value="${esc(leadDraft.region)}" oninput="leadDraft.region=this.value"></div>
+      <div class="form-group" style="margin:0"><label>创建时间从</label><input id="lfFrom" type="date" value="${esc(leadDraft.from)}" onchange="leadDraft.from=this.value"></div>
+      <div class="form-group" style="margin:0"><label>至</label><input id="lfTo" type="date" value="${esc(leadDraft.to)}" onchange="leadDraft.to=this.value"></div>
+      <button class="btn btn-primary" onclick="doLeadSearch()">搜索</button>
+      <button class="btn" onclick="resetLeadSearch()">重置</button>
     </div>
     <div id="leadsList"></div>
   </div>`;
   const baseList=leadsTab==='converted'?convertedLeads:leadsTab==='abandoned'?abandonedLeads:activeLeads;
-  const list=baseList.filter(l=>{
+  let list=baseList.filter(l=>{
     const fl=leadFilter;
     if(fl.q&&!l.title.toLowerCase().includes(fl.q.toLowerCase()))return false;
     if(fl.region&&!(l.region||'').includes(fl.region))return false;
@@ -379,45 +384,50 @@ async function renderLeads(c){
     if(fl.to&&l.created_at&&l.created_at>fl.to)return false;
     return true;
   });
+  const dir=leadSort.dir;
+  list.sort((a,b)=>{
+    let va=a[leadSort.key],vb=b[leadSort.key];
+    if(leadSort.key==='match_score'){va=va||0;vb=vb||0;return (va-vb)*dir;}
+    if(va==null)va='';if(vb==null)vb='';
+    return String(va).localeCompare(String(vb),'zh')*dir;
+  });
   const container=document.getElementById('leadsList');
   if(!list.length){container.innerHTML='<div class="empty-state">暂无线索</div>';return}
-  container.innerHTML=`<div style="display:flex;flex-direction:column;gap:12px">${list.map(l=>{
+  container.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table>
+    <thead><tr>
+      <th style="cursor:pointer" onclick="sortLeads('title')">标题 ${leadSort.key==='title'?(leadSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortLeads('match_score')">匹配 ${leadSort.key==='match_score'?(leadSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortLeads('budget')">预算(万) ${leadSort.key==='budget'?(leadSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortLeads('region')">地区 ${leadSort.key==='region'?(leadSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortLeads('deadline')">截止 ${leadSort.key==='deadline'?(leadSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortLeads('created_at')">创建 ${leadSort.key==='created_at'?(leadSort.dir===1?'▲':'▼'):''}</th>
+      <th>来源</th><th>状态</th><th style="text-align:center">操作</th>
+    </tr></thead>
+    <tbody>${list.map(l=>{
     const score=l.match_score||0;
-    const daysLeft=l.days_left;
-    const kws=(l.match_keywords||'').split(',').filter(Boolean);
     const isCrawled=(l.source_platform&&l.source_platform!=='手动录入')||!!l.source_url;
-    return `<div class="card" style="margin-bottom:0">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
-        <div style="flex:1">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-            <span style="font-weight:600;font-size:14px">${esc(l.title)}</span>
-            <span class="badge ${isCrawled?'badge-info':'badge-low'}" style="font-size:11px">${isCrawled?'采集':'手工'}</span>
-            <span class="badge ${l.status==='converted'?'badge-converted':l.status==='abandoned'?'badge-abandoned':l.match_level==='高匹配'?'badge-high':l.match_level==='中匹配'?'badge-medium':'badge-low'}">${l.status==='converted'?'已转化':l.status==='abandoned'?'已删除':esc(l.match_level||'')}</span>
-          </div>
-          <div style="font-size:12px;color:var(--tl)">${esc(l.purchaser||l.customer_name||'')} | ${esc(l.source_platform||'')} | 预算 ${esc(l.budget||'-')}万 | 负责人: ${esc(l.assignee||'未分配')}${l.contact_name?` | 联系人: ${esc(l.contact_name)}${l.contact_phone?' '+esc(l.contact_phone):''}`:''}</div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="viewLeadDetail(${l.id})">${IC.eye} 查看</button>
-          ${l.status==='abandoned'?`<button class="btn btn-sm" onclick="showLeadForm(${l.id})">${IC.edit} 编辑</button>
-          <button class="btn btn-sm btn-primary" onclick="restoreLead(${l.id})">恢复</button>`:''}
-          ${l.status==='active'?`<button class="btn btn-sm" onclick="convertLead(${l.id})">${IC.check} 转化</button>`:''}
-          ${l.status==='active'?`<button class="btn btn-sm" style="color:var(--dn)" onclick="deleteLead(${l.id})">${IC.trash} 删除</button>`:''}
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:16px">
-        <div style="flex:1">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <span style="font-size:12px;color:var(--tl)">匹配度</span>
-            <span style="font-size:12px;font-weight:600;color:${matchColor(score)}">${score}%</span>
-          </div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${score}%;background:${matchColor(score)}"></div></div>
-        </div>
-        <div style="display:flex;gap:4px">${kws.slice(0,3).map(k=>`<span class="badge" style="background:#f1f5f9;color:#475569;font-size:11px">${esc(k)}</span>`).join('')}</div>
-        ${daysLeft!==null?`<div style="display:flex;align-items:center;gap:4px;font-size:12px;color:${daysLeft<=3?'#ef4444':'#f59e0b'}">${IC.clock} 剩余 ${daysLeft} 天</div>`:''}
-      </div>
-    </div>`;
-  }).join('')}</div>`;
+    return `<tr>
+      <td style="font-weight:500">${esc(l.title)} <span class="badge ${isCrawled?'badge-info':'badge-low'}" style="font-size:11px">${isCrawled?'采集':'手工'}</span>${l.contact_name?`<div style="font-size:12px;color:var(--tl)">${esc(l.purchaser||'')} | 联系人: ${esc(l.contact_name)} ${esc(l.contact_phone||'')}</div>`:''}</td>
+      <td><span style="font-weight:600;color:${matchColor(score)}">${score}%</span></td>
+      <td>${esc(l.budget||'-')}</td>
+      <td>${esc(l.region||'-')}</td>
+      <td>${fmtDate(l.deadline)||'-'}</td>
+      <td>${esc(l.created_at||'-')}</td>
+      <td style="font-size:12px">${esc(l.source_platform||'-')}</td>
+      <td><span class="badge ${l.status==='converted'?'badge-converted':l.status==='abandoned'?'badge-abandoned':'badge-active'}">${l.status==='converted'?'已转化':l.status==='abandoned'?'已删除':'待转化'}</span></td>
+      <td style="text-align:center"><div class="btn-group" style="justify-content:center">
+        <button class="btn btn-sm" onclick="viewLeadDetail(${l.id})">${IC.eye} 查看</button>
+        ${l.status==='abandoned'?`<button class="btn btn-sm" onclick="showLeadForm(${l.id})">${IC.edit} 编辑</button>
+        <button class="btn btn-sm btn-primary" onclick="restoreLead(${l.id})">恢复</button>`:''}
+        ${l.status==='active'?`<button class="btn btn-sm" onclick="convertLead(${l.id})">${IC.check} 转化</button>
+        <button class="btn btn-sm" style="color:var(--dn)" onclick="deleteLead(${l.id})">${IC.trash} 删除</button>`:''}
+      </div></td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
 }
+function sortLeads(key){ if(leadSort.key===key)leadSort.dir=-leadSort.dir; else{leadSort.key=key;leadSort.dir=key==='created_at'||key==='deadline'?-1:1;} renderLeads(document.getElementById('content')); }
+function doLeadSearch(){ leadFilter={...leadDraft}; renderLeads(document.getElementById('content')); }
+function resetLeadSearch(){ leadDraft={q:'',region:'',from:'',to:''}; leadFilter={...leadDraft}; renderLeads(document.getElementById('content')); }
 async function claimLead(id){
   const r=await api(`/leads/${id}/claim`,{method:'POST',body:JSON.stringify({assignee:'李明'})});
   toast(r.message||'已领取');renderLeads(document.getElementById('content'));
@@ -569,6 +579,9 @@ async function loadUrgentTasks(force){
 
 // ===== 3. Opportunities =====
 let oppView='list';
+let oppFilter={q:'',customer:'',stage:''};
+let oppDraft={q:'',customer:'',stage:''};
+let oppSort={key:'created_at',dir:-1};
 const STAGES=['初步接触','需求确认','方案报价','商务谈判','合同签订'];
 const STAGE_COLORS=['#94a3b8','#3b82f6','#f59e0b','#8b5cf6','#166534'];
 async function getStages(){
@@ -579,8 +592,22 @@ async function getStages(){
   return STAGES;
 }
 async function renderOpportunities(c){
-  const [opps,stageNames]=await Promise.all([api('/opportunities'),getStages()]);
-  const stageData=stageNames.map((s,i)=>({name:s,color:STAGE_COLORS[i%STAGE_COLORS.length],items:opps.filter(o=>o.current_stage===s)}));
+  const [opps,stageNames,customers]=await Promise.all([api('/opportunities'),getStages(),api('/customers')]);
+  let filtered=opps.filter(o=>{
+    if(oppFilter.q&&!o.title.toLowerCase().includes(oppFilter.q.toLowerCase()))return false;
+    if(oppFilter.customer&&String(o.customer_id)!==String(oppFilter.customer))return false;
+    if(oppFilter.stage&&o.current_stage!==oppFilter.stage)return false;
+    return true;
+  });
+  const dir=oppSort.dir;
+  filtered.sort((a,b)=>{
+    let va=a[oppSort.key],vb=b[oppSort.key];
+    if(oppSort.key==='amount'||oppSort.key==='probability'){return ((parseFloat(va)||0)-(parseFloat(vb)||0))*dir;}
+    if(va==null)va='';if(vb==null)vb='';
+    return String(va).localeCompare(String(vb),'zh')*dir;
+  });
+  const opps2=filtered;
+  const stageData=stageNames.map((s,i)=>({name:s,color:STAGE_COLORS[i%STAGE_COLORS.length],items:opps2.filter(o=>o.current_stage===s)}));
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">商机管理</h2>
@@ -589,6 +616,13 @@ async function renderOpportunities(c){
         <button class="btn ${oppView==='board'?'btn-primary':''}" onclick="oppView='board';renderOpportunities(document.getElementById('content'))">看板</button>
         <button class="btn btn-primary" onclick="showOppForm()">${IC.plus} 新建商机</button>
       </div>
+    </div>
+    <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+      <div class="form-group" style="margin:0;flex:1;min-width:180px"><label>名称</label><input placeholder="搜索商机名称..." value="${esc(oppDraft.q)}" oninput="oppDraft.q=this.value"></div>
+      <div class="form-group" style="margin:0;min-width:150px"><label>客户</label><select onchange="oppDraft.customer=this.value"><option value="">全部客户</option>${customers.map(cu=>`<option value="${cu.id}">${esc(cu.name)}</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0;min-width:130px"><label>阶段</label><select onchange="oppDraft.stage=this.value"><option value="">全部阶段</option>${stageNames.map(s=>`<option>${s}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" onclick="doOppSearch()">搜索</button>
+      <button class="btn" onclick="resetOppSearch()">重置</button>
     </div>
     <div class="card" style="display:flex;align-items:center;padding:16px 24px">
       ${stageData.map((s,i)=>`
@@ -599,13 +633,25 @@ async function renderOpportunities(c){
     <div id="oppContent"></div>
   </div>`;
   const oc=document.getElementById('oppContent');
-  if(oppView==='list') renderOppList(oc,opps,stageData);
-  else renderOppBoard(oc,opps,stageData);
+  if(oppView==='list') renderOppList(oc,opps2,stageData);
+  else renderOppBoard(oc,opps2,stageData);
 }
+function sortOpp(key){ if(oppSort.key===key)oppSort.dir=-oppSort.dir; else{oppSort.key=key;oppSort.dir=key==='created_at'||key==='expected_close'?-1:1;} renderOpportunities(document.getElementById('content')); }
+function doOppSearch(){ oppFilter={...oppDraft}; renderOpportunities(document.getElementById('content')); }
+function resetOppSearch(){ oppDraft={q:'',customer:'',stage:''}; oppFilter={...oppDraft}; renderOpportunities(document.getElementById('content')); }
 function renderOppList(oc,opps,stageData){
   if(!opps.length){oc.innerHTML='<div class="empty-state">暂无商机</div>';return}
   oc.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table>
-    <thead><tr><th>商机名称</th><th>客户</th><th style="text-align:right">金额</th><th>阶段</th><th style="text-align:center">赢率</th><th>联系人</th><th>预计关闭</th><th style="text-align:center">操作</th></tr></thead>
+    <thead><tr>
+      <th style="cursor:pointer" onclick="sortOpp('title')">商机名称 ${oppSort.key==='title'?(oppSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortOpp('customer_name')">客户 ${oppSort.key==='customer_name'?(oppSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer;text-align:right" onclick="sortOpp('amount')">金额 ${oppSort.key==='amount'?(oppSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortOpp('current_stage')">阶段 ${oppSort.key==='current_stage'?(oppSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer;text-align:center" onclick="sortOpp('probability')">赢率 ${oppSort.key==='probability'?(oppSort.dir===1?'▲':'▼'):''}</th>
+      <th>联系人</th>
+      <th style="cursor:pointer" onclick="sortOpp('expected_close')">预计关闭 ${oppSort.key==='expected_close'?(oppSort.dir===1?'▲':'▼'):''}</th>
+      <th style="text-align:center">操作</th>
+    </tr></thead>
     <tbody>${opps.map(o=>{
       const si=stageData.findIndex(s=>s.name===o.current_stage);
       return `<tr class="expandable" onclick="viewOppDetail(${o.id})">
@@ -702,60 +748,82 @@ async function deleteOpp(id){
 }
 
 // ===== 4. Contacts (Card Grid) =====
-let contactRoleFilter='全部';
+let contactFilter={q:'',customer:'',role:''};
+let contactDraft={q:'',customer:'',role:''};
+let contactSort={key:'name',dir:1};
 const ROLE_COLORS={'决策人':{bg:'#fef2f2',color:'#dc2626'},'业务负责人':{bg:'#eff6ff',color:'#2563eb'},'技术对接':{bg:'#f0fdf4',color:'#166534'},'采购执行':{bg:'#fffbeb',color:'#d97706'}};
 async function renderContacts(c){
-  const contacts=await api('/contacts');
-  const roles=['全部','决策人','业务负责人','技术对接','采购执行'];
-  const filtered=contactRoleFilter==='全部'?contacts:contacts.filter(ct=>ct.role===contactRoleFilter);
+  const [contacts,customers]=await Promise.all([api('/contacts'),api('/customers')]);
+  let list=contacts.filter(ct=>{
+    if(contactFilter.q&&!ct.name.toLowerCase().includes(contactFilter.q.toLowerCase())&&!ct.title.toLowerCase().includes(contactFilter.q.toLowerCase()))return false;
+    if(contactFilter.customer&&String(ct.customer_id)!==String(contactFilter.customer))return false;
+    if(contactFilter.role&&ct.role!==contactFilter.role)return false;
+    return true;
+  });
+  const dir=contactSort.dir;
+  list.sort((a,b)=>{
+    let va=a[contactSort.key],vb=b[contactSort.key];
+    if(va==null)va='';if(vb==null)vb='';
+    return String(va).localeCompare(String(vb),'zh')*dir;
+  });
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">联系人管理</h2>
       <button class="btn btn-primary" onclick="showContactForm()">${IC.plus} 新增联系人</button>
     </div>
-    <div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <div style="flex:1;display:flex;align-items:center;gap:8px;background:#f1f5f9;border-radius:8px;padding:8px 12px">
-        <span style="color:#94a3b8">${IC.search}</span>
-        <input id="contactSearch" placeholder="搜索联系人或机构..." style="border:none;background:transparent;outline:none;width:100%;font-size:13px" oninput="filterContactCards()">
-      </div>
-      <div style="display:flex;gap:4px">${roles.map(r=>`<button class="tab-btn ${contactRoleFilter===r?'active':''}" onclick="contactRoleFilter='${r}';renderContacts(document.getElementById('content'))">${r}</button>`).join('')}</div>
+    <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+      <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>姓名/职位</label><input placeholder="搜索姓名或职位..." value="${esc(contactDraft.q)}" oninput="contactDraft.q=this.value"></div>
+      <div class="form-group" style="margin:0;min-width:150px"><label>所属客户</label><select onchange="contactDraft.customer=this.value"><option value="">全部客户</option>${customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0;min-width:120px"><label>角色</label><select onchange="contactDraft.role=this.value"><option value="">全部角色</option><option>决策人</option><option>业务负责人</option><option>技术对接</option><option>采购执行</option></select></div>
+      <button class="btn btn-primary" onclick="doContactSearch()">搜索</button>
+      <button class="btn" onclick="resetContactSearch()">重置</button>
     </div>
-    <div class="grid3" id="contactGrid">${renderContactCards(filtered)}</div>
+    <div class="card" style="padding:0;overflow:hidden"><table>
+      <thead><tr>
+        <th style="cursor:pointer" onclick="sortContact('name')">姓名 ${contactSort.key==='name'?(contactSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortContact('title')">职位 ${contactSort.key==='title'?(contactSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortContact('customer_name')">所属客户 ${contactSort.key==='customer_name'?(contactSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortContact('phone')">电话 ${contactSort.key==='phone'?(contactSort.dir===1?'▲':'▼'):''}</th>
+        <th>微信</th>
+        <th style="cursor:pointer" onclick="sortContact('role')">角色 ${contactSort.key==='role'?(contactSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortContact('importance')">重要性 ${contactSort.key==='importance'?(contactSort.dir===1?'▲':'▼'):''}</th>
+        <th style="text-align:center">操作</th>
+      </tr></thead>
+      <tbody>${list.length?list.map(ct=>`<tr>
+        <td style="font-weight:500">${esc(ct.name)}</td>
+        <td>${esc(ct.title||'-')}</td>
+        <td>${esc(ct.customer_name||'-')}</td>
+        <td>${esc(ct.phone||'-')}</td>
+        <td>${esc(ct.wechat||'-')}</td>
+        <td>${esc(ct.role||'-')}</td>
+        <td>${esc(ct.importance||'-')}</td>
+        <td style="text-align:center"><div class="btn-group" style="justify-content:center">
+          <button class="btn btn-sm" onclick="viewContactDetail(${ct.id})">${IC.eye} 查看</button>
+          <button class="btn btn-sm" onclick="showContactForm(${ct.id})">${IC.edit} 编辑</button>
+          <button class="btn btn-sm" style="color:var(--dn)" onclick="deleteContact(${ct.id})">${IC.trash} 删除</button>
+        </div></td>
+      </tr>`).join(''):'<tr><td colspan="8" class="empty-state">暂无联系人</td></tr>'}</tbody>
+    </table></div>
   </div>`;
 }
-function renderContactCards(list){
-  if(!list.length)return '<div class="empty-state" style="grid-column:1/-1">暂无联系人</div>';
-  return list.map(ct=>{
-    const rc=ROLE_COLORS[ct.role]||{bg:'#f1f5f9',color:'#64748b'};
-    const tags=(ct.tags||'').split(',').filter(Boolean);
-    return `<div class="contact-card">
-      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
-        <div class="contact-avatar" style="background:${rc.bg};color:${rc.color}">${esc(ct.avatar||ct.name?.[0]||'?')}</div>
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-            <span style="font-weight:600;font-size:14px">${esc(ct.name)}</span>
-            ${ct.role?`<span class="badge" style="background:${rc.bg};color:${rc.color}">${esc(ct.role)}</span>`:''}
-          </div>
-          <div style="font-size:12px;color:var(--tl)">${esc(ct.title||'')} | ${esc(ct.customer_name||'')}</div>
-        </div>
-      </div>
-      <div style="font-size:12px;color:#475569;margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">${IC.phone} ${esc(ct.phone||'-')}</div>
-        <div style="display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,7 12,13 2,7"/></svg> ${esc(ct.email||'-')}</div>
-      </div>
-      ${tags.length?`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">${tags.map(t=>`<span class="badge" style="background:#f1f5f9;color:#475569;font-size:11px">${esc(t)}</span>`).join('')}</div>`:''}
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-primary btn-sm" style="flex:1;justify-content:center" onclick="showContactForm(${ct.id})">${IC.edit} 编辑</button>
-        <button class="btn btn-sm" style="flex:1;justify-content:center;color:var(--dn)" onclick="deleteContact(${ct.id})">${IC.trash} 删除</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-function filterContactCards(){
-  const q=(document.getElementById('contactSearch')?.value||'').toLowerCase();
-  document.querySelectorAll('#contactGrid .contact-card').forEach(card=>{
-    card.style.display=card.textContent.toLowerCase().includes(q)?'':'none';
-  });
+function sortContact(key){ if(contactSort.key===key)contactSort.dir=-contactSort.dir; else{contactSort.key=key;contactSort.dir=key==='name'?1:-1;} renderContacts(document.getElementById('content')); }
+function doContactSearch(){ contactFilter={...contactDraft}; renderContacts(document.getElementById('content')); }
+function resetContactSearch(){ contactDraft={q:'',customer:'',role:''}; contactFilter={...contactDraft}; renderContacts(document.getElementById('content')); }
+async function viewContactDetail(id){
+  const ct=await api(`/contacts/${id}`);
+  openModal(`<h3>${esc(ct.name)}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px">
+      <div><span style="color:var(--tl)">职位：</span>${esc(ct.title||'-')}</div>
+      <div><span style="color:var(--tl)">所属客户：</span>${esc(ct.customer_name||'-')}</div>
+      <div><span style="color:var(--tl)">电话：</span>${esc(ct.phone||'-')}</div>
+      <div><span style="color:var(--tl)">邮箱：</span>${esc(ct.email||'-')}</div>
+      <div><span style="color:var(--tl)">微信：</span>${esc(ct.wechat||'-')}</div>
+      <div><span style="color:var(--tl)">重要性：</span>${esc(ct.importance||'-')}</div>
+      <div><span style="color:var(--tl)">分管业务：</span>${esc(ct.business_scope||'-')}</div>
+      <div><span style="color:var(--tl)">标签：</span>${esc(ct.tags||'-')}</div>
+    </div>
+    ${ct.notes?`<div style="margin-top:12px;font-size:13px;color:var(--tl)">备注：${esc(ct.notes)}</div>`:''}
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`);
 }
 async function showContactForm(id){
   const customers=await api('/customers');
@@ -792,16 +860,48 @@ async function deleteContact(id){
 }
 
 // ===== 5. Customers =====
+let custFilter={q:'',type:'',level:'',region:''};
+let custDraft={q:'',type:'',level:'',region:''};
+let custSort={key:'name',dir:1};
 async function renderCustomers(c){
   const customers=await api('/customers');
+  let list=customers.filter(cu=>{
+    if(custFilter.q&&!cu.name.toLowerCase().includes(custFilter.q.toLowerCase()))return false;
+    if(custFilter.type&&cu.type!==custFilter.type)return false;
+    if(custFilter.level&&cu.level!==custFilter.level)return false;
+    if(custFilter.region&&!(cu.region||'').includes(custFilter.region))return false;
+    return true;
+  });
+  const dir=custSort.dir;
+  list.sort((a,b)=>{
+    let va=a[custSort.key],vb=b[custSort.key];
+    if(custSort.key==='contact_count'){return ((va||0)-(vb||0))*dir;}
+    if(va==null)va='';if(vb==null)vb='';
+    return String(va).localeCompare(String(vb),'zh')*dir;
+  });
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">客户管理</h2>
       <button class="btn btn-primary" onclick="showCustomerForm()">${IC.plus} 新增客户</button>
     </div>
+    <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+      <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>名称</label><input placeholder="搜索客户名称..." value="${esc(custDraft.q)}" oninput="custDraft.q=this.value"></div>
+      <div class="form-group" style="margin:0;min-width:120px"><label>类型</label><select onchange="custDraft.type=this.value"><option value="">全部</option><option>政府部门</option><option>事业单位</option><option>国有企业</option><option>民营企业</option><option>科研院所</option><option>运营商</option><option>科技公司</option></select></div>
+      <div class="form-group" style="margin:0;min-width:120px"><label>等级</label><select onchange="custDraft.level=this.value"><option value="">全部</option><option>A-重点客户</option><option>B-重要客户</option><option>C-一般客户</option><option>D-潜在客户</option></select></div>
+      <div class="form-group" style="margin:0;min-width:100px"><label>地区</label><input placeholder="如: 浙江" value="${esc(custDraft.region)}" oninput="custDraft.region=this.value"></div>
+      <button class="btn btn-primary" onclick="doCustSearch()">搜索</button>
+      <button class="btn" onclick="resetCustSearch()">重置</button>
+    </div>
     <div class="card" style="padding:0;overflow:hidden"><table>
-      <thead><tr><th>客户名称</th><th>类型</th><th>等级</th><th>地区</th><th>联系人</th><th>来源</th><th style="text-align:center">操作</th></tr></thead>
-      <tbody>${customers.map(cu=>`<tr>
+      <thead><tr>
+        <th style="cursor:pointer" onclick="sortCust('name')">客户名称 ${custSort.key==='name'?(custSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortCust('customer_type')">类型 ${custSort.key==='customer_type'?(custSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortCust('level')">等级 ${custSort.key==='level'?(custSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortCust('region')">地区 ${custSort.key==='region'?(custSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortCust('contact_count')">联系人 ${custSort.key==='contact_count'?(custSort.dir===1?'▲':'▼'):''}</th>
+        <th>来源</th><th style="text-align:center">操作</th>
+      </tr></thead>
+      <tbody>${list.map(cu=>`<tr>
         <td style="font-weight:500">${esc(cu.name)}</td>
         <td>${esc(cu.type||'-')}</td>
         <td><span class="badge ${cu.level?.includes('A')?'badge-high':cu.level?.includes('B')?'badge-medium':'badge-low'}">${esc(cu.level||'-')}</span></td>
@@ -817,6 +917,9 @@ async function renderCustomers(c){
     </table></div>
   </div>`;
 }
+function sortCust(key){ if(custSort.key===key)custSort.dir=-custSort.dir; else{custSort.key=key;custSort.dir=key==='contact_count'?-1:1;} renderCustomers(document.getElementById('content')); }
+function doCustSearch(){ custFilter={...custDraft}; renderCustomers(document.getElementById('content')); }
+function resetCustSearch(){ custDraft={q:'',type:'',level:'',region:''}; custFilter={...custDraft}; renderCustomers(document.getElementById('content')); }
 async function showCustomerForm(id){
   let cu={name:'',short_name:'',customer_type:'',level:'',region:'',source:'',remark:''};
   if(id){cu=await api(`/customers/${id}`)}
@@ -887,8 +990,9 @@ async function deleteCustomer(id){
 // ===== 6. Contact Log (Activities + Followups grouped by date) =====
 let logSort={key:'activity_time',dir:-1};
 let logFilter={date_from:'',date_to:'',customer:'',opp:'',q:''};
+let logDraft={date_from:'',date_to:'',customer:'',opp:'',q:''};
 async function renderContactLog(c){
-  const [activities, followups, customers, opps]=await Promise.all([api('/activities'),api('/followups'),api('/customers'),api('/opportunities')]);
+  const [activities, customers, opps]=await Promise.all([api('/activities'),api('/customers'),api('/opportunities')]);
   let list=activities.filter(a=>{
     const ad=fmtDate(a.activity_time);
     if(logFilter.date_from&&ad&&ad<logFilter.date_from)return false;
@@ -905,29 +1009,21 @@ async function renderContactLog(c){
     if(typeof va==='number'&&typeof vb==='number')return (va-vb)*dir;
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
-  // Group followups by date
-  const grouped={};
-  followups.filter(f=>!f.actual_date).forEach(f=>{
-    const d=fmtDate(f.plan_date)||'未定日期';
-    if(!grouped[d])grouped[d]=[];
-    grouped[d].push(f);
-  });
-  const dates=Object.keys(grouped).sort();
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">日常联络</h2>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="showActivityForm()">${IC.plus} 新增日常联络</button>
-        <button class="btn" onclick="showFollowupForm()">${IC.plus} 新建联络计划</button>
       </div>
     </div>
     <div class="card" style="margin-bottom:16px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-      <div class="form-group" style="margin:0"><label>开始日期</label><input id="lgFrom" type="date" value="${esc(logFilter.date_from)}" onchange="logFilter.date_from=this.value;renderContactLog(document.getElementById('content'))"></div>
-      <div class="form-group" style="margin:0"><label>结束日期</label><input id="lgTo" type="date" value="${esc(logFilter.date_to)}" onchange="logFilter.date_to=this.value;renderContactLog(document.getElementById('content'))"></div>
-      <div class="form-group" style="margin:0;min-width:150px"><label>客户</label><select id="lgCustomer" onchange="logFilter.customer=this.value;renderContactLog(document.getElementById('content'))"><option value="">全部客户</option>${customers.map(c=>`<option value="${c.id}" ${String(logFilter.customer)===String(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
-      <div class="form-group" style="margin:0;min-width:180px"><label>商机</label><select id="lgOpp" onchange="logFilter.opp=this.value;renderContactLog(document.getElementById('content'))"><option value="">全部商机</option>${opps.map(o=>`<option value="${o.id}" ${String(logFilter.opp)===String(o.id)?'selected':''}>${esc(o.title)}</option>`).join('')}</select></div>
-      <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>内容</label><input id="lgQ" placeholder="搜索内容..." value="${esc(logFilter.q)}" oninput="logFilter.q=this.value;renderContactLog(document.getElementById('content'))"></div>
-      <button class="btn" onclick="logFilter={date_from:'',date_to:'',customer:'',opp:'',q:''};logSort={key:'activity_time',dir:-1};renderContactLog(document.getElementById('content'))">重置</button>
+      <div class="form-group" style="margin:0"><label>开始日期</label><input type="date" value="${esc(logDraft.date_from)}" onchange="logDraft.date_from=this.value"></div>
+      <div class="form-group" style="margin:0"><label>结束日期</label><input type="date" value="${esc(logDraft.date_to)}" onchange="logDraft.date_to=this.value"></div>
+      <div class="form-group" style="margin:0;min-width:150px"><label>客户</label><select onchange="logDraft.customer=this.value"><option value="">全部客户</option>${customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0;min-width:180px"><label>商机</label><select onchange="logDraft.opp=this.value"><option value="">全部商机</option>${opps.map(o=>`<option value="${o.id}">${esc(o.title)}</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>内容</label><input placeholder="搜索内容..." value="${esc(logDraft.q)}" oninput="logDraft.q=this.value"></div>
+      <button class="btn btn-primary" onclick="doLogSearch()">搜索</button>
+      <button class="btn" onclick="resetLogSearch()">重置</button>
     </div>
     <div class="grid2" style="grid-template-columns:2fr 1fr;align-items:start">
       <div>
@@ -955,27 +1051,6 @@ async function renderContactLog(c){
             </div></td>
           </tr>`).join(''):'<tr><td colspan="7" class="empty-state">暂无联络记录</td></tr>'}</tbody>
         </table></div>
-        <div style="font-weight:600;margin:20px 0 12px">联络计划</div>
-        ${dates.length?dates.map(d=>`
-          <div style="margin-bottom:16px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              <span style="font-weight:500;font-size:14px">${d}</span>
-              <span class="badge" style="background:#f1f5f9;color:#64748b">${grouped[d].length}项</span>
-            </div>
-            ${grouped[d].map(f=>`<div class="card" style="margin-bottom:8px;padding:12px 16px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                <div style="display:flex;align-items:center;gap:8px">
-                  <span style="font-weight:500;font-size:13px">${esc(f.customer_name||'')}</span>
-                  <span style="font-size:12px;color:var(--tl)">${esc(f.contact_name||'')}</span>
-                </div>
-                <div style="display:flex;gap:4px">
-                  <button class="btn btn-sm" onclick="completeFollowup(${f.id})">${IC.check} 完成</button>
-                  <button class="btn btn-sm" style="color:var(--dn)" onclick="deleteFollowup(${f.id})">${IC.trash}</button>
-                </div>
-              </div>
-              <div style="font-size:13px;color:#475569">${esc(f.content||'')}</div>
-            </div>`).join('')}
-          </div>`).join(''):'<div class="empty-state">暂无联络计划</div>'}
       </div>
       <div>
         <div class="card">
@@ -983,9 +1058,8 @@ async function renderContactLog(c){
           <div style="font-size:13px">
             <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--tl)">总联络记录</span><span style="font-weight:600">${activities.length} 次</span></div>
             <div class="progress-bar" style="margin-bottom:12px"><div class="progress-fill" style="width:${Math.min(activities.length*10,100)}%;background:var(--primary)"></div></div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--tl)">待完成计划</span><span style="font-weight:600">${followups.filter(f=>!f.actual_date).length} 项</span></div>
-            <div class="progress-bar" style="margin-bottom:12px"><div class="progress-fill" style="width:${followups.length?Math.round(followups.filter(f=>f.actual_date).length/followups.length*100):0}%;background:var(--if)"></div></div>
-            <div style="display:flex;justify-content:space-between"><span style="color:var(--tl)">完成率</span><span style="font-weight:600">${followups.length?Math.round(followups.filter(f=>f.actual_date).length/followups.length*100):0}%</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="color:var(--tl)">筛选结果</span><span style="font-weight:600">${list.length} 条</span></div>
+            <div style="font-size:12px;color:var(--tl);margin-top:8px">联络计划已移至左侧"联络计划"模块</div>
           </div>
         </div>
       </div>
@@ -997,6 +1071,8 @@ function sortLog(key){
   else{logSort.key=key;logSort.dir=key==='activity_time'||key==='next_followup_time'?-1:1;}
   renderContactLog(document.getElementById('content'));
 }
+function doLogSearch(){ logFilter={...logDraft}; renderContactLog(document.getElementById('content')); }
+function resetLogSearch(){ logDraft={date_from:'',date_to:'',customer:'',opp:'',q:''}; logFilter={...logDraft}; renderContactLog(document.getElementById('content')); }
 async function showActivityForm(id,presets){
   presets=presets||{};
   const [customers,contacts,opps,a]=await Promise.all([api('/customers'),api('/contacts'),api('/opportunities'),id?api(`/activities/${id}`):Promise.resolve({})]);
@@ -1065,25 +1141,157 @@ async function deleteActivity(id){
   if(!confirm('确认删除？'))return;
   await api(`/activities/${id}`,{method:'DELETE'});toast('已删除');renderContactLog(document.getElementById('content'));
 }
-function showFollowupForm(){
-  openModal(`<h3>新建联络计划</h3>
-    <div class="form-group"><label>计划日期</label><input id="fuDate" type="date"></div>
-    <div class="form-group"><label>内容</label><textarea id="fuContent"></textarea></div>
+// ===== 6.5 联络计划（独立模块） =====
+let fuFilter={q:'',customer:'',contact:'',status:'',from:'',to:''};
+let fuDraft={q:'',customer:'',contact:'',status:'',from:'',to:''};
+let fuSort={key:'plan_date',dir:1};
+async function renderFollowups(c){
+  const [followups,customers,contacts,opps]=await Promise.all([api('/followups'),api('/customers'),api('/contacts'),api('/opportunities')]);
+  let list=followups.filter(f=>{
+    if(fuFilter.q&&!((f.content||'').toLowerCase().includes(fuFilter.q.toLowerCase())||(f.customer_name||'').includes(fuFilter.q)))return false;
+    if(fuFilter.customer&&String(f.customer_id)!==String(fuFilter.customer))return false;
+    if(fuFilter.contact&&String(f.contact_id)!==String(fuFilter.contact))return false;
+    if(fuFilter.status==='pending'&&f.actual_date)return false;
+    if(fuFilter.status==='done'&&!f.actual_date)return false;
+    const pd=fmtDate(f.plan_date);
+    if(fuFilter.from&&pd&&pd<fuFilter.from)return false;
+    if(fuFilter.to&&pd&&pd>fuFilter.to)return false;
+    return true;
+  });
+  const dir=fuSort.dir;
+  list.sort((a,b)=>{
+    let va=a[fuSort.key],vb=b[fuSort.key];
+    if(va==null)va='';if(vb==null)vb='';
+    return String(va).localeCompare(String(vb),'zh')*dir;
+  });
+  c.innerHTML=`<div class="fade-in">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h2 style="font-size:18px;font-weight:700">联络计划</h2>
+      <button class="btn btn-primary" onclick="showFollowupForm()">${IC.plus} 新增联系计划</button>
+    </div>
+    <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+      <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>内容/客户</label><input placeholder="搜索计划内容或客户..." value="${esc(fuDraft.q)}" oninput="fuDraft.q=this.value"></div>
+      <div class="form-group" style="margin:0;min-width:140px"><label>客户</label><select onchange="fuDraft.customer=this.value"><option value="">全部客户</option>${customers.map(cu=>`<option value="${cu.id}">${esc(cu.name)}</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0;min-width:130px"><label>联系人</label><select onchange="fuDraft.contact=this.value"><option value="">全部联系人</option>${contacts.map(ct=>`<option value="${ct.id}">${esc(ct.name)}</option>`).join('')}</select></div>
+      <div class="form-group" style="margin:0;min-width:110px"><label>状态</label><select onchange="fuDraft.status=this.value"><option value="">全部</option><option value="pending">待联络</option><option value="done">已完成</option></select></div>
+      <div class="form-group" style="margin:0"><label>计划从</label><input type="date" value="${esc(fuDraft.from)}" onchange="fuDraft.from=this.value"></div>
+      <div class="form-group" style="margin:0"><label>至</label><input type="date" value="${esc(fuDraft.to)}" onchange="fuDraft.to=this.value"></div>
+      <button class="btn btn-primary" onclick="doFuSearch()">搜索</button>
+      <button class="btn" onclick="resetFuSearch()">重置</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden"><table>
+      <thead><tr>
+        <th style="cursor:pointer" onclick="sortFu('plan_date')">计划日期 ${fuSort.key==='plan_date'?(fuSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortFu('customer_name')">客户 ${fuSort.key==='customer_name'?(fuSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortFu('contact_name')">联系人 ${fuSort.key==='contact_name'?(fuSort.dir===1?'▲':'▼'):''}</th>
+        <th>关联商机</th>
+        <th style="cursor:pointer" onclick="sortFu('content')">计划内容 ${fuSort.key==='content'?(fuSort.dir===1?'▲':'▼'):''}</th>
+        <th style="cursor:pointer" onclick="sortFu('actual_date')">状态 ${fuSort.key==='actual_date'?(fuSort.dir===1?'▲':'▼'):''}</th>
+        <th style="text-align:center">操作</th>
+      </tr></thead>
+      <tbody>${list.length?list.map(f=>`<tr>
+        <td>${fmtDate(f.plan_date)||'-'}</td>
+        <td>${esc(f.customer_name||'-')}</td>
+        <td>${esc(f.contact_name||'-')}</td>
+        <td style="font-size:12px">${esc(f.opportunity_title||'-')}</td>
+        <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.content||'-')}</td>
+        <td><span class="badge ${f.actual_date?'badge-converted':'badge-active'}">${f.actual_date?'已完成':'待联络'}</span></td>
+        <td style="text-align:center"><div class="btn-group" style="justify-content:center">
+          <button class="btn btn-sm" onclick="viewFollowupDetail(${f.id})">${IC.eye} 详情</button>
+          ${f.actual_date?'':`<button class="btn btn-sm btn-primary" onclick="executeFollowup(${f.id})">${IC.check} 联络</button>`}
+          <button class="btn btn-sm" onclick="showFollowupForm(${f.id})">${IC.edit} 编辑</button>
+          <button class="btn btn-sm" style="color:var(--dn)" onclick="deleteFollowup(${f.id})">${IC.trash}</button>
+        </div></td>
+      </tr>`).join(''):'<tr><td colspan="7" class="empty-state">暂无联络计划</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+function sortFu(key){ if(fuSort.key===key)fuSort.dir=-fuSort.dir; else{fuSort.key=key;fuSort.dir=key==='plan_date'||key==='actual_date'?1:-1;} renderFollowups(document.getElementById('content')); }
+function doFuSearch(){ fuFilter={...fuDraft}; renderFollowups(document.getElementById('content')); }
+function resetFuSearch(){ fuDraft={q:'',customer:'',contact:'',status:'',from:'',to:''}; fuFilter={...fuDraft}; renderFollowups(document.getElementById('content')); }
+async function showFollowupForm(id){
+  const [customers,contacts,opps,f]=await Promise.all([api('/customers'),api('/contacts'),api('/opportunities'),id?api(`/followups/${id}`):Promise.resolve({})]);
+  window._allFFContacts=contacts; window._editFuId=id||null;
+  openModal(`<h3>${id?'编辑联系计划':'新增联系计划'}</h3>
+    <div class="form-row">
+      <div class="form-group"><label>计划日期</label><input id="fuDate" type="date" value="${esc((f.plan_date||'').slice(0,10)||'')}"></div>
+      <div class="form-group"><label>客户</label><select id="fuCustomer" data-searchable onchange="updateFFContacts()"><option value="">请选择</option>${customers.map(cu=>`<option value="${cu.id}" ${f.customer_id==cu.id?'selected':''}>${esc(cu.name)}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>联系人</label><select id="fuContact" data-searchable><option value="">请选择</option>${contacts.map(ct=>`<option value="${ct.id}" ${f.contact_id==ct.id?'selected':''}>${esc(ct.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>关联商机(可选)</label><select id="fuOpp" data-searchable><option value="">无</option>${opps.map(o=>`<option value="${o.id}" ${f.opportunity_id==o.id?'selected':''}>${esc(o.title)}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-group"><label>计划联系内容</label><textarea id="fuContent">${esc(f.content||'')}</textarea></div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveFollowupPlan()">保存</button></div>`);
+  initSearchableInModal();
+}
+function updateFFContacts(){
+  const cuId=document.getElementById('fuCustomer')?.value;
+  const sel=document.getElementById('fuContact');
+  if(!sel)return;
+  const all=window._allFFContacts||[];
+  const filtered=cuId?all.filter(c=>String(c.customer_id)===String(cuId)):all;
+  sel.innerHTML='<option value="">请选择</option>'+filtered.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if(sel._ssBuild)sel._ssBuild();
+  if(sel._ssTrigger)sel._ssTrigger.querySelector('span').textContent=sel.options[sel.selectedIndex]?.text||'请选择';
 }
 async function saveFollowupPlan(){
-  const d={plan_date:document.getElementById('fuDate').value,content:document.getElementById('fuContent').value};
+  const d={plan_date:document.getElementById('fuDate').value,content:document.getElementById('fuContent').value,customer_id:document.getElementById('fuCustomer').value||null,contact_id:document.getElementById('fuContact').value||null,opportunity_id:document.getElementById('fuOpp').value||null};
   if(!d.content){toast('请输入内容','error');return}
-  await api('/followups',{method:'POST',body:JSON.stringify(d)});
-  toast('创建成功');closeModal();renderContactLog(document.getElementById('content'));
+  if(window._editFuId){
+    const r=await api(`/followups/${window._editFuId}`,{method:'PUT',body:JSON.stringify(d)});
+    if(r.error){toast(r.error,'error');return}
+    toast('更新成功');
+  }else{
+    await api('/followups',{method:'POST',body:JSON.stringify(d)});
+    toast('创建成功');
+  }
+  closeModal();window._editFuId=null;renderFollowups(document.getElementById('content'));
 }
-async function completeFollowup(id){
-  await api(`/followups/${id}`,{method:'PUT',body:JSON.stringify({actual_date:new Date().toISOString().slice(0,10),actual_content:'已完成'})});
-  toast('已标记完成');renderContactLog(document.getElementById('content'));
+async function viewFollowupDetail(id){
+  const f=await api(`/followups/${id}`);
+  openModal(`<h3>联系计划详情</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px;margin-bottom:12px">
+      <div><span style="color:var(--tl)">计划日期：</span>${fmtDate(f.plan_date)||'-'}</div>
+      <div><span style="color:var(--tl)">状态：</span>${f.actual_date?'已完成 ('+fmtDate(f.actual_date)+')':'待联络'}</div>
+      <div><span style="color:var(--tl)">客户：</span>${esc(f.customer_name||'-')}</div>
+      <div><span style="color:var(--tl)">联系人：</span>${esc(f.contact_name||'-')}</div>
+      <div><span style="color:var(--tl)">关联商机：</span>${esc(f.opportunity_title||'无')}</div>
+    </div>
+    <div style="font-weight:600;font-size:13px;margin-bottom:6px">本次计划联系内容</div>
+    <div style="font-size:14px;background:#f8fafc;border-radius:8px;padding:10px 12px;margin-bottom:14px">${esc(f.content||'-')}</div>
+    ${f.actual_content?`<div style="font-weight:600;font-size:13px;margin-bottom:6px">本次实际联系内容</div>
+    <div style="font-size:14px;background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:14px">${esc(f.actual_content)}</div>`:''}
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">之前的联系记录</div>
+    <div class="timeline">${(f.history||[]).length?f.history.map(h=>`<div class="timeline-item">
+      <div class="tl-date">${esc(h.time||'')} ${esc(h.method||'')}</div>
+      <div class="tl-content">${esc(h.content||'')}${h.contact_name?` <span style="color:var(--tl)">(${esc(h.contact_name)})</span>`:''}${h.next_followup_time?`<br><span style="color:var(--wn)">预计下次: ${fmtDate(h.next_followup_time)}</span>`:''}</div>
+    </div>`).join(''):'<div style="font-size:13px;color:var(--tl)">暂无历史联系记录</div>'}</div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`);
+}
+async function executeFollowup(id){
+  const f=await api(`/followups/${id}`);
+  openModal(`<h3>执行联络 · ${esc(f.customer_name||'')} ${esc(f.contact_name||'')}</h3>
+    <div style="font-size:13px;color:var(--tl);background:#f8fafc;border-radius:8px;padding:10px 12px;margin-bottom:12px">计划内容：${esc(f.content||'')}</div>
+    <div class="form-row">
+      <div class="form-group"><label>联系方式</label><select id="exMethod"><option>电话</option><option>视频会议</option><option>现场拜访</option><option>微信</option><option>邮件</option></select></div>
+      <div class="form-group"><label>下次联系时间</label><input id="exNextTime" type="date"></div>
+    </div>
+    <div class="form-group"><label>本次联系内容 *</label><textarea id="exContent" rows="3" placeholder="记录本次实际沟通内容，将同步到日常联络"></textarea></div>
+    <div class="form-group"><label>预计下次联系内容</label><input id="exNextContent"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="submitExecute(${id})">提交联络</button></div>`);
+}
+async function submitExecute(id){
+  const d={method:document.getElementById('exMethod').value,actual_content:document.getElementById('exContent').value,next_time:document.getElementById('exNextTime').value,next_content:document.getElementById('exNextContent').value};
+  if(!d.actual_content){toast('请填写本次联系内容','error');return}
+  const r=await api(`/followups/${id}/execute`,{method:'POST',body:JSON.stringify(d)});
+  if(r.error){toast(r.error,'error');return}
+  toast(r.message||'已记录');closeModal();renderFollowups(document.getElementById('content'));
 }
 async function deleteFollowup(id){
-  if(!confirm('确认删除？'))return;
-  await api(`/followups/${id}`,{method:'DELETE'});toast('已删除');renderContactLog(document.getElementById('content'));
+  if(!confirm('确认删除该计划？'))return;
+  await api(`/followups/${id}`,{method:'DELETE'});toast('已删除');
+  if((window.location.hash||'').includes('followups'))renderFollowups(document.getElementById('content'));
 }
 
 // ===== 7. Kanban =====

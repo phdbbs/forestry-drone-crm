@@ -78,16 +78,18 @@ def _extract_json(text):
 EXTRACT_SYSTEM_PROMPT = (
     "你是招标信息结构化提取助手。从政府采购公告文本中提取以下字段，只输出一个 JSON 对象，"
     "不要输出任何其他文字或解释。字段："
-    '{"title":"项目名称","purchaser":"采购单位/客户方","contact_name":"联系人","contact_phone":"联系电话",'
-    '"address":"地址","budget":"预算金额(纯数字，单位万元，无法确定填null)",'
+    '{"title":"项目名称","purchaser":"采购单位/客户方","contact_name":"项目联系人/联系人姓名",'
+    '"contact_phone":"联系电话/项目联系电话(纯数字或含区号)","address":"采购单位地址",'
+    '"budget":"预算金额(纯数字，单位万元，无法确定填null)",'
     '"deadline":"报名/投标截止时间(YYYY-MM-DD，无则null)","summary":"60字以内业务摘要"}。'
-    "无法确定的字段填 null。"
+    "注意：公告末尾的'联系人及联系方式'区域中，'项目联系人'后面的姓名和'项目联系电话'后面的号码"
+    "是重要字段，必须提取；无法确定的字段填 null。"
 )
 
 
 def extract_lead(title, page_text, source_url):
     """AI 抽取招标公告字段，返回 dict。"""
-    content = f"公告标题：{title}\n公告来源：{source_url}\n公告正文：\n{page_text[:3500]}"
+    content = f"公告标题：{title}\n公告来源：{source_url}\n公告正文：\n{page_text[:7000]}"
     text = chat(
         [
             {"role": "system", "content": EXTRACT_SYSTEM_PROMPT},

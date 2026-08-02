@@ -213,7 +213,39 @@ def fetch_detail_text(url, session):
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
-    return text[:4000]
+    return text[:8000]
+
+
+def extract_contact_rules(text):
+    """规则兜底：从公告文本提取 联系人/电话/地址/采购单位（AI 未抽到时使用）。"""
+    contact = phone = address = purchaser = ""
+    m = re.search(r"项目联系人\s*([\u4e00-\u9fa5·]{2,8})\s*项目联系电话\s*([0-9\-—()（）\s]{5,30})", text)
+    if m:
+        contact, phone = m.group(1), m.group(2)
+    if not contact:
+        m = re.search(r"联系人[:：]?\s*([\u4e00-\u9fa5·]{2,8})\s*电话[:：]?\s*([0-9\-—()（）\s]{5,30})", text)
+        if m:
+            contact, phone = m.group(1), m.group(2)
+    if not contact:
+        m = re.search(r"项目联系人[:：]\s*([\u4e00-\u9fa5·]{2,8})", text)
+        if m:
+            contact = m.group(1)
+    if not phone:
+        m = re.search(r"项目联系电话[:：]?\s*([0-9\-—()（）\s]{5,30})", text)
+        if m:
+            phone = m.group(1)
+    m = re.search(r"采购单位地址[:：]?\s*([^\s，。；,]{4,60})", text)
+    if m:
+        address = m.group(1)
+    m = re.search(r"采购单位[:：]?\s*([\u4e00-\u9fa5（）()]{4,50}?)(?=\s|$)", text)
+    if m:
+        purchaser = m.group(1)
+    return {
+        "contact_name": re.sub(r"\s+", "", contact),
+        "contact_phone": re.sub(r"[^\d-]", "", phone),
+        "address": address,
+        "purchaser": purchaser,
+    }
 
 
 def _update_status(**kw):
@@ -281,6 +313,10 @@ def run_crawl(app=None):
                 continue
             page_text = fetch_detail_text(item["url"], session)
             ai = extract_lead(item["title"], page_text, item["url"])
+            rules = extract_contact_rules(page_text)
+            for f in ("contact_name", "contact_phone", "address", "purchaser"):
+                if not ai.get(f) and rules.get(f):
+                    ai[f] = rules[f]
             budget = ai["budget"]
             if budget is None:
                 budget = extract_budget(page_text)
