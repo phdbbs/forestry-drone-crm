@@ -39,7 +39,7 @@ def _parse_datetime(value):
     if isinstance(value, datetime):
         return value
     text = str(value).strip()
-    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S'):
+    for fmt in ('%Y-%m-%d', '%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S'):
         try:
             return datetime.strptime(text, fmt)
         except ValueError:
@@ -170,7 +170,7 @@ def create_customer():
 @api.route('/customers/<int:id>', methods=['GET'])
 def get_customer(id):
     c = Customer.query.get_or_404(id)
-    return jsonify({"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "address": c.address, "website": c.website, "capital": c.registration_capital, "years": c.operation_years, "social_count": c.social_security_count, "scope": c.business_scope, "ip": c.intellectual_property, "dept": c.department, "source": c.source, "remark": c.remark, "contacts": [{"id": ct.id, "name": ct.name, "title": ct.title, "phone": ct.phone, "importance": ct.importance} for ct in c.contacts], "news": [{"id": n.id, "title": n.title, "date": str(n.publish_date.date()) if n.publish_date else None, "type": n.change_type, "url": n.url} for n in c.news_items]})
+    return jsonify({"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "address": c.address, "website": c.website, "capital": c.registration_capital, "years": c.operation_years, "social_count": c.social_security_count, "scope": c.business_scope, "ip": c.intellectual_property, "dept": c.department, "source": c.source, "remark": c.remark, "contacts": [{"id": ct.id, "name": ct.name, "title": ct.title, "phone": ct.phone, "importance": ct.importance} for ct in c.contacts], "opportunities": [{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None} for o in c.opportunities], "news": [{"id": n.id, "title": n.title, "date": str(n.publish_date.date()) if n.publish_date else None, "type": n.change_type, "url": n.url} for n in c.news_items]})
 
 @api.route('/customers/<int:id>', methods=['PUT'])
 def update_customer(id):
@@ -194,22 +194,32 @@ def list_leads():
     q = request.args.get('search', '')
     status = request.args.get('status', '')
     level = request.args.get('level', '')
+    region = request.args.get('region', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
     query = Lead.query.options(joinedload(Lead.customer))
     if q: query = query.filter(Lead.title.contains(q))
     if status: query = query.filter_by(status=status)
     if level: query = query.filter_by(match_level=level)
+    if region: query = query.filter(Lead.region.contains(region))
+    if date_from:
+        d = _parse_date(date_from)
+        if d: query = query.filter(Lead.created_at >= d)
+    if date_to:
+        d = _parse_date(date_to)
+        if d: query = query.filter(Lead.created_at < d + timedelta(days=1))
     leads = query.order_by(Lead.created_at.desc()).all()
     result = []
     for l in leads:
         days_left = (l.deadline - datetime.now()).days if l.deadline else None
-        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
+        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
     return jsonify(result)
 
 @api.route('/leads', methods=['POST'])
 def create_lead():
     d = request.get_json() or {}
     _require_fields(d, 'title')
-    l = Lead(bid_number=d.get('bid_number',''), title=d['title'], budget=d.get('budget',''), deadline=_parse_date(d.get('deadline')), region=d.get('region',''), purchaser=d.get('purchaser',''), service_content=d.get('service_content',''), source_url=d.get('source_url',''), source_platform=d.get('source_platform',''), customer_id=d.get('customer_id'))
+    l = Lead(bid_number=d.get('bid_number',''), title=d['title'], budget=d.get('budget',''), deadline=_parse_date(d.get('deadline')), region=d.get('region',''), purchaser=d.get('purchaser',''), contact_name=(d.get('contact_name') or '')[:100], contact_phone=(d.get('contact_phone') or '')[:100], address=(d.get('address') or '')[:300], service_content=d.get('service_content',''), source_url=d.get('source_url',''), source_platform=d.get('source_platform',''), customer_id=d.get('customer_id'))
     match_lead(l)
     db.session.add(l)
     db.session.commit()
@@ -218,13 +228,17 @@ def create_lead():
 @api.route('/leads/<int:id>', methods=['GET'])
 def get_lead(id):
     l = Lead.query.get_or_404(id)
-    return jsonify({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "region": l.region, "purchaser": l.purchaser, "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_reason": l.match_reason, "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
+    return jsonify({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_reason": l.match_reason, "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
 
 @api.route('/leads/<int:id>', methods=['PUT'])
 def update_lead(id):
     l = Lead.query.get_or_404(id)
+    if l.status == 'converted':
+        return jsonify({"error": "已转化线索不可修改"}), 400
     d = request.get_json() or {}
-    for key in ['title','bid_number','budget','region','purchaser','service_content','match_keywords','match_level','match_score','match_reason','assignee','source_platform','source_url','status','customer_id']:
+    if 'status' in d and d['status'] not in ('active', 'abandoned'):
+        return jsonify({"error": "状态无效"}), 400
+    for key in ['title','bid_number','budget','region','purchaser','contact_name','contact_phone','address','service_content','match_keywords','match_level','match_score','match_reason','assignee','source_platform','source_url','status','customer_id']:
         if key in d: setattr(l, key, d[key])
     if 'deadline' in d: l.deadline = _parse_date(d.get('deadline'))
     db.session.commit()
@@ -233,9 +247,37 @@ def update_lead(id):
 @api.route('/leads/<int:id>/convert', methods=['POST'])
 def convert_lead(id):
     l = Lead.query.get_or_404(id)
-    if l.status != 'active': return jsonify({"error": "仅活跃线索可转化"}), 400
+    if l.status != 'active': return jsonify({"error": "仅待转化线索可转化"}), 400
     d = request.get_json() or {}
-    o = Opportunity(lead_id=l.id, customer_id=d.get('customer_id', l.customer_id), contact_id=d.get('contact_id'), title=d.get('title', l.title), amount=d.get('amount', l.budget), current_stage=d.get('stage', '初步接触'))
+    customer_id = d.get('customer_id', l.customer_id)
+    # 未选择客户时，自动按线索采购方创建客户
+    if not customer_id:
+        customer_name = (d.get('customer_name') or l.purchaser or '').strip()
+        if customer_name:
+            customer = Customer.query.filter_by(name=customer_name, is_archived=False).first()
+            if not customer:
+                customer = Customer(name=customer_name[:200], source='线索转化自动创建',
+                                    remark=f"由线索[{l.title[:60]}]转化时自动创建")
+                db.session.add(customer)
+                db.session.flush()
+            customer_id = customer.id
+    contact_id = d.get('contact_id')
+    # 未选择联系人时，按线索抽取的联系人自动创建
+    contact_name = (d.get('contact_name') or l.contact_name or '').strip()
+    if not contact_id and contact_name and customer_id:
+        contact = Contact(
+            name=contact_name[:100],
+            phone=(d.get('contact_phone') or l.contact_phone or '')[:100],
+            customer_id=customer_id,
+            notes=f"由线索[{l.title[:60]}]转化自动创建",
+        )
+        db.session.add(contact)
+        db.session.flush()
+        contact_id = contact.id
+    o = Opportunity(lead_id=l.id, customer_id=customer_id, contact_id=contact_id,
+                    title=d.get('title', l.title), amount=d.get('amount', l.budget),
+                    current_stage=d.get('stage', '初步接触'),
+                    source_url=l.source_url or '')
     db.session.add(o)
     l.status = 'converted'
     db.session.commit()
@@ -246,7 +288,7 @@ def abandon_lead(id):
     l = Lead.query.get_or_404(id)
     l.status = 'abandoned'
     db.session.commit()
-    return jsonify({"message": "已废弃"})
+    return jsonify({"message": "已删除，可在已删除中恢复"})
 
 @api.route('/opportunities', methods=['GET'])
 def list_opportunities():
@@ -255,13 +297,18 @@ def list_opportunities():
         joinedload(Opportunity.contact),
         joinedload(Opportunity.stage_records),
     ).order_by(Opportunity.created_at.desc()).all()
-    return jsonify([{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "created_at": str(o.created_at.date()) if o.created_at else None, "stages": [{"stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status, "created_at": str(s.created_at.date()) if s.created_at else None} for s in o.stage_records]} for o in ops])
+    return jsonify([{"id": o.id, "title": o.title, "amount": o.amount, "source_url": o.source_url or '', "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "created_at": str(o.created_at.date()) if o.created_at else None, "stages": [{"stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status, "created_at": str(s.created_at.date()) if s.created_at else None} for s in o.stage_records]} for o in ops])
 
 @api.route('/opportunities/<int:id>', methods=['GET'])
 def get_opportunity(id):
-    o = Opportunity.query.get_or_404(id)
+    o = Opportunity.query.options(
+        joinedload(Opportunity.stage_records),
+        joinedload(Opportunity.activities).joinedload(Activity.contact),
+        joinedload(Opportunity.customer),
+        joinedload(Opportunity.contact),
+    ).get_or_404(id)
     lead = Lead.query.get(o.lead_id) if o.lead_id else None
-    return jsonify({"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "lead_title": lead.title if lead else None, "stages": [{"id": s.id, "stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status, "add_to_kanban": s.add_to_kanban} for s in o.stage_records]})
+    return jsonify({"id": o.id, "title": o.title, "amount": o.amount, "source_url": o.source_url or (lead.source_url if lead else '') or '', "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "lead_title": lead.title if lead else None, "stages": [{"id": s.id, "stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status, "add_to_kanban": s.add_to_kanban} for s in o.stage_records], "activities": [{"id": a.id, "time": str(a.activity_time.date()) if a.activity_time else None, "method": a.method, "content": a.content, "contact_name": a.contact.name if a.contact else None, "next_followup_time": str(a.next_followup_time.date()) if a.next_followup_time else None, "next_followup_content": a.next_followup_content} for a in sorted(o.activities, key=lambda x: x.activity_time or datetime.min)]})
 
 @api.route('/opportunities/<int:id>/stages', methods=['POST'])
 def add_stage_record(id):
@@ -358,12 +405,28 @@ def delete_contact(id):
 def list_activities():
     q = request.args.get('search', '')
     method = request.args.get('method', '')
+    customer_id = request.args.get('customer_id', '')
+    opportunity_id = request.args.get('opportunity_id', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
     query = Activity.query.options(
         joinedload(Activity.customer), joinedload(Activity.contact),
         joinedload(Activity.opportunity), joinedload(Activity.lead),
     )
     if q: query = query.filter(Activity.content.contains(q))
     if method: query = query.filter_by(method=method)
+    if customer_id:
+        try: query = query.filter_by(customer_id=int(customer_id))
+        except ValueError: pass
+    if opportunity_id:
+        try: query = query.filter_by(opportunity_id=int(opportunity_id))
+        except ValueError: pass
+    if date_from:
+        d = _parse_date(date_from)
+        if d: query = query.filter(Activity.activity_time >= d)
+    if date_to:
+        d = _parse_date(date_to)
+        if d: query = query.filter(Activity.activity_time < d + timedelta(days=1))
     acts = query.order_by(Activity.activity_time.desc()).all()
     return jsonify([{"id": a.id, "title": a.title, "method": a.method, "content": a.content, "activity_time": str(a.activity_time) if a.activity_time else None, "next_followup_time": str(a.next_followup_time.date()) if a.next_followup_time else None, "next_followup_content": a.next_followup_content, "customer_id": a.customer_id, "customer_name": a.customer.name if a.customer else None, "contact_id": a.contact_id, "contact_name": a.contact.name if a.contact else None, "opportunity_id": a.opportunity_id, "opportunity_title": a.opportunity.title if a.opportunity else None, "lead_id": a.lead_id} for a in acts])
 
@@ -743,8 +806,9 @@ def delete_lead(id):
 
 @api.route('/opportunities', methods=['POST'])
 def create_opportunity():
-    d = request.get_json()
-    o = Opportunity(title=d['title'], customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), amount=d.get('amount',''), current_stage=d.get('current_stage','初步接触'), probability=d.get('probability', 20), expected_close=datetime.strptime(d['expected_close'],'%Y-%m-%d') if d.get('expected_close') else None)
+    d = request.get_json() or {}
+    _require_fields(d, 'title')
+    o = Opportunity(title=d['title'], customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), amount=d.get('amount',''), source_url=d.get('source_url','') or '', current_stage=d.get('current_stage','初步接触'), probability=d.get('probability', 20), expected_close=_parse_date(d.get('expected_close')))
     db.session.add(o)
     db.session.commit()
     return jsonify({"id": o.id, "message": "创建成功"})
@@ -752,11 +816,11 @@ def create_opportunity():
 @api.route('/opportunities/<int:id>', methods=['PUT'])
 def update_opportunity(id):
     o = Opportunity.query.get_or_404(id)
-    d = request.get_json()
-    for key in ['title','amount','current_stage','customer_id','contact_id','probability']:
+    d = request.get_json() or {}
+    for key in ['title','amount','current_stage','customer_id','contact_id','probability','source_url']:
         if key in d: setattr(o, key, d[key])
-    if 'expected_close' in d and d['expected_close']:
-        o.expected_close = datetime.strptime(d['expected_close'], '%Y-%m-%d')
+    if 'expected_close' in d:
+        o.expected_close = _parse_date(d.get('expected_close'))
     db.session.commit()
     return jsonify({"id": o.id, "message": "更新成功"})
 

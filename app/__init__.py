@@ -51,8 +51,12 @@ def _migrate_db():
     migrations = [
         ('leads', 'match_score', 'INTEGER DEFAULT 0'),
         ('leads', 'assignee', "VARCHAR(50) DEFAULT ''"),
+        ('leads', 'contact_name', "VARCHAR(100) DEFAULT ''"),
+        ('leads', 'contact_phone', "VARCHAR(100) DEFAULT ''"),
+        ('leads', 'address', "VARCHAR(300) DEFAULT ''"),
         ('opportunities', 'probability', 'INTEGER DEFAULT 20'),
         ('opportunities', 'expected_close', 'DATETIME'),
+        ('opportunities', 'source_url', 'VARCHAR(1000)'),
         ('contacts', 'role', "VARCHAR(50) DEFAULT ''"),
         ('contacts', 'tags', "TEXT DEFAULT ''"),
         ('contacts', 'avatar', "VARCHAR(10) DEFAULT ''"),
