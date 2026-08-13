@@ -1,8 +1,11 @@
 from app import db
-from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig, DataDictionary
+from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig
 from datetime import datetime
+import os
 
 def seed_if_empty():
+    if os.environ.get('CRM_SKIP_SEED') == '1':
+        return
     if Customer.query.first():
         return
     print("Seeding demo data...")
@@ -28,8 +31,8 @@ def seed_if_empty():
     l5 = Lead(title="中国移动无人机通信中继服务", bid_number="YD-2026-0112", budget="200", deadline=datetime(2026,8,30), region="全国", purchaser="中国移动政企客户部", service_content="无人机通信中继基站建设、巡检数据回传", match_keywords="无人机,通信中继", match_level="中匹配", match_reason="匹配关键词", source_platform="中国移动采购网", source_url="#", status="active", customer_id=c4.id)
     db.session.add_all([l1, l2, l3, l4, l5])
     db.session.flush()
-    o1 = Opportunity(title="浙江无人机巡检服务商机", lead_id=l1.id, customer_id=c1.id, contact_id=ct1.id, amount="150万", current_stage="方案报价", created_at=datetime(2026,6,10))
-    o2 = Opportunity(title="福建森林防火监测商机", lead_id=l2.id, customer_id=c2.id, contact_id=ct2.id, amount="280万", current_stage="签约谈判", created_at=datetime(2026,6,5))
+    o1 = Opportunity(title="浙江无人机巡检服务商机", lead_id=l1.id, customer_id=c1.id, contact_id=ct1.id, amount="150", current_stage="方案报价", created_at=datetime(2026,6,10))
+    o2 = Opportunity(title="福建森林防火监测商机", lead_id=l2.id, customer_id=c2.id, contact_id=ct2.id, amount="280", current_stage="签约谈判", created_at=datetime(2026,6,5))
     db.session.add_all([o1, o2])
     db.session.flush()
     db.session.add_all([
@@ -69,17 +72,5 @@ def seed_if_empty():
         SystemConfig(key="crawl_enabled", value="true", description="是否启用自动爬取"),
         SystemConfig(key="daily_brief_enabled", value="true", description="是否启用每日简报"),
     ])
-    dict_data = {
-        'customer_type': ['政府', '运营商', '科研院所', '科技公司', '国企', '民营企业'],
-        'customer_level': ['省级', '市级', '县级', '区级', '国家级'],
-        'customer_source': ['招标平台', '主动开发', '客户转介', '合作伙伴', '线索转化'],
-        'region': ['北京', '上海', '杭州', '福州', '南昌', '深圳', '昆明', '成都', '广州', '全国'],
-        'contact_importance': ['关键', '重要', '一般'],
-        'activity_method': ['电话', '拜访', '微信', '邮件', '会议'],
-        'opportunity_stage': ['初步接触', '需求调研', '方案报价', '方案评审', '签约谈判', '合同签约', '项目交付', '售后服务'],
-    }
-    for category, items in dict_data.items():
-        for i, label in enumerate(items):
-            db.session.add(DataDictionary(category=category, item_key=label, label=label, sort_order=i))
     db.session.commit()
     print("Seed complete!")

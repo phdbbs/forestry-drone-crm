@@ -46,8 +46,11 @@ class CrawlSkill:
     description = "爬取最新招标线索"
     def execute(self, **kw):
         from app.services.crawler import run_crawl
-        n = run_crawl()
-        return {"message": f"新增 {n} 条线索"}
+        n, errors = run_crawl()
+        result = {"message": f"新增 {n} 条线索"}
+        if errors:
+            result["errors"] = errors
+        return result
 
 class GetCfg:
     name = "get_config"

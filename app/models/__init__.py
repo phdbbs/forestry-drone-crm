@@ -21,8 +21,8 @@ class Customer(db.Model):
     source = db.Column(db.String(100))
     remark = db.Column(db.Text)
     is_archived = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     contacts = db.relationship('Contact', backref='customer', lazy=True)
     news_items = db.relationship('CustomerNews', backref='customer', lazy=True)
 
@@ -33,9 +33,41 @@ class CustomerNews(db.Model):
     title = db.Column(db.String(500))
     content = db.Column(db.Text)
     url = db.Column(db.String(1000))
+    source_name = db.Column(db.String(200), default='')
     change_type = db.Column(db.String(20))
     publish_date = db.Column(db.DateTime)
-    crawled_at = db.Column(db.DateTime, default=datetime.utcnow)
+    event_time = db.Column(db.DateTime)
+    crawled_at = db.Column(db.DateTime, default=datetime.now)
+
+class ContactNews(db.Model):
+    """联系人动态信息：官网/媒体新闻中出现联系人姓名/职务时自动关联。"""
+    __tablename__ = 'contact_news'
+    id = db.Column(db.Integer, primary_key=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
+    title = db.Column(db.String(500))
+    content = db.Column(db.Text)
+    url = db.Column(db.String(1000))
+    source_name = db.Column(db.String(200), default='')
+    change_type = db.Column(db.String(20), default='')
+    publish_date = db.Column(db.DateTime)
+    event_time = db.Column(db.DateTime)
+    summary = db.Column(db.Text)
+    crawled_at = db.Column(db.DateTime, default=datetime.now)
+    contact = db.relationship('Contact', backref='news_items')
+
+class CrawlLog(db.Model):
+    """采集任务日志。"""
+    __tablename__ = 'crawl_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    task_type = db.Column(db.String(50))
+    sources = db.Column(db.String(500), default='')
+    status = db.Column(db.String(20), default='success')  # success/partial/failed
+    items_count = db.Column(db.Integer, default=0)
+    error_count = db.Column(db.Integer, default=0)
+    message = db.Column(db.Text)
+    started_at = db.Column(db.DateTime, default=datetime.now)
+    finished_at = db.Column(db.DateTime)
 
 class Lead(db.Model):
     __tablename__ = 'leads'
@@ -49,13 +81,18 @@ class Lead(db.Model):
     service_content = db.Column(db.Text)
     match_keywords = db.Column(db.Text)
     match_level = db.Column(db.String(20))
+    match_score = db.Column(db.Integer, default=0)
     match_reason = db.Column(db.Text)
+    contact_name = db.Column(db.String(100), default='')
+    contact_phone = db.Column(db.String(100), default='')
+    address = db.Column(db.String(300), default='')
+    assignee = db.Column(db.String(50), default='')
     source_url = db.Column(db.String(1000))
     source_platform = db.Column(db.String(100))
     status = db.Column(db.String(20), default='active')
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     opportunities = db.relationship('Opportunity', backref='lead', lazy=True)
     customer = db.relationship('Customer', backref='leads')
 
@@ -67,9 +104,12 @@ class Opportunity(db.Model):
     contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
     title = db.Column(db.String(500), nullable=False)
     amount = db.Column(db.String(50))
+    source_url = db.Column(db.String(1000))
     current_stage = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    probability = db.Column(db.Integer, default=20)
+    expected_close = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     customer = db.relationship('Customer', backref='opportunities')
     contact = db.relationship('Contact', backref='opportunities')
     stage_records = db.relationship('StageRecord', backref='opportunity', lazy=True, order_by='StageRecord.created_at')
@@ -80,7 +120,7 @@ class OpportunityStage(db.Model):
     name = db.Column(db.String(100), nullable=False)
     sort_order = db.Column(db.Integer, default=0)
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
 
 class StageRecord(db.Model):
     __tablename__ = 'stage_records'
@@ -91,8 +131,8 @@ class StageRecord(db.Model):
     deadline = db.Column(db.DateTime)
     status = db.Column(db.String(20), default='pending')
     add_to_kanban = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
 class Contact(db.Model):
     __tablename__ = 'contacts'
@@ -103,12 +143,15 @@ class Contact(db.Model):
     phone = db.Column(db.String(50))
     email = db.Column(db.String(100))
     wechat = db.Column(db.String(50))
+    role = db.Column(db.String(50), default='')
+    tags = db.Column(db.Text, default='')
+    avatar = db.Column(db.String(10), default='')
     business_scope = db.Column(db.Text)
     importance = db.Column(db.String(20))
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     activities = db.relationship('Activity', backref='contact', lazy=True)
 
 
@@ -126,8 +169,8 @@ class Activity(db.Model):
     next_followup_time = db.Column(db.DateTime)
     next_followup_content = db.Column(db.Text)
     add_to_kanban = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     customer = db.relationship('Customer', backref='activities')
     opportunity = db.relationship('Opportunity', backref='activities')
     lead = db.relationship('Lead', backref='activities')
@@ -137,7 +180,7 @@ class KanbanBoard(db.Model):
     __tablename__ = 'kanban_boards'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     columns = db.relationship('KanbanColumn', backref='board', lazy=True, order_by='KanbanColumn.sort_order', cascade='all, delete-orphan')
 
 class KanbanColumn(db.Model):
@@ -146,7 +189,7 @@ class KanbanColumn(db.Model):
     board_id = db.Column(db.Integer, db.ForeignKey('kanban_boards.id'))
     name = db.Column(db.String(100), nullable=False)
     sort_order = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     cards = db.relationship('KanbanCard', backref='column', lazy=True, order_by='KanbanCard.sort_order', cascade='all, delete-orphan')
 
 class KanbanCard(db.Model):
@@ -160,8 +203,8 @@ class KanbanCard(db.Model):
     sort_order = db.Column(db.Integer, default=0)
     source_type = db.Column(db.String(50))
     source_id = db.Column(db.Integer)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
 class SystemConfig(db.Model):
     __tablename__ = 'system_config'
@@ -169,7 +212,7 @@ class SystemConfig(db.Model):
     key = db.Column(db.String(100), unique=True, nullable=False)
     value = db.Column(db.Text)
     description = db.Column(db.String(300))
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
 class Skill(db.Model):
     __tablename__ = 'skills'
@@ -180,17 +223,5 @@ class Skill(db.Model):
     is_builtin = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
     config_json = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-class DataDictionary(db.Model):
-    __tablename__ = 'data_dictionary'
-    id = db.Column(db.Integer, primary_key=True)
-    category = db.Column(db.String(50), nullable=False)
-    item_key = db.Column(db.String(100), nullable=False)
-    label = db.Column(db.String(100), nullable=False)
-    sort_order = db.Column(db.Integer, default=0)
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    __table_args__ = (db.UniqueConstraint('category', 'item_key', name='uq_dict_category_key'),)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
