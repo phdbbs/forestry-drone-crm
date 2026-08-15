@@ -25,14 +25,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .sidebar-nav a .nav-icon{color:rgba(255,255,255,.5);display:flex;align-items:center}
 .sidebar-user{padding:12px 16px;border-top:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:8px}
 .sidebar-user .avatar{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600}
-.main{margin-left:var(--sw);min-height:100vh;display:flex;flex-direction:column;flex:1}
+.main{margin-left:var(--sw);min-height:100vh;display:flex;flex-direction:column;flex:1;min-width:0;overflow:hidden}
 .header{background:#fff;padding:14px 24px;border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
 .header h1{font-size:18px;font-weight:700;color:var(--tx)}
 .header-actions{display:flex;gap:8px;align-items:center}
 .notif-badge{position:relative;cursor:pointer;padding:6px;border-radius:8px;transition:background .2s}
 .notif-badge:hover{background:#f1f5f9}
 .notif-badge .count{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:var(--dn);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:600}
-.content{flex:1;padding:24px;overflow-y:auto}
+.content{flex:1;padding:24px;overflow-y:auto;overflow-x:hidden;min-width:0}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .fade-in{animation:fadeIn .3s ease}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
@@ -89,7 +89,7 @@ textarea{resize:vertical;min-height:80px}
 .urgency-medium{background:#fff7ed;border-left:4px solid #f97316}
 .urgency-low{background:#fffbeb;border-left:4px solid #f59e0b}
 .kanban-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:16px;min-height:400px}
-.kanban-col{min-width:260px;flex:1;background:#f9fafb;border-radius:12px;padding:12px;display:flex;flex-direction:column;border-top:3px solid #d1d5db}
+.kanban-col{min-width:260px;flex:1 0 260px;background:#f9fafb;border-radius:12px;padding:12px;display:flex;flex-direction:column;border-top:3px solid #d1d5db}
 .kanban-col.drag-over{background:#f0fdf4;border-color:var(--primary)}
 .kanban-col-header{font-weight:600;padding:8px;font-size:13px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
 .kanban-col-body{flex:1;min-height:100px}
@@ -118,6 +118,7 @@ textarea{resize:vertical;min-height:80px}
 .pipeline-connector{flex:0.3;height:2px;background:#e2e8f0;align-self:center;margin-top:-20px}
 .expand-row{background:#f8fafc;border-top:1px solid var(--brd)}
 .expand-row td{padding:16px 24px}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .settings-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6}
 .settings-label{min-width:100px;font-size:14px;font-weight:500;color:var(--tl)}
 .skill-badge{display:inline-block;padding:6px 14px;background:#f0fdf4;border:1px solid var(--brd);border-radius:20px;font-size:13px;margin:4px;cursor:pointer;transition:all .2s}
@@ -130,6 +131,15 @@ textarea{resize:vertical;min-height:80px}
 .mobile-toggle{display:block}
 .grid2,.grid3,.grid4{grid-template-columns:1fr}
 .stats{grid-template-columns:1fr 1fr}
+.detail-grid{grid-template-columns:1fr !important}
+.card{overflow-x:auto}
+.card>table{min-width:640px}
+.btn-sm{padding:6px 12px}
+th,td{padding:8px 10px}
+.modal{width:100%;max-width:100%;border-radius:16px 16px 0 0;max-height:92vh}
+.modal-overlay{align-items:flex-end;padding:0}
+.pipeline-stage .pipeline-circle{width:36px;height:36px;font-size:14px}
+.search-bar input,.search-bar select{min-width:0;flex:1 1 40%}
 }
 </style>
 </head>
@@ -212,6 +222,27 @@ function toast(msg, type='success'){
   document.body.appendChild(el);setTimeout(()=>el.remove(),3000);
 }
 function fmtDate(d){return d?d.substring(0,10):''}
+async function exportCurrent(){
+  const d=window._exportData;
+  if(!d||!d.list||!d.list.length){toast('当前无数据可导出','error');return}
+  try{
+    const res=await fetch('/api/export/'+d.type,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:d.list.map(x=>x.id)})});
+    if(!res.ok){
+      let msg='导出失败';
+      try{msg=(await res.json()).error||msg}catch(e){}
+      toast(msg,'error');return;
+    }
+    const blob=await res.blob();
+    const cd=res.headers.get('Content-Disposition')||'';
+    const m=cd.match(/filename\*=UTF-8''(.+)/);
+    const name=m?decodeURIComponent(m[1]):`${d.type}_${new Date().toISOString().slice(0,10)}.csv`;
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},100);
+    toast(`已导出 ${d.list.length} 条`);
+  }catch(e){toast('导出异常: '+e.message,'error')}
+}
 function matchColor(score){return score>=80?'#166534':score>=60?'#f59e0b':score>=40?'#3b82f6':'#ef4444'}
 function probColor(p){return p>=80?'#166534':p>=50?'#f59e0b':p>=30?'#3b82f6':'#ef4444'}
 function openModal(html){document.getElementById('modalRoot').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`}
@@ -363,6 +394,7 @@ async function renderLeads(c){
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="showLeadForm()">${IC.plus} 手工新增</button>
         <button class="btn btn-primary btn-sm" onclick="triggerCrawl()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> 采集线索</button>
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
       </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
@@ -391,6 +423,7 @@ async function renderLeads(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'leads',list};
   const container=document.getElementById('leadsList');
   if(!list.length){container.innerHTML='<div class="empty-state">暂无线索</div>';return}
   container.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table>
@@ -512,7 +545,7 @@ async function saveLead(){
 async function viewLeadDetail(id){
   const l=await api(`/leads/${id}`);
   openModal(`<h3>线索详情</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px">
+    <div class="detail-grid" style="font-size:14px>
       <div><span style="color:var(--tl)">标题：</span>${esc(l.title)}</div>
       <div><span style="color:var(--tl)">预算：</span>${esc(l.budget||'-')}万</div>
       <div><span style="color:var(--tl)">截止：</span>${fmtDate(l.deadline)}</div>
@@ -607,6 +640,7 @@ async function renderOpportunities(c){
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
   const opps2=filtered;
+  window._exportData={type:'opportunities',list:opps2};
   const stageData=stageNames.map((s,i)=>({name:s,color:STAGE_COLORS[i%STAGE_COLORS.length],items:opps2.filter(o=>o.current_stage===s)}));
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -614,6 +648,7 @@ async function renderOpportunities(c){
       <div style="display:flex;gap:8px">
         <button class="btn ${oppView==='list'?'btn-primary':''}" onclick="oppView='list';renderOpportunities(document.getElementById('content'))">列表</button>
         <button class="btn ${oppView==='board'?'btn-primary':''}" onclick="oppView='board';renderOpportunities(document.getElementById('content'))">看板</button>
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
         <button class="btn btn-primary" onclick="showOppForm()">${IC.plus} 新建商机</button>
       </div>
     </div>
@@ -661,7 +696,7 @@ function renderOppList(oc,opps,stageData){
         <td><span class="badge" style="background:${STAGE_COLORS[si>=0?si%STAGE_COLORS.length:0]}20;color:${STAGE_COLORS[si>=0?si%STAGE_COLORS.length:0]}">${esc(o.current_stage)}</span></td>
         <td style="text-align:center"><span style="font-weight:600;color:${probColor(o.probability||20)}">${o.probability||20}%</span></td>
         <td>${esc(o.contact_name||'-')}</td>
-        <td style="color:var(--tl)">${fmtDate(o.expected_close)}</td>
+        <td style="color:var(--tl)">${fmtDate(o.expected_close)||'-'}</td>
         <td style="text-align:center" onclick="event.stopPropagation()"><div class="btn-group" style="justify-content:center">
           <button class="btn btn-sm" onclick="viewOppDetail(${o.id})">${IC.eye} 详情</button>
           <button class="btn btn-sm" onclick="showOppForm(${o.id})">${IC.edit} 编辑</button>
@@ -674,7 +709,7 @@ async function viewOppDetail(id){
   const o=await api(`/opportunities/${id}`);
   const acts=(o.activities||[]).slice().reverse();
   openModal(`<h3>${esc(o.title)}</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px;margin-bottom:16px">
+    <div class="detail-grid" style="font-size:14px;margin-bottom:16px">
       <div><span style="color:var(--tl)">客户：</span>${esc(o.customer_name||'-')}</div>
       <div><span style="color:var(--tl)">联系人：</span>${esc(o.contact_name||'-')}</div>
       <div><span style="color:var(--tl)">金额：</span><strong>${esc(o.amount||'0')}万</strong></div>
@@ -766,10 +801,14 @@ async function renderContacts(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'contacts',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">联系人管理</h2>
-      <button class="btn btn-primary" onclick="showContactForm()">${IC.plus} 新增联系人</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
+        <button class="btn btn-primary" onclick="showContactForm()">${IC.plus} 新增联系人</button>
+      </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
       <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>姓名/职位</label><input placeholder="搜索姓名或职位..." value="${esc(contactDraft.q)}" oninput="contactDraft.q=this.value"></div>
@@ -812,7 +851,7 @@ function resetContactSearch(){ contactDraft={q:'',customer:'',role:''}; contactF
 async function viewContactDetail(id){
   const ct=await api(`/contacts/${id}`);
   openModal(`<h3>${esc(ct.name)}</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px">
+    <div class="detail-grid" style="font-size:14px>
       <div><span style="color:var(--tl)">职位：</span>${esc(ct.title||'-')}</div>
       <div><span style="color:var(--tl)">所属客户：</span>${esc(ct.customer_name||'-')}</div>
       <div><span style="color:var(--tl)">电话：</span>${esc(ct.phone||'-')}</div>
@@ -906,10 +945,14 @@ async function renderCustomers(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'customers',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">客户管理</h2>
-      <button class="btn btn-primary" onclick="showCustomerForm()">${IC.plus} 新增客户</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
+        <button class="btn btn-primary" onclick="showCustomerForm()">${IC.plus} 新增客户</button>
+      </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
       <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>名称</label><input placeholder="搜索客户名称..." value="${esc(custDraft.q)}" oninput="custDraft.q=this.value"></div>
@@ -976,7 +1019,7 @@ let custTab='contacts';
 async function viewCustomerDetail(id){
   const cu=await api(`/customers/${id}`);
   openModal(`<h3>${esc(cu.name)}</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px;margin-bottom:12px">
+    <div class="detail-grid" style="font-size:14px;margin-bottom:12px">
       <div><span style="color:var(--tl)">类型：</span>${esc(cu.type||'-')}</div>
       <div><span style="color:var(--tl)">等级：</span>${esc(cu.level||'-')}</div>
       <div><span style="color:var(--tl)">地区：</span>${esc(cu.region||'-')}</div>
@@ -1058,10 +1101,12 @@ async function renderContactLog(c){
     if(typeof va==='number'&&typeof vb==='number')return (va-vb)*dir;
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'activities',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">日常联络</h2>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
         <button class="btn btn-primary" onclick="showActivityForm()">${IC.plus} 新增日常联络</button>
       </div>
     </div>
@@ -1174,7 +1219,7 @@ async function saveActivity(){
 async function viewActivityDetail(id){
   const a=await api(`/activities/${id}`);
   openModal(`<h3>联络记录详情</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px">
+    <div class="detail-grid" style="font-size:14px>
       <div><span style="color:var(--tl)">时间：</span>${fmtDate(a.activity_time)||'-'}</div>
       <div><span style="color:var(--tl)">方式：</span>${esc(a.method||'-')}</div>
       <div><span style="color:var(--tl)">客户：</span>${esc(a.customer_name||'-')}</div>
@@ -1213,10 +1258,14 @@ async function renderFollowups(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'followups',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">联络计划</h2>
-      <button class="btn btn-primary" onclick="showFollowupForm()">${IC.plus} 新增联系计划</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
+        <button class="btn btn-primary" onclick="showFollowupForm()">${IC.plus} 新增联系计划</button>
+      </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
       <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>内容/客户</label><input placeholder="搜索计划内容或客户..." value="${esc(fuDraft.q)}" oninput="fuDraft.q=this.value"></div>
@@ -1300,7 +1349,7 @@ async function saveFollowupPlan(){
 async function viewFollowupDetail(id){
   const f=await api(`/followups/${id}`);
   openModal(`<h3>联系计划详情</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px;margin-bottom:12px">
+    <div class="detail-grid" style="font-size:14px;margin-bottom:12px">
       <div><span style="color:var(--tl)">计划日期：</span>${fmtDate(f.plan_date)||'-'}</div>
       <div><span style="color:var(--tl)">状态：</span>${f.actual_date?'已完成 ('+fmtDate(f.actual_date)+')':'待联络'}</div>
       <div><span style="color:var(--tl)">客户：</span>${esc(f.customer_name||'-')}</div>
@@ -1360,7 +1409,7 @@ async function renderKanban(c){
         <button class="btn btn-primary" onclick="createBoard()">${IC.plus} 新建看板</button>
       </div>
     </div>
-    <div class="kanban-board">${board.columns.map(col=>`
+    <div class="kanban-board">${board.columns.map((col,ci)=>`
       <div class="kanban-col" data-col="${col.id}" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropCard(event,${col.id});this.classList.remove('drag-over')">
         <div class="kanban-col-header"><span>${esc(col.name)}</span><span class="badge" style="background:#f1f5f9;color:#64748b">${col.cards.length}</span></div>
         <div class="kanban-col-body">${col.cards.map(card=>`
@@ -1368,12 +1417,21 @@ async function renderKanban(c){
             <div style="font-weight:500;font-size:13px;margin-bottom:4px">${esc(card.title)}</div>
             ${card.description?`<div style="font-size:12px;color:var(--tl);margin-bottom:4px">${esc(card.description).substring(0,60)}</div>`:''}
             ${card.deadline?`<div style="font-size:11px;color:var(--dn)">${IC.clock} ${fmtDate(card.deadline)}</div>`:''}
-            <div style="margin-top:6px;text-align:right"><button class="btn btn-sm" style="padding:2px 6px;color:var(--dn)" onclick="deleteCard(${card.id})">${IC.trash}</button></div>
+            <div style="margin-top:6px;display:flex;justify-content:flex-end;gap:2px;align-items:center">
+              <button class="btn btn-sm" style="padding:2px 8px" title="移到上一列" ${ci===0?'disabled':''} onclick="moveCardTo(${card.id},${board.columns[ci-1]?.id||0})">‹</button>
+              <button class="btn btn-sm" style="padding:2px 8px" title="移到下一列" ${ci===board.columns.length-1?'disabled':''} onclick="moveCardTo(${card.id},${board.columns[ci+1]?.id||0})">›</button>
+              <button class="btn btn-sm" style="padding:2px 6px;color:var(--dn)" onclick="deleteCard(${card.id})">${IC.trash}</button>
+            </div>
           </div>`).join('')}
         </div>
       </div>`).join('')}
     </div>
   </div>`;
+}
+async function moveCardTo(cardId,colId){
+  if(!colId)return;
+  await api(`/kanban/cards/${cardId}/move`,{method:'POST',body:JSON.stringify({column_id:colId})});
+  renderKanban(document.getElementById('content'));
 }
 async function createBoard(){
   const name=prompt('看板名称:','新看板');if(!name)return;

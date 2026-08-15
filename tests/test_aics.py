@@ -135,7 +135,8 @@ ep("AICS-M002-009", "Lead converted filter", "GET", "/api/leads?status=converted
 with app.app_context():
     low_lead = _Lead.query.filter_by(title="AICS Test - Tree felling and clearing construction").first()
     lead_del_id = low_lead.id if low_lead else 9
-ep(f"AICS-M002-010", "Delete lead", "DELETE", f"/api/leads/{lead_del_id}")
+# V3.1 语义：已转化线索（M002-008 转化的正是这条最新线索）不可删除，应返回 400
+ep(f"AICS-M002-010", "Delete lead (converted -> 400 blocked)", "DELETE", f"/api/leads/{lead_del_id}", expected_status=400)
 
 # ============================================================
 # AICS-M003: Opportunity Management Module
