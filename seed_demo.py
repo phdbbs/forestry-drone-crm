@@ -28,11 +28,11 @@ r = call('POST', '/projects', {'name': '绿谷办公楼综合布线', 'supplier_
 proj2 = r['data']['id']
 
 print('── 3. 合同（附件上传） ──')
-pdf = io.BytesIO(b'%PDF-1.4 绿谷园区设备采购合同（演示）')
+pdf = io.BytesIO('%PDF-1.4 绿谷园区设备采购合同（演示）'.encode('utf-8'))
 r = call('POST', '/upload', files={'file': ('绿谷采购合同.pdf', pdf, 'application/pdf')})
 call('POST', '/contracts', {'title': '华宇设备采购合同', 'customer_id': sup_id, 'project_id': proj1,
                             'amount': 150000, 'file_path': r['data']['path']})
-r2 = call('POST', '/upload', files={'file': ('绿谷销售合同.pdf', io.BytesIO(b'%PDF-1.4 销售合同'), 'application/pdf')})
+r2 = call('POST', '/upload', files={'file': ('绿谷销售合同.pdf', io.BytesIO('%PDF-1.4 销售合同'.encode('utf-8')), 'application/pdf')})
 call('POST', '/contracts', {'title': '绿谷销售合同（一期）', 'customer_id': client_id, 'project_id': proj1,
                             'amount': 400000, 'file_path': r2['data']['path']})
 call('POST', '/contracts', {'title': '宏图布线分包合同', 'customer_id': sup2_id, 'project_id': proj2, 'amount': 60000})
@@ -100,8 +100,16 @@ call('PUT', f"/subtasks/{tasks[1]['subtasks'][2]['id']}", {'completed': True})
 call('POST', f'/projects/{proj2}/tasks', {'title': '桥架安装完成确认'})
 r = call('POST', f'/projects/{proj2}/tasks', {'title': '与业主对量结算'})
 
-print('── 7. 项目2关闭（演示已完成的发票差口径） ──')
-call('PUT', f'/projects/{proj2}', {'status': 'close'})
+print('── 7. 项目2关闭（演示业务闭环守卫） ──')
+# 直接关闭会被守卫拦截：还有待收票/待开票未处理
+r = call('PUT', f'/projects/{proj2}', {'status': 'close'})
+print(f"   守卫拦截 → {r['msg']}")
+# 正确流程：先完成项目2全部挂起发票（收宏图票6万 / 给绿谷开票8万），再关闭
+for i in call('GET', f'/invoices?project_id={proj2}')['data']:
+    if i['status'] == 'pending':
+        call('PUT', f"/invoices/{i['id']}", {'status': 'completed'})
+r = call('PUT', f'/projects/{proj2}', {'status': 'close'})
+print(f"   处理挂起后关闭 → {r['msg']}")
 
 print()
 print('══ 演示数据汇总 ══')
@@ -109,6 +117,6 @@ d = call('GET', '/dashboard')['data']
 print(f"客户 {d['customer_count']} | 项目 {d['project_count']}（进行中 {d['project_open_count']}/已完成 {d['project_close_count']}）| 合同 {d['contract_count']}（有附件 {d['contract_yes_count']}）")
 print(f"已收 {d['income_completed']:,.0f} | 已付 {d['expense_completed']:,.0f} | 净利润 {d['profit']:,.0f}")
 for pid, name in [(proj1, '绿谷园区网络建设'), (proj2, '绿谷办公楼综合布线')]:
-    s = call('GET', f'/projects/{pid}')['data']['summary']
-    st = '进行中' if pid == proj1 else '已关闭'
-    print(f"[{st}] {name}: 利润 {s['profit']:,.0f} | 发票差 {s['invoice_diff']:,.0f} | 待收 {s['pending_income']:,.0f} | 待付 {s['pending_expense']:,.0f}")
+    p = call('GET', f'/projects/{pid}')['data']
+    s = p['summary']
+    print(f"[{'已关闭' if p['status'] == 'close' else '进行中'}] {name}: 利润 {s['profit']:,.0f} | 发票差 {s['invoice_diff']:,.0f} | 待收 {s['pending_income']:,.0f} | 待付 {s['pending_expense']:,.0f}")
