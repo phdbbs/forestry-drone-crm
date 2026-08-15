@@ -222,6 +222,27 @@ function toast(msg, type='success'){
   document.body.appendChild(el);setTimeout(()=>el.remove(),3000);
 }
 function fmtDate(d){return d?d.substring(0,10):''}
+async function exportCurrent(){
+  const d=window._exportData;
+  if(!d||!d.list||!d.list.length){toast('当前无数据可导出','error');return}
+  try{
+    const res=await fetch('/api/export/'+d.type,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:d.list.map(x=>x.id)})});
+    if(!res.ok){
+      let msg='导出失败';
+      try{msg=(await res.json()).error||msg}catch(e){}
+      toast(msg,'error');return;
+    }
+    const blob=await res.blob();
+    const cd=res.headers.get('Content-Disposition')||'';
+    const m=cd.match(/filename\*=UTF-8''(.+)/);
+    const name=m?decodeURIComponent(m[1]):`${d.type}_${new Date().toISOString().slice(0,10)}.csv`;
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},100);
+    toast(`已导出 ${d.list.length} 条`);
+  }catch(e){toast('导出异常: '+e.message,'error')}
+}
 function matchColor(score){return score>=80?'#166534':score>=60?'#f59e0b':score>=40?'#3b82f6':'#ef4444'}
 function probColor(p){return p>=80?'#166534':p>=50?'#f59e0b':p>=30?'#3b82f6':'#ef4444'}
 function openModal(html){document.getElementById('modalRoot').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`}
@@ -373,6 +394,7 @@ async function renderLeads(c){
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="showLeadForm()">${IC.plus} 手工新增</button>
         <button class="btn btn-primary btn-sm" onclick="triggerCrawl()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> 采集线索</button>
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
       </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
@@ -401,6 +423,7 @@ async function renderLeads(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'leads',list};
   const container=document.getElementById('leadsList');
   if(!list.length){container.innerHTML='<div class="empty-state">暂无线索</div>';return}
   container.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table>
@@ -617,6 +640,7 @@ async function renderOpportunities(c){
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
   const opps2=filtered;
+  window._exportData={type:'opportunities',list:opps2};
   const stageData=stageNames.map((s,i)=>({name:s,color:STAGE_COLORS[i%STAGE_COLORS.length],items:opps2.filter(o=>o.current_stage===s)}));
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -624,6 +648,7 @@ async function renderOpportunities(c){
       <div style="display:flex;gap:8px">
         <button class="btn ${oppView==='list'?'btn-primary':''}" onclick="oppView='list';renderOpportunities(document.getElementById('content'))">列表</button>
         <button class="btn ${oppView==='board'?'btn-primary':''}" onclick="oppView='board';renderOpportunities(document.getElementById('content'))">看板</button>
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
         <button class="btn btn-primary" onclick="showOppForm()">${IC.plus} 新建商机</button>
       </div>
     </div>
@@ -776,10 +801,14 @@ async function renderContacts(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'contacts',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">联系人管理</h2>
-      <button class="btn btn-primary" onclick="showContactForm()">${IC.plus} 新增联系人</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
+        <button class="btn btn-primary" onclick="showContactForm()">${IC.plus} 新增联系人</button>
+      </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
       <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>姓名/职位</label><input placeholder="搜索姓名或职位..." value="${esc(contactDraft.q)}" oninput="contactDraft.q=this.value"></div>
@@ -916,10 +945,14 @@ async function renderCustomers(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'customers',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">客户管理</h2>
-      <button class="btn btn-primary" onclick="showCustomerForm()">${IC.plus} 新增客户</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
+        <button class="btn btn-primary" onclick="showCustomerForm()">${IC.plus} 新增客户</button>
+      </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
       <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>名称</label><input placeholder="搜索客户名称..." value="${esc(custDraft.q)}" oninput="custDraft.q=this.value"></div>
@@ -1068,10 +1101,12 @@ async function renderContactLog(c){
     if(typeof va==='number'&&typeof vb==='number')return (va-vb)*dir;
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'activities',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">日常联络</h2>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
         <button class="btn btn-primary" onclick="showActivityForm()">${IC.plus} 新增日常联络</button>
       </div>
     </div>
@@ -1223,10 +1258,14 @@ async function renderFollowups(c){
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
+  window._exportData={type:'followups',list};
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700">联络计划</h2>
-      <button class="btn btn-primary" onclick="showFollowupForm()">${IC.plus} 新增联系计划</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportCurrent()" title="导出当前筛选结果为CSV">${IC.download} 导出</button>
+        <button class="btn btn-primary" onclick="showFollowupForm()">${IC.plus} 新增联系计划</button>
+      </div>
     </div>
     <div class="card" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
       <div class="form-group" style="margin:0;flex:1;min-width:150px"><label>内容/客户</label><input placeholder="搜索计划内容或客户..." value="${esc(fuDraft.q)}" oninput="fuDraft.q=this.value"></div>

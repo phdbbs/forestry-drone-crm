@@ -1,5 +1,5 @@
 from app import db
-from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig
+from app.models import Customer, Lead, Opportunity, Contact, Activity, KanbanBoard, KanbanColumn, KanbanCard, OpportunityStage, StageRecord, SystemConfig, FollowUp
 from datetime import datetime
 import os
 
@@ -24,8 +24,8 @@ def seed_if_empty():
     ct5 = Contact(name="周教授", customer_id=c6.id, title="教授/AI实验室主任", phone="139-8711-2233", email="zhou@swfu.edu.cn", wechat="zhou_ai", importance="重要", role="技术对接", business_scope="AI病虫害算法")
     db.session.add_all([ct1, ct2, ct3, ct4, ct5])
     db.session.flush()
-    l1 = Lead(title="2026年浙江省松材线虫病防治无人机巡检项目", bid_number="ZJ-2026-0342", budget="150", deadline=datetime(2026,8,15), region="浙江省", purchaser="浙江省林业局", service_content="松材线虫病无人机飞行检查、林区巡检、航拍核查、AI病虫害算法识别", match_keywords="松材线虫病防治,无人机飞行检查,林区巡检,航拍核查,AI病虫害算法识别", match_level="高匹配", match_score=85, match_reason="包含高匹配关键词", source_platform="中国政府采购网", source_url="#", status="active", customer_id=c1.id)
-    l2 = Lead(title="福建省森林防火无人机监测服务采购", bid_number="FJ-2026-0189", budget="280", deadline=datetime(2026,7,30), region="福建省", purchaser="福建省林业厅", service_content="森林防火无人机监测、热成像监测、应急通信保障", match_keywords="无人机监测,森林,监测", match_level="中匹配", match_score=60, match_reason="匹配关键词", source_platform="全国公共资源交易平台", source_url="#", status="active", customer_id=c2.id)
+    l1 = Lead(title="2026年浙江省松材线虫病防治无人机巡检项目", bid_number="ZJ-2026-0342", budget="150", deadline=datetime(2026,8,15), region="浙江省", purchaser="浙江省林业局", contact_name="王处长", contact_phone="138-0571-1234", address="杭州市西湖区体育场路", service_content="松材线虫病无人机飞行检查、林区巡检、航拍核查、AI病虫害算法识别", match_keywords="松材线虫病防治,无人机飞行检查,林区巡检,航拍核查,AI病虫害算法识别", match_level="高匹配", match_score=85, match_reason="包含高匹配关键词", source_platform="中国政府采购网", source_url="#", status="active", customer_id=c1.id)
+    l2 = Lead(title="福建省森林防火无人机监测服务采购", bid_number="FJ-2026-0189", budget="280", deadline=datetime(2026,7,30), region="福建省", purchaser="福建省林业厅", contact_name="李科长", contact_phone="139-0591-5678", address="福州市鼓楼区冶山路", service_content="森林防火无人机监测、热成像监测、应急通信保障", match_keywords="无人机监测,森林,监测", match_level="中匹配", match_score=60, match_reason="匹配关键词", source_platform="全国公共资源交易平台", source_url="#", status="active", customer_id=c2.id)
     l3 = Lead(title="江西省林区航拍核查服务", bid_number="JX-2026-0056", budget="90", deadline=datetime(2026,6,22), region="江西省", purchaser="江西省林业局", service_content="林区航拍核查、森林资源普查", match_keywords="林区航拍核查,航拍,林区", match_level="高匹配", match_score=80, match_reason="包含高匹配关键词", source_platform="江西省公共资源交易中心", source_url="#", status="active", customer_id=c3.id)
     l4 = Lead(title="四川省松材线虫病林木砍伐清运施工", bid_number="SC-2026-0421", budget="65", deadline=datetime(2026,9,1), region="四川省", purchaser="四川省林业和草原局", service_content="松材线虫病林木砍伐、清运、消杀施工", match_keywords="林木砍伐,清运,消杀施工", match_level="低匹配", match_score=30, match_reason="仅含低匹配关键词", source_platform="中国政府采购网", source_url="#", status="active", customer_id=None)
     l5 = Lead(title="中国移动无人机通信中继服务", bid_number="YD-2026-0112", budget="200", deadline=datetime(2026,8,30), region="全国", purchaser="中国移动政企客户部", service_content="无人机通信中继基站建设、巡检数据回传", match_keywords="无人机,通信中继", match_level="中匹配", match_score=55, match_reason="匹配关键词", source_platform="中国移动采购网", source_url="#", status="active", customer_id=c4.id)
@@ -42,10 +42,20 @@ def seed_if_empty():
         StageRecord(opportunity_id=o2.id, stage_name="方案报价", content="提交热成像无人机监测方案", deadline=datetime(2026,6,18), status="completed"),
         StageRecord(opportunity_id=o2.id, stage_name="签约谈判", content="合同条款协商中", deadline=datetime(2026,7,1), status="pending"),
     ])
-    db.session.add_all([
-        Activity(customer_id=c1.id, contact_id=ct1.id, opportunity_id=o1.id, lead_id=l1.id, method="电话", content="确认标书密封要求", activity_time=datetime(2026,6,17,14,0), next_followup_time=datetime(2026,6,20), next_followup_content="电话询问评标结果"),
-        Activity(customer_id=c2.id, contact_id=ct2.id, opportunity_id=o2.id, lead_id=l2.id, method="拜访", content="大理二期项目预计7月初发公告，预算约620万", activity_time=datetime(2026,6,16,10,0), next_followup_time=datetime(2026,7,1), next_followup_content="关注招标公告发布"),
-    ])
+    a1 = Activity(customer_id=c1.id, contact_id=ct1.id, opportunity_id=o1.id, lead_id=l1.id, method="电话", content="确认标书密封要求", activity_time=datetime(2026,6,17,14,0), next_followup_time=datetime(2026,6,20), next_followup_content="电话询问评标结果")
+    a2 = Activity(customer_id=c2.id, contact_id=ct2.id, opportunity_id=o2.id, lead_id=l2.id, method="拜访", content="大理二期项目预计7月初发公告，预算约620万", activity_time=datetime(2026,6,16,10,0), next_followup_time=datetime(2026,7,1), next_followup_content="关注招标公告发布")
+    db.session.add_all([a1, a2])
+    db.session.flush()
+    # 由日常联络"下次跟进"自动生成的联络计划（演示联络计划模块与执行流程）
+    fu1 = FollowUp(customer_id=c1.id, contact_id=ct1.id, opportunity_id=o1.id, lead_id=l1.id,
+                   plan_date=datetime(2026,6,20), content="电话询问评标结果",
+                   ai_suggested_content="来源于活动记录 [电话] 客户: 浙江省林业局 | 内容: 确认标书密封要求",
+                   source_activity_id=a1.id)
+    fu2 = FollowUp(customer_id=c2.id, contact_id=ct2.id, opportunity_id=o2.id, lead_id=l2.id,
+                   plan_date=datetime(2026,7,1), content="关注招标公告发布",
+                   ai_suggested_content="来源于活动记录 [拜访] 客户: 福建省林业厅 | 内容: 大理二期项目预计7月初发公告，预算约620万",
+                   source_activity_id=a2.id)
+    db.session.add_all([fu1, fu2])
     b1 = KanbanBoard(name="业务跟进看板")
     db.session.add(b1)
     db.session.flush()

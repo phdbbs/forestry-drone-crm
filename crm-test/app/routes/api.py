@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, Response
 from flask import current_app
 from app import db
 from app.models import (
@@ -12,6 +12,9 @@ from sqlalchemy.orm import joinedload
 from datetime import datetime, timedelta
 import requests as http_requests
 import json
+import csv
+import io
+from urllib.parse import quote
 
 api = Blueprint('api', __name__)
 
@@ -1069,3 +1072,96 @@ def analytics():
         "funnel": funnel,
         "win_loss": win_loss
     })
+
+# ═══════════════════════════════════════════
+# 数据导出（CSV）
+# ═══════════════════════════════════════════
+EXPORT_TYPES = {
+    'leads': {'label': '线索', 'model': Lead},
+    'opportunities': {'label': '商机', 'model': Opportunity},
+    'contacts': {'label': '联系人', 'model': Contact},
+    'customers': {'label': '客户', 'model': Customer},
+    'activities': {'label': '日常联络', 'model': Activity},
+    'followups': {'label': '联络计划', 'model': FollowUp},
+}
+
+def _d(val):
+    """日期/时间统一转字符串，None 转 '-'"""
+    if val is None:
+        return '-'
+    if isinstance(val, datetime):
+        return val.strftime('%Y-%m-%d %H:%M') if val.hour or val.minute else val.strftime('%Y-%m-%d')
+    return str(val) if str(val) else '-'
+
+def _lead_row(l):
+    return [l.id, l.title, l.bid_number or '-', l.budget or '-', _d(l.deadline),
+            l.region or '-', l.purchaser or '-', l.contact_name or '-', l.contact_phone or '-',
+            l.address or '-', l.match_score or 0, l.match_level or '-',
+            {'active': '待转化', 'converted': '已转化', 'abandoned': '已删除', 'pool': '公海池'}.get(l.status, l.status),
+            l.customer.name if l.customer else '-', l.source_platform or '-', l.source_url or '-', _d(l.created_at)]
+
+def _opp_row(o):
+    return [o.id, o.title, o.customer.name if o.customer else '-', o.contact.name if o.contact else '-',
+            o.amount or '0', o.current_stage or '-', o.probability or 20, _d(o.expected_close),
+            o.source_url or '-', _d(o.created_at)]
+
+def _contact_row(c):
+    return [c.id, c.name, c.title or '-', c.customer.name if c.customer else '-', c.phone or '-',
+            c.email or '-', c.wechat or '-', c.role or '-', c.tags or '-', c.importance or '-']
+
+def _customer_row(cu):
+    return [cu.id, cu.name, cu.short_name or '-', cu.customer_type or '-', cu.level or '-', cu.region or '-',
+            cu.website or '-', cu.source or '-', len(cu.contacts), cu.remark or '-']
+
+def _activity_row(a):
+    return [a.id, _d(a.activity_time), a.method or '-', a.customer.name if a.customer else '-',
+            a.contact.name if a.contact else '-', a.opportunity.title if a.opportunity else '-',
+            a.content or '-', _d(a.next_followup_time), a.next_followup_content or '-']
+
+def _followup_row(f):
+    return [f.id, _d(f.plan_date), f.customer.name if f.customer else '-', f.contact.name if f.contact else '-',
+            f.opportunity.title if f.opportunity else '-', f.content or '-',
+            '已完成' if f.actual_date else '待联络', _d(f.actual_date), f.actual_content or '-']
+
+EXPORT_HEADERS = {
+    'leads': ['ID', '标题', '招标编号', '预算(万)', '截止日期', '地区', '采购方', '联系人', '联系电话', '地址',
+              '匹配度(%)', '匹配等级', '状态', '关联客户', '来源平台', '来源URL', '创建时间'],
+    'opportunities': ['ID', '商机名称', '客户', '联系人', '金额(万)', '阶段', '赢率(%)', '预计关闭', '来源URL', '创建时间'],
+    'contacts': ['ID', '姓名', '职位', '所属客户', '电话', '邮箱', '微信', '角色', '标签', '重要性'],
+    'customers': ['ID', '客户名称', '简称', '类型', '等级', '地区', '官网', '来源', '联系人数', '备注'],
+    'activities': ['ID', '时间', '方式', '客户', '联系人', '关联商机', '内容', '预计联系时间', '预计联系内容'],
+    'followups': ['ID', '计划日期', '客户', '联系人', '关联商机', '计划内容', '状态', '实际日期', '实际内容'],
+}
+EXPORT_ROWS = {
+    'leads': _lead_row, 'opportunities': _opp_row, 'contacts': _contact_row,
+    'customers': _customer_row, 'activities': _activity_row, 'followups': _followup_row,
+}
+
+@api.route('/export/<string:etype>', methods=['POST'])
+def export_csv(etype):
+    """按当前筛选结果导出 CSV。body: {"ids": [1,2,...]}（空/缺省=导出全部）"""
+    spec = EXPORT_TYPES.get(etype)
+    if not spec:
+        return jsonify({"error": f"不支持的导出类型: {etype}"}), 400
+    d = request.get_json() or {}
+    ids = d.get('ids') or []
+    query = spec['model'].query
+    if ids:
+        query = query.filter(spec['model'].id.in_(ids))
+    items = query.all()
+    if not items:
+        return jsonify({"error": "当前无数据可导出"}), 400
+
+    # UTF-8 BOM 确保 Excel 直接打开不乱码
+    buf = io.StringIO()
+    buf.write('\ufeff')
+    writer = csv.writer(buf)
+    writer.writerow(EXPORT_HEADERS[etype])
+    for item in items:
+        writer.writerow(EXPORT_ROWS[etype](item))
+    data = buf.getvalue().encode('utf-8')
+    filename = f"{spec['label']}_导出_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    resp = Response(data, mimetype='text/csv; charset=utf-8')
+    # HTTP 头仅支持 latin-1：中文文件名按 RFC 5987 做百分号编码
+    resp.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
+    return resp
