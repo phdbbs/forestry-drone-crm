@@ -22,6 +22,15 @@ atexit.register(lambda: os.unlink(_db_path) if os.path.exists(_db_path) else Non
 app = create_app(config={'SQLALCHEMY_DATABASE_URI': 'sqlite:///' + _db_path})
 client = app.test_client()
 
+# 所有 /api 接口受 Flask-Login 保护，先登录获取会话
+_login_r = client.post('/api/auth/login', json={
+    'username': os.environ.get('CRM_ADMIN_USERNAME', 'admin'),
+    'password': os.environ.get('CRM_ADMIN_PASSWORD', 'admin123'),
+}, content_type='application/json')
+if _login_r.status_code != 200:
+    print(f"FATAL: login failed with status {_login_r.status_code}")
+    sys.exit(1)
+
 results = {"pass": 0, "fail": 0, "errors": []}
 
 def run_test(aics_id, description, method, endpoint, expected_status=None, body=None, check_fn=None):
