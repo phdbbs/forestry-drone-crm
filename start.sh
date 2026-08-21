@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /Users/wl/Documents/CRM
+cd /Users/wl/M4/CRM
 source .venv/bin/activate
 python -c "
 from app import create_app
