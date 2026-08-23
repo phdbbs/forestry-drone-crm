@@ -89,6 +89,9 @@ class Lead(db.Model):
     assignee = db.Column(db.String(50), default='')
     source_url = db.Column(db.String(1000))
     source_platform = db.Column(db.String(100))
+    bid_type = db.Column(db.String(50), default='')
+    winner = db.Column(db.String(200), default='')
+    related_customer_ids = db.Column(db.String(500), default='')  # 关联的其他客户ID（逗号分隔）
     status = db.Column(db.String(20), default='active')
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
     created_at = db.Column(db.DateTime, default=datetime.now)

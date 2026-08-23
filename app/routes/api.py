@@ -221,7 +221,7 @@ def list_leads():
     result = []
     for l in leads:
         days_left = (l.deadline - datetime.now()).days if l.deadline else None
-        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
+        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
     return jsonify(result)
 
 @api.route('/leads', methods=['POST'])
@@ -237,7 +237,7 @@ def create_lead():
 @api.route('/leads/<int:id>', methods=['GET'])
 def get_lead(id):
     l = Lead.query.get_or_404(id)
-    return jsonify({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_reason": l.match_reason, "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
+    return jsonify({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_reason": l.match_reason, "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
 
 @api.route('/leads/<int:id>', methods=['PUT'])
 def update_lead(id):
@@ -247,7 +247,7 @@ def update_lead(id):
     d = request.get_json() or {}
     if 'status' in d and d['status'] not in ('active', 'abandoned'):
         return jsonify({"error": "状态无效"}), 400
-    for key in ['title','bid_number','budget','region','purchaser','contact_name','contact_phone','address','service_content','match_keywords','match_level','match_score','match_reason','assignee','source_platform','source_url','status','customer_id']:
+    for key in ['title','bid_number','budget','region','purchaser','contact_name','contact_phone','address','service_content','match_keywords','match_level','match_score','match_reason','assignee','bid_type','winner','related_customer_ids','source_platform','source_url','status','customer_id']:
         if key in d: setattr(l, key, d[key])
     if 'deadline' in d: l.deadline = _parse_date(d.get('deadline'))
     db.session.commit()

@@ -141,6 +141,14 @@ th,td{padding:8px 10px}
 .pipeline-stage .pipeline-circle{width:36px;height:36px;font-size:14px}
 .search-bar input,.search-bar select{min-width:0;flex:1 1 40%}
 }
+
+table.resizeable{table-layout:fixed}
+table.resizeable th{position:relative;overflow:hidden;white-space:nowrap;border-right:1px solid #e2e8f0}
+table.resizeable th:last-child{border-right:none}
+.col-handle{position:absolute;top:0;right:0;bottom:0;width:5px;cursor:col-resize;z-index:2}
+.col-handle:hover,.col-handle.dragging{background:var(--primary)}
+.ruler-track{position:fixed;top:0;left:0;right:0;height:100vh;pointer-events:none;z-index:999;display:none}
+.ruler-bar{position:fixed;top:0;width:1.5px;background:var(--primary);pointer-events:none;z-index:999;display:none}
 </style>
 </head>
 <body>
@@ -171,6 +179,73 @@ th,td{padding:8px 10px}
 <div id="modalRoot"></div>
 
 <script>
+// ===== 列宽拖拽 =====
+function initResizable(){
+  const STORAGE_KEY='crm_table_widths';
+  const tableKeys={leadsTable:'leads',oppTable:'opp',contactTable:'contact',customerTable:'customer',activityTable:'activity',followupTable:'followup'};
+  function saveTable(key,w){try{localStorage.setItem(STORAGE_KEY+'_'+key,JSON.stringify(w));}catch(e){}}
+  function loadTable(key){try{return JSON.parse(localStorage.getItem(STORAGE_KEY+'_'+key))||null;}catch(e){return null;}}
+  document.querySelectorAll('table.resizeable').forEach(tbl=>{
+    if(tbl.__resized)return;
+    tbl.__resized=true;
+    tbl.style.tableLayout='fixed';
+    const thead=tbl.querySelector('thead tr');
+    if(!thead)return;
+    const ths=[...thead.querySelectorAll('th')];
+    const saved=loadTable(tableKeys[tbl.id]||'default');
+    if(saved&&saved.length===ths.length){
+      ths.forEach((th,i)=>{th.style.width=saved[i]+'px';});
+    }else{
+      ths.forEach(th=>{th.style.width='auto';});
+      void tbl.offsetHeight;
+      ths.forEach(th=>{th.style.width=th.getBoundingClientRect().width+'px';});
+    }
+    ths.forEach((th,i)=>{
+      const handle=document.createElement('div');
+      handle.className='col-handle';
+      handle.dataset.col=i;
+      th.appendChild(handle);
+    });
+  });
+  document.addEventListener('mousedown',function(e){
+    const handle=e.target.closest('.col-handle');
+    if(!handle)return;
+    e.preventDefault();
+    const th=handle.parentElement;
+    const table=th.closest('table');
+    if(!table||!table.__resized)return;
+    const ths=[...table.querySelectorAll('thead tr th')];
+    const idx=ths.indexOf(th);
+    if(idx<0)return;
+    const startX=e.clientX;
+    const startWidth=parseFloat(th.style.width)||ths[idx].getBoundingClientRect().width;
+    const bar=document.createElement('div');
+    bar.className='ruler-bar';
+    bar.style.display='block';
+    bar.style.left=startX+'px';
+    document.body.appendChild(bar);
+    handle.classList.add('dragging');
+    const onMove=function(ev){
+      const dx=ev.clientX-startX;
+      const newW=Math.max(50,startWidth+dx);
+      th.style.width=newW+'px';
+      ths[idx].style.width=newW+'px';
+      bar.style.left=(startX+newW-2.5)+'px';
+    };
+    const onUp=function(ev){
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove',onMove);
+      document.removeEventListener('mouseup',onUp);
+      bar.remove();
+      const tKey=tableKeys[table.id]||'default';
+      const widths=[...ths].map(t=>parseFloat(t.style.width)||t.getBoundingClientRect().width);
+      saveTable(tKey,widths);
+    };
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+  });
+}
+
 // ===== SVG Icons =====
 const IC = {
   grid: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
@@ -419,17 +494,16 @@ async function renderLeads(c){
   const dir=leadSort.dir;
   list.sort((a,b)=>{
     let va=a[leadSort.key],vb=b[leadSort.key];
-    if(leadSort.key==='match_score'){va=va||0;vb=vb||0;return (va-vb)*dir;}
     if(va==null)va='';if(vb==null)vb='';
     return String(va).localeCompare(String(vb),'zh')*dir;
   });
   window._exportData={type:'leads',list};
   const container=document.getElementById('leadsList');
   if(!list.length){container.innerHTML='<div class="empty-state">暂无线索</div>';return}
-  container.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table>
+  container.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table id="leadsTable" class="resizeable">
     <thead><tr>
       <th style="cursor:pointer" onclick="sortLeads('title')">标题 ${leadSort.key==='title'?(leadSort.dir===1?'▲':'▼'):''}</th>
-      <th style="cursor:pointer" onclick="sortLeads('match_score')">匹配 ${leadSort.key==='match_score'?(leadSort.dir===1?'▲':'▼'):''}</th>
+      <th style="cursor:pointer" onclick="sortLeads('bid_type')">类别 ${leadSort.key==='bid_type'?(leadSort.dir===1?'▲':'▼'):''}</th>
       <th style="cursor:pointer" onclick="sortLeads('budget')">预算(万) ${leadSort.key==='budget'?(leadSort.dir===1?'▲':'▼'):''}</th>
       <th style="cursor:pointer" onclick="sortLeads('region')">地区 ${leadSort.key==='region'?(leadSort.dir===1?'▲':'▼'):''}</th>
       <th style="cursor:pointer" onclick="sortLeads('deadline')">截止 ${leadSort.key==='deadline'?(leadSort.dir===1?'▲':'▼'):''}</th>
@@ -437,11 +511,10 @@ async function renderLeads(c){
       <th>来源</th><th>状态</th><th style="text-align:center">操作</th>
     </tr></thead>
     <tbody>${list.map(l=>{
-    const score=l.match_score||0;
     const isCrawled=(l.source_platform&&l.source_platform!=='手动录入')||!!l.source_url;
     return `<tr>
       <td style="font-weight:500">${esc(l.title)} <span class="badge ${isCrawled?'badge-info':'badge-low'}" style="font-size:11px">${isCrawled?'采集':'手工'}</span>${l.contact_name?`<div style="font-size:12px;color:var(--tl)">${esc(l.purchaser||'')} | 联系人: ${esc(l.contact_name)} ${esc(l.contact_phone||'')}</div>`:''}</td>
-      <td><span style="font-weight:600;color:${matchColor(score)}">${score}%</span></td>
+      <td><span class="badge ${/中标|成交/.test(l.bid_type||'')?'badge-converted':l.bid_type?'badge-medium':'badge-low'}" style="font-size:12px">${esc(l.bid_type||'待分类')}</span>${l.related_customer_ids?`<span title="关联${(l.related_customer_ids||'').split(',').length}个客户" style="font-size:10px;color:var(--primary);margin-left:3px">+${(l.related_customer_ids||'').split(',').filter(Boolean).length}</span>`:''}</td>
       <td>${esc(l.budget||'-')}</td>
       <td>${esc(l.region||'-')}</td>
       <td>${fmtDate(l.deadline)||'-'}</td>
@@ -457,6 +530,7 @@ async function renderLeads(c){
       </div></td>
     </tr>`;
   }).join('')}</tbody></table></div>`;
+  initResizable();
 }
 function sortLeads(key){ if(leadSort.key===key)leadSort.dir=-leadSort.dir; else{leadSort.key=key;leadSort.dir=key==='created_at'||key==='deadline'?-1:1;} renderLeads(document.getElementById('content')); }
 function doLeadSearch(){ leadFilter={...leadDraft}; renderLeads(document.getElementById('content')); }
@@ -478,8 +552,40 @@ async function restoreLead(id){
 async function convertLead(id){
   const [customers,contacts,stageNames,lead]=await Promise.all([api('/customers'),api('/contacts'),getStages(),api(`/leads/${id}`)]);
   window._cvContactPool=contacts;
-  openModal(`<h3>转化线索为商机</h3>
-    <div class="form-group"><label>商机名称 *</label><input id="cvTitle" value="${esc(lead.title)}"></div>
+  window._cvLeadBidType = lead.bid_type || '';
+  const isWin = /中标|成交/.test(lead.bid_type||'');
+  const winnerText = lead.winner || '';
+  const purchaserText = lead.purchaser || '';
+  const winMatches = winnerText ? customers.filter(c=>winnerText.includes(c.name)||c.name.includes(winnerText)).map(c=>c.id) : [];
+  const purMatches = purchaserText ? customers.filter(c=>purchaserText.includes(c.name)||c.name.includes(purchaserText)).map(c=>c.id) : [];
+  let formHtml = `<h3>转化线索为商机</h3>
+    <div class="form-group"><label>商机名称 *</label><input id="cvTitle" value="${esc(lead.title)}"></div>`;
+  if(isWin){
+    formHtml += `
+    <div style="background:#fefce8;border:1px solid #fde04e;border-radius:6px;padding:8px 12px;font-size:12px;color:#854d0e;margin-bottom:10px">
+      此线索为<strong>中标/成交</strong>公告，中标单位为「<strong>${esc(winnerText||'—')}</strong>」，采购单位为「<strong>${esc(purchaserText||'—')}</strong>」
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>中标单位（合作目标）</label>
+        <select id="cvWinnerCust" data-searchable multiple style="min-height:70px">
+          <option value="">— 未匹配到，请手动输入新客户 —</option>
+          ${customers.map(c=>`<option value="${c.id}" ${winMatches.includes(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
+        </select>
+        <div style="margin-top:4px"><input id="cvWinnerNew" placeholder="新客户名称（多家用逗号分隔）" value="${esc(winnerText)}" style="width:100%;box-sizing:border-box"></div>
+      </div>
+      <div class="form-group">
+        <label>采购单位（客户方）</label>
+        <select id="cvPurchaserCust" data-searchable>
+          <option value="">— 未匹配到 —</option>
+          ${customers.map(c=>`<option value="${c.id}" ${purMatches.includes(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
+        </select>
+        <div style="margin-top:4px"><input id="cvPurchaserNew" placeholder="新客户名称" value="${esc(purchaserText)}" style="width:100%;box-sizing:border-box"></div>
+      </div>
+    </div>
+    <div class="form-group" style="font-size:12px;color:var(--tl)">中标单位将优先作为商机客户；如未选择自动创建新客户。</div>`;
+  } else {
+    formHtml += `
     <div class="form-row">
       <div class="form-group"><label>客户</label><select id="cvCustomer" data-searchable><option value="">请选择</option>${customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
       <div class="form-group"><label>联系人</label><select id="cvContact" data-searchable><option value="">请选择</option>${contacts.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
@@ -489,18 +595,32 @@ async function convertLead(id){
       <div class="form-group"><label>新客户名称(可选)</label><input id="cvNewCustomer" value="${esc(lead.purchaser||'')}"></div>
       <div class="form-group"><label>新联系人姓名(可选)</label><input id="cvNewContact" value="${esc(lead.contact_name||'')}"></div>
       <div class="form-group"><label>联系电话(可选)</label><input id="cvNewPhone" value="${esc(lead.contact_phone||'')}"></div>
-    </div>
+    </div>`;
+  }
+  formHtml += `
     <div class="form-row">
       <div class="form-group"><label>金额(万)</label><input id="cvAmount" type="number"></div>
       <div class="form-group"><label>阶段</label><select id="cvStage">${stageNames.map(s=>`<option>${s}</option>`).join('')}</select></div>
     </div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveConvert(${id})">确认转化</button></div>`);
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveConvert(${id})">确认转化</button></div>`;
+  openModal(formHtml);
   initSearchableInModal();
 }
 async function saveConvert(id){
-  const d={title:document.getElementById('cvTitle').value,customer_id:document.getElementById('cvCustomer').value||null,contact_id:document.getElementById('cvContact').value||null,customer_name:document.getElementById('cvNewCustomer').value,contact_name:document.getElementById('cvNewContact').value,contact_phone:document.getElementById('cvNewPhone').value,amount:document.getElementById('cvAmount').value,stage:document.getElementById('cvStage').value};
+  const isWin = /中标|成交/.test(window._cvLeadBidType||'');
+  let d={title:document.getElementById('cvTitle').value,contact_id:document.getElementById('cvContact')?.value||null,contact_name:document.getElementById('cvNewContact')?.value||'',contact_phone:document.getElementById('cvNewPhone')?.value||'',amount:document.getElementById('cvAmount').value,stage:document.getElementById('cvStage').value};
+  if(isWin){
+    const winnerNew = (document.getElementById('cvWinnerNew')?.value||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+    const purchaserNew = (document.getElementById('cvPurchaserNew')?.value||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+    d.winner_customer_names = winnerNew;
+    d.purchaser_customer_names = purchaserNew;
+    if([...winnerNew,...purchaserNew].length>0) d.customer_name = [...winnerNew,...purchaserNew][0];
+  }else{
+    d.customer_id = document.getElementById('cvCustomer')?.value||null;
+    d.customer_name = document.getElementById('cvNewCustomer')?.value||'';
+    if(d.customer_id&&d.customer_name){d.customer_name='';}
+  }
   if(!d.title){toast('请输入商机名称','error');return}
-  if(d.customer_id&&d.customer_name){d.customer_name='';}
   const r=await api(`/leads/${id}/convert`,{method:'POST',body:JSON.stringify(d)});
   if(r.error){toast(r.error,'error');return}
   toast(r.message||'已转化');closeModal();leadsTab='converted';renderLeads(document.getElementById('content'));
@@ -544,13 +664,16 @@ async function saveLead(){
 }
 async function viewLeadDetail(id){
   const l=await api(`/leads/${id}`);
+  const isWin = /中标|成交/.test(l.bid_type||'');
   openModal(`<h3>线索详情</h3>
-    <div class="detail-grid" style="font-size:14px>
+    <div class="detail-grid" style="font-size:14px">
       <div><span style="color:var(--tl)">标题：</span>${esc(l.title)}</div>
+      <div><span style="color:var(--tl)">类别：</span><span class="badge ${isWin?'badge-converted':l.bid_type?'badge-medium':'badge-low'}" style="font-size:12px">${esc(l.bid_type||'待分类')}</span></div>
       <div><span style="color:var(--tl)">预算：</span>${esc(l.budget||'-')}万</div>
       <div><span style="color:var(--tl)">截止：</span>${fmtDate(l.deadline)}</div>
       <div><span style="color:var(--tl)">地区：</span>${esc(l.region||'-')}</div>
       <div><span style="color:var(--tl)">客户方：</span>${esc(l.purchaser||'-')}</div>
+      <div><span style="color:var(--tl)">中标单位：</span>${esc(l.winner||'-')}</div>
       <div><span style="color:var(--tl)">联系人：</span>${esc(l.contact_name||'-')}</div>
       <div><span style="color:var(--tl)">联系方式：</span>${esc(l.contact_phone||'-')}</div>
       <div><span style="color:var(--tl)">地址：</span>${esc(l.address||'-')}</div>
@@ -559,8 +682,11 @@ async function viewLeadDetail(id){
       <div><span style="color:var(--tl)">状态：</span>${esc(l.status)}</div>
     </div>
     ${l.match_reason?`<div style="margin-top:12px;font-size:13px;color:var(--tl)">匹配原因: ${esc(l.match_reason)}</div>`:''}
-    ${l.source_url?`<div style="margin-top:8px"><a href="${esc(l.source_url)}" target="_blank" style="color:var(--if);font-size:13px">查看原文</a></div>`:''}
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">关闭</button></div>`);
+    ${l.service_content?`<div style="margin-top:12px;font-size:13px;color:var(--tl)">服务内容：${esc(l.service_content)}</div>`:''}
+    <div class="modal-actions" style="flex-direction:column;align-items:stretch;gap:8px">
+      ${l.source_url?`<div style="font-size:13px;color:var(--tl);padding:8px 12px;background:#f8fafc;border-radius:6px;word-break:break-all"><span style="color:var(--tl)">原文链接：</span><a href="${esc(l.source_url)}" target="_blank" style="color:var(--if);text-decoration:underline">${esc(l.source_url)}</a></div>`:''}
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" onclick="closeModal()">关闭</button></div>
+    </div>`);
 }
 let crawlPoller=null;
 async function triggerCrawl(){
@@ -670,13 +796,14 @@ async function renderOpportunities(c){
   const oc=document.getElementById('oppContent');
   if(oppView==='list') renderOppList(oc,opps2,stageData);
   else renderOppBoard(oc,opps2,stageData);
+  initResizable();
 }
 function sortOpp(key){ if(oppSort.key===key)oppSort.dir=-oppSort.dir; else{oppSort.key=key;oppSort.dir=key==='created_at'||key==='expected_close'?-1:1;} renderOpportunities(document.getElementById('content')); }
 function doOppSearch(){ oppFilter={...oppDraft}; renderOpportunities(document.getElementById('content')); }
 function resetOppSearch(){ oppDraft={q:'',customer:'',stage:''}; oppFilter={...oppDraft}; renderOpportunities(document.getElementById('content')); }
 function renderOppList(oc,opps,stageData){
   if(!opps.length){oc.innerHTML='<div class="empty-state">暂无商机</div>';return}
-  oc.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table>
+  oc.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><table id="oppTable" class="resizeable">
     <thead><tr>
       <th style="cursor:pointer" onclick="sortOpp('title')">商机名称 ${oppSort.key==='title'?(oppSort.dir===1?'▲':'▼'):''}</th>
       <th style="cursor:pointer" onclick="sortOpp('customer_name')">客户 ${oppSort.key==='customer_name'?(oppSort.dir===1?'▲':'▼'):''}</th>
@@ -817,7 +944,7 @@ async function renderContacts(c){
       <button class="btn btn-primary" onclick="doContactSearch()">搜索</button>
       <button class="btn" onclick="resetContactSearch()">重置</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table>
+    <div class="card" style="padding:0;overflow:hidden"><table id="contactTable" class="resizeable">
       <thead><tr>
         <th style="cursor:pointer" onclick="sortContact('name')">姓名 ${contactSort.key==='name'?(contactSort.dir===1?'▲':'▼'):''}</th>
         <th style="cursor:pointer" onclick="sortContact('title')">职位 ${contactSort.key==='title'?(contactSort.dir===1?'▲':'▼'):''}</th>
@@ -844,6 +971,7 @@ async function renderContacts(c){
       </tr>`).join(''):'<tr><td colspan="8" class="empty-state">暂无联系人</td></tr>'}</tbody>
     </table></div>
   </div>`;
+  initResizable();
 }
 function sortContact(key){ if(contactSort.key===key)contactSort.dir=-contactSort.dir; else{contactSort.key=key;contactSort.dir=key==='name'?1:-1;} renderContacts(document.getElementById('content')); }
 function doContactSearch(){ contactFilter={...contactDraft}; renderContacts(document.getElementById('content')); }
@@ -962,7 +1090,7 @@ async function renderCustomers(c){
       <button class="btn btn-primary" onclick="doCustSearch()">搜索</button>
       <button class="btn" onclick="resetCustSearch()">重置</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table>
+    <div class="card" style="padding:0;overflow:hidden"><table id="customerTable" class="resizeable">
       <thead><tr>
         <th style="cursor:pointer" onclick="sortCust('name')">客户名称 ${custSort.key==='name'?(custSort.dir===1?'▲':'▼'):''}</th>
         <th style="cursor:pointer" onclick="sortCust('customer_type')">类型 ${custSort.key==='customer_type'?(custSort.dir===1?'▲':'▼'):''}</th>
@@ -986,6 +1114,7 @@ async function renderCustomers(c){
       </tr>`).join('')||'<tr><td colspan="7" class="empty-state">暂无客户</td></tr>'}</tbody>
     </table></div>
   </div>`;
+  initResizable();
 }
 function sortCust(key){ if(custSort.key===key)custSort.dir=-custSort.dir; else{custSort.key=key;custSort.dir=key==='contact_count'?-1:1;} renderCustomers(document.getElementById('content')); }
 function doCustSearch(){ custFilter={...custDraft}; renderCustomers(document.getElementById('content')); }
@@ -1121,7 +1250,7 @@ async function renderContactLog(c){
     </div>
     <div class="grid2" style="grid-template-columns:2fr 1fr;align-items:start">
       <div>
-        <div class="card" style="padding:0;overflow:hidden"><table>
+        <div class="card" style="padding:0;overflow:hidden"><table id="activityTable" class="resizeable">
           <thead><tr>
             <th style="cursor:pointer" onclick="sortLog('activity_time')">时间 ${logSort.key==='activity_time'?(logSort.dir===1?'▲':'▼'):''}</th>
             <th style="cursor:pointer" onclick="sortLog('customer_name')">客户 ${logSort.key==='customer_name'?(logSort.dir===1?'▲':'▼'):''}</th>
@@ -1159,6 +1288,7 @@ async function renderContactLog(c){
       </div>
     </div>
   </div>`;
+  initResizable();
 }
 function sortLog(key){
   if(logSort.key===key)logSort.dir=-logSort.dir;
@@ -1277,7 +1407,7 @@ async function renderFollowups(c){
       <button class="btn btn-primary" onclick="doFuSearch()">搜索</button>
       <button class="btn" onclick="resetFuSearch()">重置</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table>
+    <div class="card" style="padding:0;overflow:hidden"><table id="followupTable" class="resizeable">
       <thead><tr>
         <th style="cursor:pointer" onclick="sortFu('plan_date')">计划日期 ${fuSort.key==='plan_date'?(fuSort.dir===1?'▲':'▼'):''}</th>
         <th style="cursor:pointer" onclick="sortFu('customer_name')">客户 ${fuSort.key==='customer_name'?(fuSort.dir===1?'▲':'▼'):''}</th>
@@ -1303,6 +1433,7 @@ async function renderFollowups(c){
       </tr>`).join(''):'<tr><td colspan="7" class="empty-state">暂无联络计划</td></tr>'}</tbody>
     </table></div>
   </div>`;
+  initResizable();
 }
 function sortFu(key){ if(fuSort.key===key)fuSort.dir=-fuSort.dir; else{fuSort.key=key;fuSort.dir=key==='plan_date'||key==='actual_date'?1:-1;} renderFollowups(document.getElementById('content')); }
 function doFuSearch(){ fuFilter={...fuDraft}; renderFollowups(document.getElementById('content')); }

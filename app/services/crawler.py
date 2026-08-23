@@ -56,6 +56,7 @@ def extract_budget(text):
 
 
 def extract_region(text):
+    """简易省份提取（向后兼容）。"""
     provinces = ["北京", "上海", "重庆", "天津", "河北", "山西", "辽宁", "吉林",
                  "黑龙江", "江苏", "浙江", "安徽", "福建", "江西", "山东", "河南",
                  "湖北", "湖南", "广东", "海南", "四川", "贵州", "云南", "陕西",
@@ -63,6 +64,234 @@ def extract_region(text):
     for p in provinces:
         if p in text:
             return p
+    return ""
+
+
+# 城市 → 省份映射（用于补全省份前缀）
+CITY_TO_PROVINCE = {
+    # 四川省
+    "成都": "四川省", "绵阳": "四川省", "德阳": "四川省", "南充": "四川省",
+    "宜宾": "四川省", "泸州": "四川省", "乐山": "四川省", "达州": "四川省",
+    "眉山": "四川省", "内江": "四川省", "遂宁": "四川省", "雅安": "四川省",
+    "广安": "四川省", "巴中": "四川省", "资阳": "四川省", "凉山": "四川省",
+    "攀枝花": "四川省", "广元": "四川省", "自贡": "四川省", "凉山彝族自治州": "四川省",
+    "巴塘县": "四川省", "理塘县": "四川省", "乡城县": "四川省", "稻城县": "四川省",
+    "得荣县": "四川省", "九龙县": "四川省", "新龙县": "四川省", "雅江县": "四川省",
+    "道孚县": "四川省", "炉霍县": "四川省", "甘孜县": "四川省",
+    # 重庆市（直辖市）
+    "重庆": "重庆市", "两江新区": "重庆市", "渝中区": "重庆市", "南岸区": "重庆市",
+    "江北区": "重庆市", "沙坪坝区": "重庆市", "九龙坡区": "重庆市", "大渡口区": "重庆市",
+    "渝北区": "重庆市", "北碚区": "重庆市", "巴南区": "重庆市", "璧山区": "重庆市",
+    "合川区": "重庆市", "永川区": "重庆市", "铜梁区": "重庆市", "大足区": "重庆市",
+    "荣昌区": "重庆市", "黔江区": "重庆市", "长寿区": "重庆市", "江津区": "重庆市",
+    "綦江区": "重庆市", "潼南区": "重庆市", "南川区": "重庆市", "万州区": "重庆市",
+    "涪陵区": "重庆市", "城口县": "重庆市", "丰都县": "重庆市", "垫江县": "重庆市",
+    "武隆区": "重庆市", "忠县": "重庆市", "开州区": "重庆市", "云阳县": "重庆市",
+    "奉节县": "重庆市", "巫山县": "重庆市", "巫溪县": "重庆市", "石柱县": "重庆市",
+    "秀山县": "重庆市", "酉阳县": "重庆市", "彭水县": "重庆市",
+    # 安徽省
+    "合肥": "安徽省", "芜湖": "安徽省", "蚌埠": "安徽省", "淮南": "安徽省",
+    "马鞍山": "安徽省", "淮北": "安徽省", "铜陵": "安徽省", "安庆": "安徽省",
+    "黄山": "安徽省", "滁州": "安徽省", "阜阳": "安徽省", "宿州": "安徽省",
+    "六安": "安徽省", "亳州": "安徽省", "池州": "安徽省", "宣城": "安徽省",
+    "贵池区": "安徽省", "池州市": "安徽省",
+    # 山东省
+    "济南": "山东省", "青岛": "山东省", "淄博": "山东省", "枣庄": "山东省",
+    "东营": "山东省", "烟台": "山东省", "潍坊": "山东省", "济宁": "山东省",
+    "泰安": "山东省", "威海": "山东省", "日照": "山东省", "临沂": "山东省",
+    "德州": "山东省", "聊城": "山东省", "滨州": "山东省", "菏泽": "山东省",
+    "岱岳区": "山东省", "泰安市": "山东省",
+    # 陕西省
+    "西安": "陕西省", "咸阳": "陕西省", "宝鸡": "陕西省", "渭南": "陕西省",
+    "汉中": "陕西省", "榆林": "陕西省", "安康": "陕西省", "商洛": "陕西省",
+    "延安": "陕西省", "铜川": "陕西省", "略阳县": "陕西省",
+    # 浙江省
+    "杭州": "浙江省", "宁波": "浙江省", "温州": "浙江省", "嘉兴": "浙江省",
+    "湖州": "浙江省", "绍兴": "浙江省", "金华": "浙江省", "衢州": "浙江省",
+    "舟山": "浙江省", "台州": "浙江省", "丽水": "浙江省", "云和县": "浙江省",
+    "龙游县": "浙江省",
+    # 山西省
+    "太原": "山西省", "大同": "山西省", "阳泉": "山西省", "长治": "山西省",
+    "晋城": "山西省", "朔州": "山西省", "晋中": "山西省", "运城": "山西省",
+    "忻州": "山西省", "临汾": "山西省", "吕梁": "山西省", "潞州区": "山西省",
+    "长治市": "山西省",
+    "长治": "山西省",
+    # 新疆
+    "乌鲁木齐": "新疆维吾尔自治区", "喀什": "新疆维吾尔自治区", "库尔勒市": "新疆维吾尔自治区",
+    "库尔勒": "新疆维吾尔自治区",
+    "巴音郭楞": "新疆维吾尔自治区", "巴音郭楞蒙古自治州": "新疆维吾尔自治区",
+    # 内蒙古
+    "呼和浩特": "内蒙古自治区", "包头": "内蒙古自治区", "赤峰": "内蒙古自治区",
+    "鄂尔多斯": "内蒙古自治区", "呼伦贝尔": "内蒙古自治区", "通辽": "内蒙古自治区",
+    "乌兰察布": "内蒙古自治区", "达拉特旗": "内蒙古自治区",
+    # 吉林省
+    "长春": "吉林省", "吉林": "吉林省", "四平": "吉林省", "辽源": "吉林省",
+    "通化": "吉林省", "白山": "吉林省", "松原": "吉林省", "白城": "吉林省",
+    "延边": "吉林省",
+    # 黑龙江省
+    "哈尔滨": "黑龙江省", "齐齐哈尔": "黑龙江省", "鸡西": "黑龙江省",
+    "鹤岗": "黑龙江省", "双鸭山": "黑龙江省", "大庆": "黑龙江省",
+    "伊春": "黑龙江省", "佳木斯": "黑龙江省", "七台河": "黑龙江省",
+    "牡丹江": "黑龙江省", "黑河": "黑龙江省", "绥化": "黑龙江省", "大兴安岭": "黑龙江省",
+    # 辽宁省
+    "沈阳": "辽宁省", "大连": "辽宁省", "鞍山": "辽宁省", "抚顺": "辽宁省",
+    "本溪": "辽宁省", "丹东": "辽宁省", "锦州": "辽宁省", "营口": "辽宁省",
+    "阜新": "辽宁省", "辽阳": "辽宁省", "盘锦": "辽宁省", "铁岭": "辽宁省",
+    "朝阳": "辽宁省", "葫芦岛": "辽宁省",
+    # 甘肃省
+    "兰州": "甘肃省", "嘉峪关": "甘肃省", "金昌": "甘肃省", "白银": "甘肃省",
+    "天水": "甘肃省", "武威": "甘肃省", "张掖": "甘肃省", "平凉": "甘肃省",
+    "酒泉": "甘肃省", "庆阳": "甘肃省", "定西": "甘肃省", "陇南": "甘肃省",
+    "临夏": "甘肃省", "甘南": "甘肃省",
+    # 青海省
+    "西宁": "青海省", "海东": "青海省", "海北": "青海省", "黄南": "青海省",
+    "海南": "青海省", "果洛": "青海省", "玉树": "青海省", "海西": "青海省",
+    # 宁夏
+    "银川": "宁夏回族自治区", "石嘴山": "宁夏回族自治区", "吴忠": "宁夏回族自治区",
+    "固原": "宁夏回族自治区", "中卫": "宁夏回族自治区",
+    # 广西
+    "南宁": "广西壮族自治区", "柳州": "广西壮族自治区", "桂林": "广西壮族自治区",
+    "梧州": "广西壮族自治区", "北海": "广西壮族自治区", "防城港": "广西壮族自治区",
+    "钦州": "广西壮族自治区", "贵港": "广西壮族自治区", "玉林": "广西壮族自治区",
+    "百色": "广西壮族自治区", "贺州": "广西壮族自治区", "河池": "广西壮族自治区",
+    "来宾": "广西壮族自治区", "崇左": "广西壮族自治区",
+    # 西藏
+    "拉萨": "西藏自治区", "日喀则": "西藏自治区", "昌都": "西藏自治区",
+    "林芝": "西藏自治区", "山南": "西藏自治区", "那曲": "西藏自治区",
+    "阿里": "西藏自治区",
+    # 云南
+    "昆明": "云南省", "曲靖": "云南省", "玉溪": "云南省", "保山": "云南省",
+    "昭通": "云南省", "丽江": "云南省", "普洱": "云南省", "临沧": "云南省",
+    "楚雄": "云南省", "红河": "云南省", "文山": "云南省", "西双版纳": "云南省",
+    "大理": "云南省", "德宏": "云南省", "怒江": "云南省", "迪庆": "云南省",
+    # 贵州
+    "贵阳": "贵州省", "六盘水": "贵州省", "遵义": "贵州省", "安顺": "贵州省",
+    "毕节": "贵州省", "铜仁": "贵州省", "黔西南": "贵州省", "黔东南": "贵州省",
+    "黔南": "贵州省",
+    # 湖南省
+    "长沙": "湖南省", "株洲": "湖南省", "湘潭": "湖南省", "衡阳": "湖南省",
+    "邵阳": "湖南省", "岳阳": "湖南省", "常德": "湖南省", "张家界": "湖南省",
+    "益阳": "湖南省", "郴州": "湖南省", "永州": "湖南省", "怀化": "湖南省",
+    "娄底": "湖南省", "湘西": "湖南省",
+    # 湖北省
+    "武汉": "湖北省", "黄石": "湖北省", "十堰": "湖北省", "宜昌": "湖北省",
+    "襄阳": "湖北省", "鄂州": "湖北省", "荆门": "湖北省", "孝感": "湖北省",
+    "荆州": "湖北省", "黄冈": "湖北省", "咸宁": "湖北省", "随州": "湖北省",
+    "恩施": "湖北省",
+    # 河南省
+    "郑州": "河南省", "开封": "河南省", "洛阳": "河南省", "平顶山": "河南省",
+    "安阳": "河南省", "鹤壁": "河南省", "新乡": "河南省", "焦作": "河南省",
+    "濮阳": "河南省", "许昌": "河南省", "漯河": "河南省", "三门峡": "河南省",
+    "南阳": "河南省", "商丘": "河南省", "信阳": "河南省", "周口": "河南省",
+    "驻马店": "河南省",
+    # 河北省
+    "石家庄": "河北省", "唐山": "河北省", "秦皇岛": "河北省", "邯郸": "河北省",
+    "邢台": "河北省", "保定": "河北省", "张家口": "河北省", "承德": "河北省",
+    "沧州": "河北省", "廊坊": "河北省", "衡水": "河北省",
+    # 江苏省
+    "南京": "江苏省", "无锡": "江苏省", "徐州": "江苏省", "常州": "江苏省",
+    "苏州": "江苏省", "南通": "江苏省", "连云港": "江苏省", "淮安": "江苏省",
+    "盐城": "江苏省", "扬州": "江苏省", "镇江": "江苏省", "泰州": "江苏省",
+    "宿迁": "江苏省",
+    # 安徽省补充
+    "礼泉县": "陕西省",
+    "咸阳市": "陕西省",
+}
+
+
+def extract_region_full(text, purchaser=""):
+    """从公告文本提取完整省市区县，如'山东省威海市荣成市'。
+
+    按优先级：采购单位地址 > 行政区域+采购单位名 > 标题省份兜底。
+    从地址中非重叠提取 省/自治区/直辖市 + 市/州 + 县/区。
+    """
+    def _parse_addr(addr):
+        """从地址字符串中按省→市→县顺序非重叠提取。"""
+        province = muni = county = ""
+        rest = addr
+        # 1. 省/自治区（如"安徽省"、"内蒙古自治区"）
+        p = re.search(r"([\u4e00-\u9fa5]{2,8}(?:省|自治区))", rest)
+        if p:
+            province = p.group(1)
+            rest = rest[p.end():]
+        else:
+            # 只匹配四个直辖市（北京/上海/天津/重庆），不匹配其他带"市"的地名
+            for _dm in ("北京", "上海", "天津", "重庆"):
+                _m = re.match(rf'^({re.escape(_dm)}市)', rest)
+                if _m:
+                    province = _m.group(1)
+                    rest = rest[_m.end():]
+                    break
+        # 2. 市/州/盟（非贪婪匹配，避免"长治市潞州区"被误匹配为"长治市潞州"）
+        #    如候选城市在映射表中且无省份，用城市补全省份
+        m = re.search(r"([\u4e00-\u9fa5]+?[市州盟])", rest)
+        if m:
+            candidate = m.group(1)
+            if candidate in CITY_TO_PROVINCE and not province:
+                province = CITY_TO_PROVINCE[candidate]
+            if not (province and candidate in province):
+                muni = candidate
+                rest = rest[m.end():]
+        # 3. 县/区/旗：先贪婪匹配，若结果含连续两个后缀字符（如"县县"）则回退到非贪婪
+        c = re.search(r"([\u4e00-\u9fa5]+[县区旗])", rest)
+        if c:
+            candidate = c.group(1)
+            if re.search(r'[县区旗]{2}', candidate):
+                c2 = re.search(r"([\u4e00-\u9fa5]+?[县区旗])", rest)
+                county = c2.group(1) if c2 else candidate
+            else:
+                county = candidate
+        return province, muni, county
+
+    def _resolve_province(prov, city_name):
+        """用映射表补全省份。"""
+        if prov and prov.endswith(("省", "自治区", "市")):
+            return prov
+        if city_name and city_name in CITY_TO_PROVINCE:
+            return CITY_TO_PROVINCE[city_name]
+        return extract_region(text)
+
+    # 1. 从采购单位地址 / 采购人地址 / 地址 提取（兼容完整页文本与服务详情）
+    m = re.search(r"(?:采购单位|采购人(?:办公)?|)?地址[:：\s]*([^\s，。；\n]{4,80})", text)
+    if m:
+        province, muni, county = _parse_addr(m.group(1).strip())
+        if province or len(muni) >= 3:
+            return province + muni + county
+        # 地址只提取到县级，尝试补全省份
+        if county:
+            # 先查城市→省份映射表
+            for city_name in reversed([muni, county]):
+                if city_name and city_name in CITY_TO_PROVINCE:
+                    return CITY_TO_PROVINCE[city_name] + city_name + (" " + county if city_name != county else "")
+            # 退回到从文本提取省份
+            prov = extract_region(text)
+            if prov and prov not in county:
+                return prov + ("省" if not prov.endswith("市") else "") + county
+            return county
+
+    # 2. 行政区域（省级）+ 采购单位名称中的市县
+    province = ""
+    m = re.search(r"行政区域[:：\s]*([\u4e00-\u9fa5]{2,4})", text)
+    if m:
+        province = m.group(1).strip()
+    else:
+        province = extract_region(text)
+
+    city_county = ""
+    if purchaser and not (province and province.endswith("市")):
+        m = re.search(r"([\u4e00-\u9fa5]+?[县区市])", purchaser)
+        if m:
+            city_county = m.group(1)
+            # 查映射表补全省份
+            if not province:
+                province = _resolve_province("", city_county)
+
+    if province and city_county:
+        return province + city_county
+    elif province:
+        return province
+    elif city_county:
+        return city_county
     return ""
 
 
@@ -141,7 +370,7 @@ def get_crawl_config():
     }
 
 
-SKIP_TYPES = ("中标", "成交", "废标", "终止", "更正", "结果", "流标")
+# SKIP_TYPES 不再过滤：各类公告（含中标/成交/更正）均采集，由人工判断。
 
 # 政府采购网搜索接口
 SEARCH_BASE = "https://search.ccgp.gov.cn/bxsearch"
@@ -192,11 +421,11 @@ def parse_search_item(li):
     strong = span.find("strong")
     if strong:
         atype = strong.get_text(strip=True)
-    if any(k in atype for k in SKIP_TYPES):
-        return None
-    # 地区（公告类型后的 | 地区）
+    # 地区（公告类型后的 | 地区）：parts[2] 常混入"代理机构：xxx 公告类型"，取其后的纯地区段，否则留空走正文兜底
     parts = [s.strip() for s in span_text.split("|")]
     region = parts[2] if len(parts) >= 3 else ""
+    if "代理机构" in region or "公告" in region:
+        region = parts[3] if len(parts) >= 4 and parts[3] else ""
     return {
         "title": title,
         "url": href,
@@ -285,6 +514,19 @@ def extract_contact_rules(text):
     }
 
 
+def extract_winner(text):
+    """从中标/成交公告文本提取中标单位名称（AI 未抽到时的规则兜底）。"""
+    for p in [
+        r"中标（成交）供应商(?:名称)?[:：]\s*([\u4e00-\u9fa5（）()·A-Za-z0-9\-]{4,60})",
+        r"(?:中标|成交)(?:供应商|单位)(?:名称)?[:：]\s*([\u4e00-\u9fa5（）()·A-Za-z0-9\-]{4,60})",
+        r"供应商名称[:：]\s*([\u4e00-\u9fa5（）()·A-Za-z0-9\-]{4,60})",
+    ]:
+        m = re.search(p, text)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
 def _update_status(**kw):
     _crawl_status.update(kw)
 
@@ -333,8 +575,10 @@ def run_crawl(app=None):
             errors.append(f"[关键词:{kw}] 搜索失败: {str(e)[:100]}")
         time.sleep(REQUEST_DELAY)
 
-    # 按时间倒序，取 limit 条进入 AI 抽取
+    # 按时间倒序；已入库 URL 先剔除（避免重复项占用抽取上限，回溯重采时能捞到漏网新公告），再取 limit 条
     candidates = [it for it in candidates if it.get("dt")]
+    existing_urls = {u for (u,) in db.session.query(Lead.source_url).all() if u}
+    candidates = [it for it in candidates if it["url"] not in existing_urls]
     candidates.sort(key=lambda it: it["dt"], reverse=True)
     filtered = candidates[: cfg["limit"]]
 
@@ -349,7 +593,7 @@ def run_crawl(app=None):
             if Lead.query.filter_by(source_url=item["url"]).first():
                 continue
             page_text = fetch_detail_text(item["url"], session)
-            ai = extract_lead(item["title"], page_text, item["url"])
+            ai = extract_lead(item["title"], page_text, item["url"], item.get("type",""))
             rules = extract_contact_rules(page_text)
             for f in ("contact_name", "contact_phone", "address", "purchaser"):
                 if not ai.get(f) and rules.get(f):
@@ -363,10 +607,12 @@ def run_crawl(app=None):
                     deadline = datetime.strptime(str(deadline)[:10], "%Y-%m-%d")
                 except ValueError:
                     deadline = None
-            region = item["region"] or extract_region(page_text)
+            region = extract_region_full(page_text, ai.get("purchaser") or "") or item["region"] or extract_region(page_text)
+            winner = (ai.get("winner") or extract_winner(page_text) or "").strip()
             service = "；".join(
                 f"{k}: {v}" for k, v in [
-                    ("客户方", ai["purchaser"]), ("联系人", ai["contact_name"]),
+                    ("客户方", ai["purchaser"]), ("中标/成交单位", winner),
+                    ("联系人", ai["contact_name"]),
                     ("联系方式", ai["contact_phone"]), ("地址", ai["address"]),
                     ("预算", budget), ("摘要", ai["summary"]),
                 ] if v
@@ -383,6 +629,9 @@ def run_crawl(app=None):
                 service_content=service,
                 source_url=item["url"],
                 source_platform=item.get("source_name", "中国政府采购网"),
+                bid_type=(item.get("type") or "")[:50],
+                winner=winner[:200] if winner else "",
+                created_at=item["dt"],
                 status="active",
             )
             match_lead(lead)
