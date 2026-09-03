@@ -288,8 +288,18 @@ const TITLES = {dashboard:'智能工作台',leads:'线索管理',opportunities:'
 
 // ===== Utilities =====
 async function api(path, opts={}){
-  const res = await fetch('/api'+path, {headers:{'Content-Type':'application/json'}, ...opts});
-  return res.json();
+  try{
+    const res = await fetch('/api'+path, {headers:{'Content-Type':'application/json'}, ...opts});
+    let data=null;
+    try{data=await res.json()}catch(e){}
+    if(!res.ok){
+      // 统一把 HTTP 错误转成 {error}，调用方只需判断 r.error
+      return {error:(data&&data.error)||`请求失败 (HTTP ${res.status})`};
+    }
+    return data||{};
+  }catch(e){
+    return {error:'网络异常: '+e.message};
+  }
 }
 function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
 function toast(msg, type='success'){
@@ -333,6 +343,7 @@ function makeSearchable(selectId){
   trigger.style.cssText='padding:8px 12px;border:1px solid var(--brd);border-radius:8px;font-size:14px;cursor:pointer;background:#fff;display:flex;align-items:center;justify-content:space-between';
   trigger.innerHTML=`<span>${sel.options[sel.selectedIndex]?.text||'请选择'}</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>`;
   const panel=document.createElement('div');
+  panel.className='ss-panel';
   panel.style.cssText='position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--brd);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:99;display:none;margin-top:4px;max-height:220px;overflow-y:auto';
   const searchBox=document.createElement('input');
   searchBox.placeholder='搜索...';searchBox.style.cssText='border:none;border-bottom:1px solid var(--brd);border-radius:8px 8px 0 0;padding:8px 12px;font-size:13px;outline:none;position:sticky;top:0;background:#fff';
@@ -357,7 +368,7 @@ function makeSearchable(selectId){
   wrap.appendChild(trigger);wrap.appendChild(panel);sel.after(wrap);
   sel._ssTrigger=trigger;sel._ssPanel=panel;sel._ssBuild=buildOpts;
 }
-function closeAllSSelects(except){document.querySelectorAll('[style*="display: block"],[style*="display:block"]').forEach(p=>{if(p!==except&&p.style)p.style.display='none'})}
+function closeAllSSelects(except){document.querySelectorAll('.ss-panel').forEach(p=>{if(p!==except)p.style.display='none'})}
 function refreshSearchable(id){const sel=document.getElementById(id);if(sel&&sel._ssBuild){sel._ssBuild();sel._ssTrigger.querySelector('span').textContent=sel.options[sel.selectedIndex]?.text||'请选择'}}
 function initSearchableInModal(){document.querySelectorAll('.modal select[data-searchable]').forEach(s=>{makeSearchable(s.id)})}
 document.addEventListener('click',()=>closeAllSSelects());
@@ -459,10 +470,12 @@ async function renderLeads(c){
   const activeLeads=leads.filter(l=>l.status==='active');
   const convertedLeads=leads.filter(l=>l.status==='converted');
   const abandonedLeads=leads.filter(l=>l.status==='abandoned');
+  const poolLeads=leads.filter(l=>l.status==='pool');
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="display:flex;gap:4px">
         <button class="tab-btn ${leadsTab==='active'?'active':''}" onclick="leadsTab='active';renderLeads(document.getElementById('content'))">待转化 (${activeLeads.length})</button>
+        <button class="tab-btn ${leadsTab==='pool'?'active':''}" onclick="leadsTab='pool';renderLeads(document.getElementById('content'))">公海池 (${poolLeads.length})</button>
         <button class="tab-btn ${leadsTab==='converted'?'active':''}" onclick="leadsTab='converted';renderLeads(document.getElementById('content'))">已转化 (${convertedLeads.length})</button>
         <button class="tab-btn ${leadsTab==='abandoned'?'active':''}" onclick="leadsTab='abandoned';renderLeads(document.getElementById('content'))">已删除 (${abandonedLeads.length})</button>
       </div>
@@ -482,7 +495,7 @@ async function renderLeads(c){
     </div>
     <div id="leadsList"></div>
   </div>`;
-  const baseList=leadsTab==='converted'?convertedLeads:leadsTab==='abandoned'?abandonedLeads:activeLeads;
+  const baseList=leadsTab==='converted'?convertedLeads:leadsTab==='abandoned'?abandonedLeads:leadsTab==='pool'?poolLeads:activeLeads;
   let list=baseList.filter(l=>{
     const fl=leadFilter;
     if(fl.q&&!l.title.toLowerCase().includes(fl.q.toLowerCase()))return false;
@@ -520,12 +533,14 @@ async function renderLeads(c){
       <td>${fmtDate(l.deadline)||'-'}</td>
       <td>${esc(l.created_at||'-')}</td>
       <td style="font-size:12px">${esc(l.source_platform||'-')}</td>
-      <td><span class="badge ${l.status==='converted'?'badge-converted':l.status==='abandoned'?'badge-abandoned':'badge-active'}">${l.status==='converted'?'已转化':l.status==='abandoned'?'已删除':'待转化'}</span></td>
+      <td><span class="badge ${l.status==='converted'?'badge-converted':l.status==='abandoned'?'badge-abandoned':l.status==='pool'?'badge-pool':'badge-active'}">${l.status==='converted'?'已转化':l.status==='abandoned'?'已删除':l.status==='pool'?'公海池':'待转化'}</span></td>
       <td style="text-align:center"><div class="btn-group" style="justify-content:center">
         <button class="btn btn-sm" onclick="viewLeadDetail(${l.id})">${IC.eye} 查看</button>
         ${l.status==='abandoned'?`<button class="btn btn-sm" onclick="showLeadForm(${l.id})">${IC.edit} 编辑</button>
         <button class="btn btn-sm btn-primary" onclick="restoreLead(${l.id})">恢复</button>`:''}
+        ${l.status==='pool'?`<button class="btn btn-sm btn-primary" onclick="claimLead(${l.id})">${IC.check} 领取</button>`:''}
         ${l.status==='active'?`<button class="btn btn-sm" onclick="convertLead(${l.id})">${IC.check} 转化</button>
+        <button class="btn btn-sm" onclick="releaseLead(${l.id})" title="释放至公海池">释放</button>
         <button class="btn btn-sm" style="color:var(--dn)" onclick="deleteLead(${l.id})">${IC.trash} 删除</button>`:''}
       </div></td>
     </tr>`;
@@ -537,7 +552,14 @@ function doLeadSearch(){ leadFilter={...leadDraft}; renderLeads(document.getElem
 function resetLeadSearch(){ leadDraft={q:'',region:'',from:'',to:''}; leadFilter={...leadDraft}; renderLeads(document.getElementById('content')); }
 async function claimLead(id){
   const r=await api(`/leads/${id}/claim`,{method:'POST',body:JSON.stringify({assignee:'李明'})});
+  if(r.error){toast(r.error,'error');return}
   toast(r.message||'已领取');renderLeads(document.getElementById('content'));
+}
+async function releaseLead(id){
+  if(!confirm('确认将该线索释放至公海池？其他同事可领取。'))return;
+  const r=await api(`/leads/${id}/release`,{method:'POST'});
+  if(r.error){toast(r.error,'error');return}
+  toast(r.message||'已释放至公海池');renderLeads(document.getElementById('content'));
 }
 async function deleteLead(id){
   if(!confirm('确认删除该线索？可在"已删除"中恢复。'))return;
@@ -567,12 +589,11 @@ async function convertLead(id){
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>中标单位（合作目标）</label>
-        <select id="cvWinnerCust" data-searchable multiple style="min-height:70px">
-          <option value="">— 未匹配到，请手动输入新客户 —</option>
+        <label>中标单位（合作目标，可多选）</label>
+        <select id="cvWinnerCust" multiple size="4" style="min-height:70px">
           ${customers.map(c=>`<option value="${c.id}" ${winMatches.includes(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
         </select>
-        <div style="margin-top:4px"><input id="cvWinnerNew" placeholder="新客户名称（多家用逗号分隔）" value="${esc(winnerText)}" style="width:100%;box-sizing:border-box"></div>
+        <div style="margin-top:4px"><input id="cvWinnerNew" placeholder="新客户名称（多家用逗号分隔，已勾选客户无需重复输入）" value="${esc(winMatches.length?'':winnerText)}" style="width:100%;box-sizing:border-box"></div>
       </div>
       <div class="form-group">
         <label>采购单位（客户方）</label>
@@ -580,7 +601,7 @@ async function convertLead(id){
           <option value="">— 未匹配到 —</option>
           ${customers.map(c=>`<option value="${c.id}" ${purMatches.includes(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
         </select>
-        <div style="margin-top:4px"><input id="cvPurchaserNew" placeholder="新客户名称" value="${esc(purchaserText)}" style="width:100%;box-sizing:border-box"></div>
+        <div style="margin-top:4px"><input id="cvPurchaserNew" placeholder="新客户名称（已勾选客户无需重复输入）" value="${esc(purMatches.length?'':purchaserText)}" style="width:100%;box-sizing:border-box"></div>
       </div>
     </div>
     <div class="form-group" style="font-size:12px;color:var(--tl)">中标单位将优先作为商机客户；如未选择自动创建新客户。</div>`;
@@ -610,8 +631,12 @@ async function saveConvert(id){
   const isWin = /中标|成交/.test(window._cvLeadBidType||'');
   let d={title:document.getElementById('cvTitle').value,contact_id:document.getElementById('cvContact')?.value||null,contact_name:document.getElementById('cvNewContact')?.value||'',contact_phone:document.getElementById('cvNewPhone')?.value||'',amount:document.getElementById('cvAmount').value,stage:document.getElementById('cvStage').value};
   if(isWin){
-    const winnerNew = (document.getElementById('cvWinnerNew')?.value||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
-    const purchaserNew = (document.getElementById('cvPurchaserNew')?.value||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+    const selNames=sel=>Array.from(document.getElementById(sel)?.selectedOptions||[]).map(o=>o.textContent.trim()).filter(Boolean);
+    const typedNames=elId=>(document.getElementById(elId)?.value||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+    const merge=(a,b)=>[...new Set([...a,...b])];
+    // 已存在客户的选择 + 新输入的客户名合并提交（避免重复创建）
+    const winnerNew = merge(selNames('cvWinnerCust'), typedNames('cvWinnerNew'));
+    const purchaserNew = merge(selNames('cvPurchaserCust'), typedNames('cvPurchaserNew'));
     d.winner_customer_names = winnerNew;
     d.purchaser_customer_names = purchaserNew;
     if([...winnerNew,...purchaserNew].length>0) d.customer_name = [...winnerNew,...purchaserNew][0];
@@ -1349,7 +1374,7 @@ async function saveActivity(){
 async function viewActivityDetail(id){
   const a=await api(`/activities/${id}`);
   openModal(`<h3>联络记录详情</h3>
-    <div class="detail-grid" style="font-size:14px>
+    <div class="detail-grid" style="font-size:14px">
       <div><span style="color:var(--tl)">时间：</span>${fmtDate(a.activity_time)||'-'}</div>
       <div><span style="color:var(--tl)">方式：</span>${esc(a.method||'-')}</div>
       <div><span style="color:var(--tl)">客户：</span>${esc(a.customer_name||'-')}</div>
@@ -1524,20 +1549,26 @@ async function deleteFollowup(id){
 }
 
 // ===== 7. Kanban =====
+let currentBoardId=null;
 async function renderKanban(c){
   const boards=await api('/kanban/boards');
   if(!boards.length){
     c.innerHTML=`<div class="fade-in"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h2 style="font-size:18px;font-weight:700">看板管理</h2><button class="btn btn-primary" onclick="createBoard()">${IC.plus} 新建看板</button></div><div class="empty-state">暂无看板，点击上方按钮创建</div></div>`;
     return;
   }
-  const board=boards[0];
+  const board=boards.find(b=>b.id===currentBoardId)||boards[0];
+  currentBoardId=board.id;
   c.innerHTML=`<div class="fade-in">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <h2 style="font-size:18px;font-weight:700">${esc(board.name)}</h2>
+      <div style="display:flex;align-items:center;gap:10px">
+        <h2 style="font-size:18px;font-weight:700">${esc(board.name)}</h2>
+        ${boards.length>1?`<select style="width:auto;padding:5px 10px;font-size:13px" onchange="currentBoardId=parseInt(this.value);renderKanban(document.getElementById('content'))">${boards.map(b=>`<option value="${b.id}" ${b.id===board.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select>`:''}
+      </div>
       <div style="display:flex;gap:8px">
         <button class="btn" onclick="addColumn(${board.id})">${IC.plus} 添加列</button>
         <button class="btn" onclick="showAddCard(${board.id})">${IC.plus} 添加卡片</button>
         <button class="btn btn-primary" onclick="createBoard()">${IC.plus} 新建看板</button>
+        ${boards.length>1?`<button class="btn" style="color:var(--dn)" onclick="deleteBoard(${board.id})">${IC.trash} 删除看板</button>`:''}
       </div>
     </div>
     <div class="kanban-board">${board.columns.map((col,ci)=>`
@@ -1566,8 +1597,15 @@ async function moveCardTo(cardId,colId){
 }
 async function createBoard(){
   const name=prompt('看板名称:','新看板');if(!name)return;
-  await api('/kanban/boards',{method:'POST',body:JSON.stringify({name})});
+  const r=await api('/kanban/boards',{method:'POST',body:JSON.stringify({name})});
+  if(r&&r.id)currentBoardId=r.id;
   toast('创建成功');renderKanban(document.getElementById('content'));
+}
+async function deleteBoard(id){
+  if(!confirm('确认删除该看板及其全部卡片？'))return;
+  await api(`/kanban/boards/${id}`,{method:'DELETE'});
+  currentBoardId=null;
+  toast('已删除');renderKanban(document.getElementById('content'));
 }
 async function addColumn(boardId){
   const name=prompt('列名称:');if(!name)return;

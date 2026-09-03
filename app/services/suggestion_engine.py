@@ -48,10 +48,15 @@ def generate_suggestions():
     # Suggest follow-ups for contacts without recent contact
     from app.models import Contact
     stale_contacts = Contact.query.all()
+    # 一次性取出所有联络计划并按联系人分组，避免逐联系人查询（N+1）
+    all_followups = FollowUp.query.filter(FollowUp.contact_id.isnot(None)) \
+        .order_by(FollowUp.plan_date.desc()).all()
+    last_fu_by_contact = {}
+    for fu in all_followups:
+        if fu.contact_id not in last_fu_by_contact and fu.plan_date:
+            last_fu_by_contact[fu.contact_id] = fu
     for contact in stale_contacts:
-        last_followup = FollowUp.query.filter_by(
-            contact_id=contact.id
-        ).order_by(FollowUp.plan_date.desc()).first()
+        last_followup = last_fu_by_contact.get(contact.id)
 
         if last_followup and last_followup.plan_date:
             days_since = (today - last_followup.plan_date.date()).days

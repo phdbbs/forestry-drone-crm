@@ -48,10 +48,13 @@ def chat(messages, max_tokens=1200, temperature=0.2, timeout=240, retries=2):
                     continue
                 raise RuntimeError(f"AI 请求异常: {e}")
             if resp.status_code == 200:
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except ValueError:
+                    raise RuntimeError(f"AI 响应非 JSON 格式: {resp.text[:200]}")
                 try:
                     return data["choices"][0]["message"]["content"] or ""
-                except (KeyError, IndexError):
+                except (KeyError, IndexError, TypeError):
                     raise RuntimeError(f"AI 响应格式异常: {str(data)[:200]}")
             if attempt < retries:
                 time.sleep(15)

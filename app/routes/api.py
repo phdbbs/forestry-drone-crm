@@ -8,7 +8,7 @@ from app.models import (
 )
 from app.services.matcher import match_lead
 from app.services.skills import SkillRegistry
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, timedelta
 import requests as http_requests
 import json
@@ -144,7 +144,8 @@ def dashboard():
     today_followups = FollowUp.query.options(
         joinedload(FollowUp.contact)
     ).filter(db.func.date(FollowUp.plan_date) == today).all()
-    urgent_leads = [l for l in leads if l.deadline and 0 < (l.deadline - now).days <= 3]
+    # 用日期差计算剩余天数：当天截止（0 天）也算紧急；datetime 直接相减会把当天误判为 -1 天
+    urgent_leads = [l for l in leads if l.deadline and 0 <= (l.deadline.date() - now.date()).days <= 3]
     opportunities = Opportunity.query.options(
         joinedload(Opportunity.customer)
     ).order_by(Opportunity.created_at.desc()).all()
@@ -161,8 +162,9 @@ def dashboard():
 @api.route('/customers', methods=['GET'])
 def list_customers():
     q = request.args.get('search', '')
+    # 集合关联用 selectinload：joinedload 同时加载两个一对多集合会产生笛卡尔积
     customers = Customer.query.options(
-        joinedload(Customer.contacts), joinedload(Customer.news_items)
+        selectinload(Customer.contacts), selectinload(Customer.news_items)
     ).filter_by(is_archived=False)
     if q: customers = customers.filter(Customer.name.contains(q))
     return jsonify([{"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "source": c.source, "contact_count": len(c.contacts), "news_count": len(c.news_items)} for c in customers.all()])
@@ -220,7 +222,7 @@ def list_leads():
     leads = query.order_by(Lead.created_at.desc()).all()
     result = []
     for l in leads:
-        days_left = (l.deadline - datetime.now()).days if l.deadline else None
+        days_left = (l.deadline.date() - datetime.now().date()).days if l.deadline else None
         result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
     return jsonify(result)
 
@@ -253,23 +255,49 @@ def update_lead(id):
     db.session.commit()
     return jsonify({"id": l.id, "message": "更新成功"})
 
+def _find_or_create_customer(name, source, remark):
+    """按名称匹配或创建客户，返回客户实例；名称为空返回 None。"""
+    name = (name or '').strip()
+    if not name:
+        return None
+    customer = Customer.query.filter_by(name=name[:200], is_archived=False).first()
+    if not customer:
+        customer = Customer(name=name[:200], source=source, remark=remark)
+        db.session.add(customer)
+        db.session.flush()
+    return customer
+
 @api.route('/leads/<int:id>/convert', methods=['POST'])
 def convert_lead(id):
     l = Lead.query.get_or_404(id)
     if l.status != 'active': return jsonify({"error": "仅待转化线索可转化"}), 400
     d = request.get_json() or {}
-    customer_id = d.get('customer_id', l.customer_id)
-    # 未选择客户时，自动按线索采购方创建客户
-    if not customer_id:
-        customer_name = (d.get('customer_name') or l.purchaser or '').strip()
-        if customer_name:
-            customer = Customer.query.filter_by(name=customer_name, is_archived=False).first()
-            if not customer:
-                customer = Customer(name=customer_name[:200], source='线索转化自动创建',
-                                    remark=f"由线索[{l.title[:60]}]转化时自动创建")
-                db.session.add(customer)
-                db.session.flush()
-            customer_id = customer.id
+    related_ids = []
+    # 中标/成交公告：支持多家中标单位 + 采购单位，全部建/匹配客户并记录关联
+    winner_names = [n for n in (d.get('winner_customer_names') or []) if str(n).strip()]
+    purchaser_names = [n for n in (d.get('purchaser_customer_names') or []) if str(n).strip()]
+    if winner_names or purchaser_names:
+        for n in winner_names:
+            c = _find_or_create_customer(n, '线索转化-中标单位', f"由中标公告[{l.title[:60]}]转化时创建")
+            if c:
+                related_ids.append(c.id)
+        for n in purchaser_names:
+            c = _find_or_create_customer(n, '线索转化-采购单位', f"由中标公告[{l.title[:60]}]转化时创建")
+            if c and c.id not in related_ids:
+                related_ids.append(c.id)
+        # 商机主客户：优先第一家中标单位（合作目标），否则采购单位
+        customer_id = related_ids[0] if related_ids else d.get('customer_id', l.customer_id)
+        # 主客户之外的其他关联方写入 related_customer_ids
+        l.related_customer_ids = ','.join(str(i) for i in related_ids)
+    else:
+        customer_id = d.get('customer_id', l.customer_id)
+        # 未选择客户时，自动按线索采购方创建客户
+        if not customer_id:
+            customer = _find_or_create_customer(
+                d.get('customer_name') or l.purchaser,
+                '线索转化自动创建', f"由线索[{l.title[:60]}]转化时自动创建")
+            if customer:
+                customer_id = customer.id
     contact_id = d.get('contact_id')
     # 未选择联系人时，按线索抽取的联系人自动创建
     contact_name = (d.get('contact_name') or l.contact_name or '').strip()
@@ -328,10 +356,13 @@ def get_opportunity(id):
 def add_stage_record(id):
     o = Opportunity.query.get_or_404(id)
     d = request.get_json() or {}
-    record = StageRecord(opportunity_id=o.id, stage_name=d.get('stage_name',''), content=d.get('content',''), status='pending', add_to_kanban=d.get('add_to_kanban', False))
+    stage_name = (d.get('stage_name') or '').strip()
+    if not stage_name:
+        abort(400, description="阶段名称不能为空")
+    record = StageRecord(opportunity_id=o.id, stage_name=stage_name, content=d.get('content',''), status='pending', add_to_kanban=d.get('add_to_kanban', False))
     record.deadline = _parse_date(d.get('deadline'))
     if d.get('status'): record.status = d['status']
-    o.current_stage = record.stage_name
+    o.current_stage = stage_name
     db.session.add(record)
     if record.add_to_kanban:
         db.session.flush()
@@ -507,8 +538,25 @@ def update_activity(id):
     if 'next_time' in d:
         a.next_followup_time = _parse_date(d.get('next_time'))
         fu = FollowUp.query.filter_by(source_activity_id=a.id).first()
-        if fu and a.next_followup_time:
-            fu.plan_date = a.next_followup_time
+        if fu and not fu.actual_date:
+            if a.next_followup_time:
+                # 已有联动计划：同步计划日期与内容
+                fu.plan_date = a.next_followup_time
+                if a.next_followup_content:
+                    fu.content = a.next_followup_content
+            else:
+                # 清空了下次跟进时间：删除未执行的联动计划，避免产生无来源的孤立计划
+                db.session.delete(fu)
+        elif not fu and a.next_followup_time:
+            # 原活动没有跟进时间、编辑时新增：补建联络计划，保持与新建活动一致
+            db.session.add(FollowUp(
+                contact_id=a.contact_id, customer_id=a.customer_id,
+                opportunity_id=a.opportunity_id, lead_id=a.lead_id,
+                plan_date=a.next_followup_time,
+                content=a.next_followup_content or f"跟进: {(a.content or '')[:80]}",
+                ai_suggested_content=f"来源于活动记录 [{(a.method or '活动')}] 客户: {a.customer.name if a.customer else '-'} | 内容: {(a.content or '')[:100]}",
+                source_activity_id=a.id,
+            ))
     db.session.commit()
     return jsonify({"id": a.id, "message": "更新成功"})
 
@@ -640,6 +688,17 @@ def execute_followup(id):
         next_followup_content=d.get('next_content', ''),
     )
     db.session.add(a)
+    db.session.flush()
+    # 闭环：填写了"下次联系时间"时自动生成下一条联络计划，与手工新增活动的行为保持一致
+    if a.next_followup_time:
+        next_content = (d.get('next_content') or '').strip() or f"跟进: {content[:80]}"
+        db.session.add(FollowUp(
+            customer_id=f.customer_id, contact_id=f.contact_id,
+            opportunity_id=f.opportunity_id, lead_id=f.lead_id,
+            plan_date=a.next_followup_time, content=next_content,
+            ai_suggested_content=f"来源于联络计划执行 [{a.method}] 客户: {f.customer.name if f.customer else '-'} | 内容: {content[:100]}",
+            source_activity_id=a.id,
+        ))
     db.session.commit()
     return jsonify({"id": f.id, "activity_id": a.id, "message": "已记录本次联络，并在日常联络中可见"})
 
@@ -738,7 +797,9 @@ def daily_brief():
     today_followups = FollowUp.query.filter(db.func.date(FollowUp.plan_date) == today).all()
     pending_followups = FollowUp.query.filter(FollowUp.actual_date.is_(None), FollowUp.plan_date <= datetime.now()).all()
     week_from_now = datetime.now() + timedelta(days=7)
-    upcoming_deadlines = Lead.query.filter(Lead.deadline.between(datetime.now(), week_from_now), Lead.status == 'active').all()
+    # 截止时间为当天 00:00，需从今天 0 点起算，避免漏掉"今天截止"的线索
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    upcoming_deadlines = Lead.query.filter(Lead.deadline.between(today_start, week_from_now), Lead.status == 'active').all()
     return jsonify({
         "today_activities": [{"title": a.title or a.method, "method": a.method, "contact_name": a.contact.name if a.contact else None, "customer_name": a.customer.name if a.customer else None} for a in today_acts],
         "today_followups": [{"content": f.content, "contact_name": f.contact.name if f.contact else None, "plan_date": str(f.plan_date)} for f in today_followups],
@@ -791,8 +852,12 @@ def add_column(board_id):
 @api.route('/kanban/cards/<int:card_id>/move', methods=['POST'])
 def move_card(card_id):
     card = KanbanCard.query.get_or_404(card_id)
-    d = request.get_json()
-    card.column_id = d['column_id']
+    d = request.get_json() or {}
+    col = KanbanColumn.query.get_or_404(d.get('column_id'))
+    card.column_id = col.id
+    # 移动到目标列末尾，保持列内排序连贯
+    card.sort_order = (db.session.query(db.func.max(KanbanCard.sort_order))
+                       .filter_by(column_id=col.id).scalar() or 0) + 1
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -972,10 +1037,18 @@ def create_opportunity():
 def update_opportunity(id):
     o = Opportunity.query.get_or_404(id)
     d = request.get_json() or {}
+    old_stage = o.current_stage
     for key in ['title','amount','current_stage','customer_id','contact_id','probability','source_url']:
         if key in d: setattr(o, key, d[key])
     if 'expected_close' in d:
         o.expected_close = _parse_date(d.get('expected_close'))
+    # 阶段变更自动写入阶段记录，保证商机流转时间轴完整可追溯
+    if o.current_stage and o.current_stage != old_stage:
+        db.session.add(StageRecord(
+            opportunity_id=o.id, stage_name=o.current_stage,
+            content=f"阶段由 [{old_stage or '未设置'}] 调整为 [{o.current_stage}]",
+            status='completed',
+        ))
     db.session.commit()
     return jsonify({"id": o.id, "message": "更新成功"})
 
@@ -1145,7 +1218,16 @@ def export_csv(etype):
         return jsonify({"error": f"不支持的导出类型: {etype}"}), 400
     d = request.get_json() or {}
     ids = d.get('ids') or []
-    query = spec['model'].query
+    # 预加载导出时用到的人类可读关联，避免逐行触发 N+1 查询
+    eager = {
+        'leads': [selectinload(Lead.customer)],
+        'opportunities': [selectinload(Opportunity.customer), selectinload(Opportunity.contact)],
+        'contacts': [selectinload(Contact.customer)],
+        'customers': [selectinload(Customer.contacts)],
+        'activities': [selectinload(Activity.customer), selectinload(Activity.contact), selectinload(Activity.opportunity)],
+        'followups': [selectinload(FollowUp.customer), selectinload(FollowUp.contact), selectinload(FollowUp.opportunity)],
+    }
+    query = spec['model'].query.options(*eager.get(etype, []))
     if ids:
         query = query.filter(spec['model'].id.in_(ids))
     items = query.all()

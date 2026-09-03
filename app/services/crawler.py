@@ -416,11 +416,12 @@ def parse_search_item(li):
     # 采购人
     m_buyer = re.search(r"采购人[：:]\s*(.*?)(?=\s*\|)", span_text)
     purchaser = m_buyer.group(1).strip() if m_buyer else ""
-    # 公告类型（<strong> 标签）
+    # 公告类型（<strong> 标签）；部分条目无 span/strong，需判空防止解析中断
     atype = ""
-    strong = span.find("strong")
-    if strong:
-        atype = strong.get_text(strip=True)
+    if span:
+        strong = span.find("strong")
+        if strong:
+            atype = strong.get_text(strip=True)
     # 地区（公告类型后的 | 地区）：parts[2] 常混入"代理机构：xxx 公告类型"，取其后的纯地区段，否则留空走正文兜底
     parts = [s.strip() for s in span_text.split("|")]
     region = parts[2] if len(parts) >= 3 else ""
@@ -590,8 +591,7 @@ def run_crawl(app=None):
     for idx, item in enumerate(filtered, 1):
         _update_status(progress=idx, current=item["title"][:60])
         try:
-            if Lead.query.filter_by(source_url=item["url"]).first():
-                continue
+            # 候选列表已按 existing_urls + seen_urls 去重，无需再逐条查库
             page_text = fetch_detail_text(item["url"], session)
             ai = extract_lead(item["title"], page_text, item["url"], item.get("type",""))
             rules = extract_contact_rules(page_text)
@@ -636,17 +636,25 @@ def run_crawl(app=None):
             )
             match_lead(lead)
             db.session.add(lead)
-            db.session.commit()
             count += 1
             _update_status(count=count)
         except Exception as e:
             errors.append(f"[{item['title'][:30]}] {str(e)[:120]}")
-            db.session.rollback()
         time.sleep(1)
 
+    # 统一提交：避免逐条 commit 的 I/O 开销，且失败条目不影响已成功条目入库
+    if count > 0:
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            errors.append(f"批量入库失败: {str(e)[:120]}")
+            count = 0
+
     _update_status(phase="完成", count=count, errors=errors)
-    # 记录本次采集时间点，供下次增量采集使用（搜索成功时推进）
-    if candidates:
+    # 记录本次采集时间点，供下次增量采集使用（仅在有新线索成功入库时推进，
+    # 防止 AI 全部抽取失败时检查点空转、漏掉本批次公告）
+    if count > 0:
         ts = now.strftime("%Y-%m-%d %H:%M")
         store = SystemConfig.query.filter_by(key='last_crawl_at').first()
         if store:
