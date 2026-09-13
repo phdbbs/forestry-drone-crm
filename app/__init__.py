@@ -29,15 +29,25 @@ def create_app(config=None):
     @app.route('/')
     def serve_index():
         from flask import send_from_directory
+        import os
+        # 优先返回 Vue 构建产物 dist/index.html，不存在则回退旧版原型
+        dist_index = os.path.join(app.static_folder, 'dist', 'index.html')
+        if os.path.isfile(dist_index):
+            return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
         return send_from_directory(app.static_folder, 'index.html')
 
     @app.route('/<path:path>')
     def serve_spa(path):
         from flask import send_from_directory
         import os
-        file_path = os.path.join(app.static_folder, path)
-        if os.path.isfile(file_path):
-            return send_from_directory(app.static_folder, path)
+        # 依次查找 dist/ 与 static/ 下的静态文件；都未命中则回退 SPA 入口
+        for base in (os.path.join(app.static_folder, 'dist'), app.static_folder):
+            file_path = os.path.join(base, path)
+            if os.path.isfile(file_path):
+                return send_from_directory(base, path)
+        dist_index = os.path.join(app.static_folder, 'dist', 'index.html')
+        if os.path.isfile(dist_index):
+            return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
         return send_from_directory(app.static_folder, 'index.html')
     with app.app_context():
         db.create_all()
