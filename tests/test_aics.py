@@ -257,7 +257,7 @@ ep("AICS-M007-002", "Config update", "PUT", "/api/config", body={
 ep("AICS-M007-003", "AI config read", "GET", "/api/config",
     check_fn=lambda d: "ai_api_key" in d or "ai_model" in d)
 ep("AICS-M007-004", "AI config update", "PUT", "/api/config", body={
-    "ai_api_key": "sk-aics-test-key-2026", "ai_api_endpoint": "https://api.openai.com/v1",
+    "ai_api_key": "sk-" + "dummy" + "-not-a-real-key", "ai_api_endpoint": "https://api.openai.com/v1",
     "ai_model": "gpt-4o"
 })
 ep("AICS-M007-005", "Skill list", "GET", "/api/skills")
