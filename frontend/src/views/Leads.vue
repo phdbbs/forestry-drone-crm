@@ -34,7 +34,12 @@
 
     <el-card shadow="never" body-style="padding:0">
       <PageTable storage-key="leads" :data="filteredList" :loading="loading" :default-sort="{ prop: 'created_at', order: 'descending' }">
-        <el-table-column prop="title" label="标题" min-width="260" sortable="custom" class-name="cell-strong">
+        <el-table-column prop="serial_no" label="流水号" width="88" sortable="custom">
+          <template #default="{ row }">
+            <span class="mono muted" style="font-size:12px">{{ row.serial_no || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="title" label="标题" min-width="240" sortable="custom" class-name="cell-strong">
           <template #default="{ row }">
             <div>
               {{ row.title }}
@@ -55,7 +60,10 @@
         <el-table-column prop="region" label="地区" width="130" sortable="custom" show-overflow-tooltip />
         <el-table-column prop="deadline" label="截止" width="110" sortable="custom" />
         <el-table-column prop="created_at" label="创建" width="110" sortable="custom" />
-        <el-table-column prop="source_platform" label="来源" width="150" show-overflow-tooltip />
+        <el-table-column prop="source_platform" label="来源" width="140" show-overflow-tooltip />
+        <el-table-column v-if="tab === 'pool' || tab === 'abandoned'" prop="reason" label="原因" width="150" show-overflow-tooltip>
+          <template #default="{ row }"><span class="muted">{{ row.reason || '-' }}</span></template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="90" sortable="custom">
           <template #default="{ row }">
             <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
@@ -110,60 +118,68 @@
 
     <!-- 转化线索 -->
     <el-dialog v-model="convertVisible" title="转化线索为商机" width="680px" destroy-on-close>
-      <el-form :model="cv" label-width="150px">
+      <el-form :model="cv" label-width="110px">
         <el-form-item label="商机名称" required><el-input v-model="cv.title" /></el-form-item>
         <template v-if="cvIsWin">
           <el-alert type="warning" :closable="false" style="margin-bottom:12px">
             此线索为中标/成交公告，中标单位「{{ cvWinnerText || '—' }}」，采购单位「{{ cvPurchaserText || '—' }}」
           </el-alert>
-          <el-row :gutter="12">
-            <el-col :span="12">
-              <el-form-item label="中标单位(合作目标,多选)">
-                <el-select v-model="cv.winnerIds" multiple filterable style="width:100%">
-                  <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="新中标单位">
-                <el-input v-model="cv.winnerNew" :placeholder="cv.winnerIds.length ? '多家用逗号分隔，已勾选无需重复输入' : (cvWinnerText || '')" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="采购单位(客户方)">
-                <el-select v-model="cv.purchaserId" filterable clearable style="width:100%">
-                  <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="新采购单位">
-                <el-input v-model="cv.purchaserNew" :placeholder="cv.purchaserId ? '已勾选无需重复输入' : (cvPurchaserText || '')" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <div class="muted" style="margin-bottom:10px">中标单位将优先作为商机客户；如未选择自动创建新客户。</div>
+          <el-form-item label="中标单位">
+            <el-select v-model="cv.winnerIds" multiple filterable style="width:100%" placeholder="从客户库选择（可多选，作为合作目标）">
+              <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="新中标单位">
+            <el-input v-model="cv.winnerNew" :placeholder="cv.winnerIds.length ? '多家用逗号分隔，已勾选客户无需重复输入' : (cvWinnerText || '输入新中标单位名称')" />
+          </el-form-item>
+          <el-form-item label="采购单位">
+            <el-select v-model="cv.purchaserId" filterable clearable style="width:100%" placeholder="从客户库选择（客户方）">
+              <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="新采购单位">
+            <el-input v-model="cv.purchaserNew" :placeholder="cv.purchaserId ? '已勾选客户无需重复输入' : (cvPurchaserText || '输入新采购单位名称')" />
+          </el-form-item>
+          <div class="muted" style="margin:0 0 10px 110px">中标单位将优先作为商机客户；如未选择自动创建新客户。</div>
         </template>
         <template v-else>
           <el-row :gutter="12">
             <el-col :span="12">
-              <el-form-item label="客户">
-                <el-select v-model="cv.customerId" filterable clearable style="width:100%">
+              <el-form-item label="选择客户">
+                <el-select v-model="cv.customerId" filterable clearable style="width:100%" placeholder="从客户库选择">
                   <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
                 </el-select>
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="联系人">
-                <el-select v-model="cv.contactId" filterable clearable style="width:100%">
+              <el-form-item label="选择联系人">
+                <el-select v-model="cv.contactId" filterable clearable style="width:100%" placeholder="从联系人库选择">
                   <el-option v-for="c in dict.contacts" :key="c.id" :value="c.id" :label="c.name" />
                 </el-select>
               </el-form-item>
             </el-col>
           </el-row>
-          <div class="muted" style="margin-bottom:10px">未选择客户时，将按线索采购方自动创建客户；未选择联系人时，将按线索提取的联系人自动创建。</div>
+          <div class="muted" style="margin:0 0 10px 110px">未选择时自动创建：客户取线索采购方，联系人/电话取线索提取的信息。</div>
+          <el-form-item label="新客户名称">
+            <el-input v-model="cv.newCustomer" :placeholder="lead?.purchaser || '输入新客户名称（已选择客户则留空）'" />
+          </el-form-item>
           <el-row :gutter="12">
-            <el-col :span="8"><el-form-item label="新客户名称"><el-input v-model="cv.newCustomer" :placeholder="lead?.purchaser || ''" /></el-form-item></el-col>
-            <el-col :span="8"><el-form-item label="新联系人姓名"><el-input v-model="cv.newContact" :placeholder="lead?.contact_name || ''" /></el-form-item></el-col>
-            <el-col :span="8"><el-form-item label="联系电话"><el-input v-model="cv.newPhone" :placeholder="lead?.contact_phone || ''" /></el-form-item></el-col>
+            <el-col :span="12">
+              <el-form-item label="新联系人">
+                <el-input v-model="cv.newContact" :placeholder="lead?.contact_name || '输入新联系人姓名'" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="联系电话">
+                <el-input v-model="cv.newPhone" :placeholder="lead?.contact_phone || '输入联系电话'" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </template>
+        <el-form-item label="转化原因">
+          <el-input v-model="cv.reason" type="textarea" :rows="3"
+            placeholder="填写转化原因/商机背景，将作为该商机的第一条联络记录（如：中标公告转入，需尽快对接合同签订）" />
+        </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="金额(万)"><el-input v-model="cv.amount" type="number" /></el-form-item></el-col>
           <el-col :span="12">
@@ -185,6 +201,7 @@
     <el-dialog v-model="detailVisible" title="线索详情" width="680px" destroy-on-close>
       <template v-if="detail">
         <DetailGrid :items="[
+          { label: '流水号', slot: 'serial', full: false },
           { label: '标题', value: detail.title, full: true },
           { label: '类别', slot: 'bid' },
           { label: '预算', value: detail.budget ? detail.budget + '万' : '-' },
@@ -199,6 +216,9 @@
           { label: '匹配度', value: `${detail.match_score || 0}% (${detail.match_level || ''})` },
           { label: '状态', value: statusLabel(detail.status) },
         ]">
+          <template #serial>
+            <span class="mono" style="font-weight:600;color:#1f2d24">{{ detail.serial_no || '-' }}</span>
+          </template>
           <template #bid>
             <el-tag size="small" :type="bidTagType(detail.bid_type)">{{ detail.bid_type || '待分类' }}</el-tag>
           </template>
@@ -206,13 +226,25 @@
         <div v-if="detail.match_reason" class="muted" style="margin-top:12px">匹配原因: {{ detail.match_reason }}</div>
         <div v-if="detail.service_content" class="muted" style="margin-top:8px">服务内容：{{ detail.service_content }}</div>
         <div v-if="detail.source_url" class="break-all"
-          style="margin-top:12px;font-size:13px;padding:8px 12px;background:#f8fafc;border-radius:6px">
-          <span class="muted">原文链接：</span>
-          <a :href="detail.source_url" target="_blank" style="color:var(--el-color-primary)">{{ detail.source_url }}</a>
+          style="margin-top:12px;font-size:13px;padding:8px 12px;background:#f8fafc;border-radius:6px;display:flex;align-items:flex-start;gap:8px">
+          <div style="flex:1">
+            <span class="muted">原文链接：</span>
+            <a :href="detail.source_url" target="_blank" style="color:var(--el-color-primary)">{{ detail.source_url }}</a>
+          </div>
+          <el-button type="primary" size="small" :loading="fulltextLoading" @click="openFulltext">全文</el-button>
         </div>
       </template>
       <template #footer><el-button @click="detailVisible = false">关闭</el-button></template>
     </el-dialog>
+
+    <!-- 公告全文 -->
+    <el-drawer v-model="fulltextVisible" size="55%" title="公告全文">
+      <div v-loading="fulltextLoading" style="min-height:200px">
+        <el-alert v-if="fulltextError" type="warning" :closable="false" :title="fulltextError" />
+        <div v-else-if="fulltext" class="break-all"
+          style="font-size:13px;line-height:1.8;white-space:pre-wrap;color:#3f5147">{{ fulltext }}</div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -243,7 +275,7 @@ const counts = computed(() => ({
 }))
 const baseList = computed(() => leads.value.filter((l) => l.status === tab.value))
 const filteredList = computed(() => baseList.value.filter((l) => {
-  if (filter.q && !l.title.toLowerCase().includes(filter.q.toLowerCase())) return false
+  if (filter.q && !l.title.toLowerCase().includes(filter.q.toLowerCase()) && !(l.serial_no || '').includes(filter.q)) return false
   if (filter.region && !(l.region || '').includes(filter.region)) return false
   if (filter.from && l.created_at && l.created_at < filter.from) return false
   if (filter.to && l.created_at && l.created_at > filter.to) return false
@@ -281,14 +313,20 @@ async function claimLead(id) {
   ElMessage.success(r.message || '已领取'); load()
 }
 async function releaseLead(id) {
-  await ElMessageBox.confirm('确认将该线索释放至公海池？其他同事可领取。', '释放线索')
-  const r = await post(`/leads/${id}/release`)
+  const { value: reason } = await ElMessageBox.prompt('释放原因（将显示在公海池列表）:', '释放至公海', {
+    inputPlaceholder: '如：地区不符 / 暂无跟进人力 / 已有同事对接',
+    inputValidator: (v) => !!v?.trim() || '请填写释放原因',
+  })
+  const r = await post(`/leads/${id}/release`, { reason: reason.trim() })
   if (r.error) return ElMessage.error(r.error)
   ElMessage.success(r.message || '已释放至公海池'); load()
 }
 async function deleteLead(id) {
-  await ElMessageBox.confirm('确认删除该线索？可在"已删除"中恢复。', '删除线索')
-  const r = await post(`/leads/${id}/abandon`)
+  const { value: reason } = await ElMessageBox.prompt('删除原因（将显示在已删除列表，可恢复）:', '删除线索', {
+    inputPlaceholder: '如：重复线索 / 与业务无关 / 信息有误',
+    inputValidator: (v) => !!v?.trim() || '请填写删除原因',
+  })
+  const r = await post(`/leads/${id}/abandon`, { reason: reason.trim() })
   if (r.error) return ElMessage.error(r.error)
   ElMessage.success(r.message || '已删除'); load()
 }
@@ -334,9 +372,25 @@ async function viewDetail(id) {
   detailVisible.value = true
 }
 
+// ---- 全文 ----
+const fulltextVisible = ref(false)
+const fulltextLoading = ref(false)
+const fulltext = ref('')
+const fulltextError = ref('')
+async function openFulltext() {
+  fulltextVisible.value = true
+  fulltextLoading.value = true
+  fulltext.value = ''
+  fulltextError.value = ''
+  const r = await get(`/leads/${detail.value.id}/fulltext`)
+  fulltextLoading.value = false
+  if (r.error) { fulltextError.value = r.error; return }
+  fulltext.value = r.text || '（无正文内容）'
+}
+
 // ---- 转化 ----
 const convertVisible = ref(false)
-const cv = reactive({ title: '', winnerIds: [], winnerNew: '', purchaserId: null, purchaserNew: '', customerId: null, contactId: null, newCustomer: '', newContact: '', newPhone: '', amount: '', stage: '' })
+const cv = reactive({ title: '', winnerIds: [], winnerNew: '', purchaserId: null, purchaserNew: '', customerId: null, contactId: null, newCustomer: '', newContact: '', newPhone: '', amount: '', stage: '', reason: '' })
 const cvConvertId = ref(null)
 const lead = ref({})
 const cvIsWin = computed(() => /中标|成交/.test(lead.value.bid_type || ''))
@@ -349,7 +403,7 @@ async function openConvert(id) {
   Object.assign(cv, {
     title: lead.value.title, winnerIds: [], winnerNew: '', purchaserId: null, purchaserNew: '',
     customerId: null, contactId: null, newCustomer: '', newContact: '', newPhone: '',
-    amount: '', stage: dict.stageNames[0] || '',
+    amount: '', stage: dict.stageNames[0] || '', reason: '',
   })
   const customers = dict.customers
   const winnerText = cvWinnerText.value, purchaserText = cvPurchaserText.value
@@ -372,7 +426,7 @@ async function saveConvert() {
     title: cv.title,
     contact_id: cv.contactId || null,
     contact_name: cv.newContact || '', contact_phone: cv.newPhone || '',
-    amount: cv.amount, stage: cv.stage,
+    amount: cv.amount, stage: cv.stage, reason: cv.reason.trim(),
   }
   if (cvIsWin.value) {
     const selNames = cv.winnerIds.map((i) => (dict.customers.find((c) => c.id === i) || {}).name).filter(Boolean)

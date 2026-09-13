@@ -92,6 +92,9 @@ class Lead(db.Model):
     bid_type = db.Column(db.String(50), default='')
     winner = db.Column(db.String(200), default='')
     related_customer_ids = db.Column(db.String(500), default='')  # 关联的其他客户ID（逗号分隔）
+    serial_no = db.Column(db.String(20), default='')  # 流水编号：年1位+月1位+日2位+流水2位
+    full_text = db.Column(db.Text)  # 公告全文（用于详情弹窗查看）
+    reason = db.Column(db.String(300), default='')  # 释放/删除原因
     status = db.Column(db.String(20), default='active')
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
     created_at = db.Column(db.DateTime, default=datetime.now)

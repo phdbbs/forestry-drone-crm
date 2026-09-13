@@ -76,6 +76,9 @@ def _migrate_db():
         ('customer_news', 'event_time', 'DATETIME'),
         ('leads', 'bid_type', "VARCHAR(50) DEFAULT ''"),
         ('leads', 'winner', "VARCHAR(200) DEFAULT ''"),
+        ('leads', 'serial_no', "VARCHAR(20) DEFAULT ''"),
+        ('leads', 'full_text', 'TEXT'),
+        ('leads', 'reason', "VARCHAR(300) DEFAULT ''"),
     ]
     with db.engine.connect() as conn:
         for table, column, col_type in migrations:

@@ -7,6 +7,7 @@ from app.models import (
     KanbanCard, SystemConfig, Skill, FollowUp, ContactNews, CrawlLog
 )
 from app.services.matcher import match_lead
+from app.services.serial import gen_serial
 from app.services.skills import SkillRegistry
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, timedelta
@@ -212,7 +213,7 @@ def list_leads():
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     query = Lead.query.options(joinedload(Lead.customer))
-    if q: query = query.filter(Lead.title.contains(q))
+    if q: query = query.filter(Lead.title.contains(q) | Lead.serial_no.contains(q))
     if status: query = query.filter_by(status=status)
     if level: query = query.filter_by(match_level=level)
     if region: query = query.filter(Lead.region.contains(region))
@@ -226,7 +227,7 @@ def list_leads():
     result = []
     for l in leads:
         days_left = (l.deadline.date() - datetime.now().date()).days if l.deadline else None
-        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
+        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "serial_no": l.serial_no or "", "reason": l.reason or "", "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
     return jsonify(result)
 
 @api.route('/leads', methods=['POST'])
@@ -235,6 +236,7 @@ def create_lead():
     _require_fields(d, 'title')
     l = Lead(bid_number=d.get('bid_number',''), title=d['title'], budget=d.get('budget',''), deadline=_parse_date(d.get('deadline')), region=d.get('region',''), purchaser=d.get('purchaser',''), contact_name=(d.get('contact_name') or '')[:100], contact_phone=(d.get('contact_phone') or '')[:100], address=(d.get('address') or '')[:300], service_content=d.get('service_content',''), source_url=d.get('source_url',''), source_platform=d.get('source_platform',''), customer_id=d.get('customer_id'))
     match_lead(l)
+    l.serial_no = gen_serial(l.created_at or datetime.now())
     db.session.add(l)
     db.session.commit()
     return jsonify({"id": l.id, "message": "创建成功"})
@@ -242,7 +244,7 @@ def create_lead():
 @api.route('/leads/<int:id>', methods=['GET'])
 def get_lead(id):
     l = Lead.query.get_or_404(id)
-    return jsonify({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_reason": l.match_reason, "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
+    return jsonify({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_reason": l.match_reason, "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "serial_no": l.serial_no or '', "reason": l.reason or '', "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None})
 
 @api.route('/leads/<int:id>', methods=['PUT'])
 def update_lead(id):
@@ -320,6 +322,13 @@ def convert_lead(id):
                     source_url=l.source_url or '')
     db.session.add(o)
     l.status = 'converted'
+    # 转化原因写入商机的第一条联络记录
+    reason = (d.get('reason') or '').strip()
+    if reason:
+        db.session.flush()
+        db.session.add(Activity(
+            customer_id=customer_id, contact_id=contact_id, opportunity_id=o.id, lead_id=l.id,
+            method='转化', content=reason, activity_time=datetime.now()))
     # 回写客户关联：已转化线索在列表中能显示客户名，避免关联断链
     if customer_id:
         l.customer_id = customer_id
@@ -332,6 +341,7 @@ def abandon_lead(id):
     if l.status == 'converted':
         return jsonify({"error": "已转化线索不可删除"}), 400
     l.status = 'abandoned'
+    l.reason = (request.get_json() or {}).get('reason', '')[:300]
     db.session.commit()
     return jsonify({"message": "已删除，可在已删除中恢复"})
 
@@ -1171,8 +1181,54 @@ def release_lead(id):
         return jsonify({"error": "仅待转化线索可释放至公海"}), 400
     l.status = 'pool'
     l.assignee = ''
+    l.reason = ((request.get_json() or {}).get('reason') or '')[:300]
     db.session.commit()
     return jsonify({"message": "已释放至公海池"})
+
+@api.route('/leads/<int:id>/fulltext', methods=['GET'])
+def lead_fulltext(id):
+    """线索公告全文：优先取采集时存储的全文，缺失时从原文链接实时抓取。"""
+    l = Lead.query.get_or_404(id)
+    if l.full_text:
+        return jsonify({"source": "stored", "text": l.full_text})
+    if not l.source_url:
+        return jsonify({"error": "该线索无原文链接，无法获取全文"}), 400
+    # SSRF 防护：仅 http/https，且目标主机不得为内网/环回/保留地址
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+    u = urlparse(l.source_url)
+    if u.scheme not in ('http', 'https') or not u.hostname:
+        return jsonify({"error": "原文链接不合法"}), 400
+    try:
+        infos = socket.getaddrinfo(u.hostname, None)
+    except OSError:
+        return jsonify({"error": "原文链接域名无法解析"}), 400
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_reserved
+                or ip.is_link_local or ip.is_multicast or ip.is_unspecified):
+            return jsonify({"error": "原文链接指向受限地址，已拦截"}), 400
+    import requests as _requests
+    try:
+        resp = _requests.get(l.source_url, timeout=15,
+                             headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/126.0.0.0 Safari/537.36"},
+                             allow_redirects=False)
+    except Exception as e:
+        return jsonify({"error": f"抓取失败: {e}"}), 502
+    if resp.status_code != 200:
+        return jsonify({"error": f"原文站点返回 HTTP {resp.status_code}"}), 502
+    if not resp.encoding or resp.encoding.lower() == 'iso-8859-1':
+        resp.encoding = resp.apparent_encoding or 'utf-8'
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    for tag in soup(['script', 'style', 'noscript']):
+        tag.decompose()
+    text = '\n'.join(line.strip() for line in soup.get_text('\n').split('\n') if line.strip())
+    text = text[:60000]
+    l.full_text = text  # 抓取成功后缓存，下次直接读取
+    db.session.commit()
+    return jsonify({"source": "fetched", "text": text})
 
 @api.route('/analytics', methods=['GET'])
 def analytics():

@@ -6,6 +6,7 @@ from app.models import Lead, SystemConfig
 from app.services.matcher import match_lead
 from app.services.ai_client import extract_lead
 from app.services.regions import resolve_region
+from app.services.serial import gen_serial
 import re, time, json
 
 HEADERS = {
@@ -637,7 +638,9 @@ def run_crawl(app=None):
                 winner=winner[:200] if winner else "",
                 created_at=item["dt"],
                 status="active",
+                full_text=(page_text or "")[:60000],
             )
+            lead.serial_no = gen_serial(item["dt"])
             match_lead(lead)
             db.session.add(lead)
             count += 1
