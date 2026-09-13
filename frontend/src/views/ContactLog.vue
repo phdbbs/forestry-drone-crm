@@ -36,7 +36,7 @@
           <el-table-column prop="activity_time" label="时间" width="110" sortable="custom">
             <template #default="{ row }">{{ fmtDate(row.activity_time) || '-' }}</template>
           </el-table-column>
-          <el-table-column prop="customer_name" label="客户" min-width="140" sortable="custom" show-overflow-tooltip />
+          <el-table-column prop="customer_name" label="客户" min-width="140" sortable="custom" show-overflow-tooltip class-name="cell-strong" />
           <el-table-column prop="opportunity_title" label="商机" min-width="140" sortable="custom" show-overflow-tooltip />
           <el-table-column prop="contact_name" label="联系人" width="100" sortable="custom" />
           <el-table-column prop="content" label="内容" min-width="200" sortable="custom" show-overflow-tooltip />

@@ -41,7 +41,7 @@
         <el-table-column prop="plan_date" label="计划日期" width="110" sortable="custom">
           <template #default="{ row }">{{ fmtDate(row.plan_date) || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="customer_name" label="客户" min-width="150" sortable="custom" show-overflow-tooltip />
+        <el-table-column prop="customer_name" label="客户" min-width="150" sortable="custom" show-overflow-tooltip class-name="cell-strong" />
         <el-table-column prop="contact_name" label="联系人" width="110" sortable="custom" />
         <el-table-column prop="opportunity_title" label="关联商机" min-width="130" show-overflow-tooltip />
         <el-table-column prop="content" label="计划内容" min-width="200" sortable="custom" show-overflow-tooltip />

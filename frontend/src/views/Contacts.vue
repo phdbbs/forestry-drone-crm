@@ -26,8 +26,8 @@
 
     <el-card shadow="never" body-style="padding:0">
       <PageTable storage-key="contact" :data="filteredList" :loading="loading" :default-sort="{ prop: 'name', order: 'ascending' }">
-        <el-table-column prop="name" label="姓名" min-width="110" sortable="custom">
-          <template #default="{ row }"><span style="font-weight:500">{{ row.name }}</span></template>
+        <el-table-column prop="name" label="姓名" min-width="110" sortable="custom" class-name="cell-strong">
+          <template #default="{ row }">{{ row.name }}</template>
         </el-table-column>
         <el-table-column prop="title" label="职位" min-width="130" sortable="custom" />
         <el-table-column prop="customer_name" label="所属客户" min-width="180" sortable="custom" show-overflow-tooltip />

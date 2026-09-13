@@ -14,6 +14,30 @@
   --el-color-primary-dark-2: #25653f;
 }
 
+/* 表格全局规范：表头/正文/主字段分层（EP 表格变量定义在组件级，须在 .el-table 上覆盖） */
+.el-table {
+  --el-table-header-bg-color: #eff3f0;
+  --el-table-header-text-color: #3f5147;
+  --el-table-text-color: #64756b;        /* 正文：浅灰绿 */
+  --el-table-row-hover-bg-color: #f3f8f4;
+  --el-table-border-color: #e4eae6;
+}
+/* 表头：加粗深色、浅灰底，与正文明确区分 */
+.el-table th.el-table__cell {
+  background-color: #eff3f0;
+  color: #3f5147;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+/* 主字段列（标题/名称）：深色加粗 */
+.el-table .cell-strong {
+  color: #1f2d24;
+  font-weight: 600;
+}
+/* 表格内次级小字统一弱化 */
+.el-table .cell-sub { color: #8a9a90; }
+
 html, body, #app { height: 100%; margin: 0; }
 body {
   font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;

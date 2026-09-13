@@ -47,8 +47,8 @@
     <!-- 列表视图 -->
     <el-card v-if="view === 'list'" shadow="never" body-style="padding:0">
       <PageTable storage-key="opp" :data="filteredList" :loading="loading" :default-sort="{ prop: 'created_at', order: 'descending' }">
-        <el-table-column prop="title" label="商机名称" min-width="220" sortable="custom">
-          <template #default="{ row }"><span style="font-weight:500">{{ row.title }}</span></template>
+        <el-table-column prop="title" label="商机名称" min-width="220" sortable="custom" class-name="cell-strong">
+          <template #default="{ row }">{{ row.title }}</template>
         </el-table-column>
         <el-table-column prop="customer_name" label="客户" min-width="150" sortable="custom" show-overflow-tooltip />
         <el-table-column prop="amount" label="金额" width="110" sortable="custom" align="right">

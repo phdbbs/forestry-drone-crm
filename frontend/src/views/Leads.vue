@@ -34,9 +34,9 @@
 
     <el-card shadow="never" body-style="padding:0">
       <PageTable storage-key="leads" :data="filteredList" :loading="loading" :default-sort="{ prop: 'created_at', order: 'descending' }">
-        <el-table-column prop="title" label="标题" min-width="260" sortable="custom">
+        <el-table-column prop="title" label="标题" min-width="260" sortable="custom" class-name="cell-strong">
           <template #default="{ row }">
-            <div style="font-weight:500">
+            <div>
               {{ row.title }}
               <el-tag size="small" :type="isCrawled(row) ? 'primary' : 'info'" effect="plain">{{ isCrawled(row) ? '采集' : '手工' }}</el-tag>
             </div>
