@@ -11,6 +11,7 @@
         "@element-plus/icons-vue": "^2.3.1",
         "echarts": "^5.5.1",
         "element-plus": "^2.8.8",
+        "marked": "^18.0.13",
         "pinia": "^2.2.6",
         "vue": "^3.5.13",
         "vue-router": "^4.4.5",
@@ -1267,6 +1268,18 @@
       "license": "MIT",
       "dependencies": {
         "@jridgewell/sourcemap-codec": "^1.5.5"
+      }
+    },
+    "node_modules/marked": {
+      "version": "18.0.13",
+      "resolved": "https://registry.npmjs.org/marked/-/marked-18.0.13.tgz",
+      "integrity": "sha512-xTxVzZsBFwunP6HDmtBkabUQEYArnP7/rMDGmPj9SlrKlQ4i8MdYVow+nJL0eOqwpUqhzBoTBRADGN6uYwPyOw==",
+      "license": "MIT",
+      "bin": {
+        "marked": "bin/marked.js"
+      },
+      "engines": {
+        "node": ">= 20"
       }
     },
     "node_modules/memoize-one": {

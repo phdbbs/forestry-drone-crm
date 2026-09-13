@@ -241,8 +241,8 @@
     <el-drawer v-model="fulltextVisible" size="55%" title="公告全文">
       <div v-loading="fulltextLoading" style="min-height:200px">
         <el-alert v-if="fulltextError" type="warning" :closable="false" :title="fulltextError" />
-        <div v-else-if="fulltext" class="break-all"
-          style="font-size:13px;line-height:1.8;white-space:pre-wrap;color:#3f5147">{{ fulltext }}</div>
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <div v-else-if="fulltext" class="md-body" v-html="fulltextHtml"></div>
       </div>
     </el-drawer>
   </div>
@@ -252,6 +252,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Download } from '@element-plus/icons-vue'
+import { marked } from 'marked'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
 import DetailGrid from '../components/DetailGrid.vue'
@@ -377,6 +378,7 @@ const fulltextVisible = ref(false)
 const fulltextLoading = ref(false)
 const fulltext = ref('')
 const fulltextError = ref('')
+const fulltextHtml = computed(() => marked.parse(fulltext.value || ''))
 async function openFulltext() {
   fulltextVisible.value = true
   fulltextLoading.value = true

@@ -106,3 +106,25 @@ body {
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .chart-grid, .detail-grid { grid-template-columns: 1fr; } }
 .chart-box { height: 320px; }
+
+/* 全文 Markdown 排版（近似原公告版式） */
+.md-body { font-size: 14px; line-height: 1.9; color: #2c3a31; word-break: break-all; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5 {
+  color: #1f2d24; margin: 18px 0 8px; line-height: 1.5;
+}
+.md-body h1 { font-size: 18px; border-bottom: 2px solid var(--crm-primary-bg); padding-bottom: 6px; }
+.md-body h2 { font-size: 16px; border-bottom: 1px solid #e4eae6; padding-bottom: 5px; }
+.md-body h3 { font-size: 15px; color: #2f7d4f; }
+.md-body h4, .md-body h5 { font-size: 14px; }
+.md-body p { margin: 8px 0; }
+.md-body ul { margin: 8px 0; padding-left: 22px; }
+.md-body li { margin: 4px 0; }
+.md-body table {
+  border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 12.5px;
+}
+.md-body th, .md-body td {
+  border: 1px solid #d7e0da; padding: 6px 10px; text-align: left; vertical-align: top;
+}
+.md-body th { background: #eff3f0; color: #3f5147; font-weight: 600; }
+.md-body tr:nth-child(even) td { background: #fafcfb; }
+.md-body strong { color: #1f2d24; }
