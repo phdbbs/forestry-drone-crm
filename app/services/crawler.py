@@ -297,6 +297,83 @@ def extract_region_full(text, purchaser=""):
     return ""
 
 
+_NOTICE_LABELS = (
+    "采购项目名称", "项目名称", "采购单位", "行政区域", "公告时间", "发布时间",
+    "获取招标文件时间", "获取资格预审文件时间", "招标文件售价", "获取招标文件的地点",
+    "获取招标、资格预审文件的地点", "开标时间", "开标地点", "开启时间", "开启地点",
+    "预算金额", "最高限价", "合同履行期限", "采购需求", "项目联系人", "项目联系电话",
+    "采购单位地址", "采购单位联系方式", "代理机构名称", "代理机构地址", "代理机构联系方式",
+    "公告信息", "联系人及联系方式", "资格要求", "对本次招标提出询问",
+)
+
+
+def extract_notice_summary(page_text):
+    """提取"公告概要"区块全文，整理为"标签：值；标签：值"格式。
+
+    政府采购公告页的概要是标准结构化区块，从"公告概要"行起、
+    到"项目概况"等正文起始标记止；标签行后跟内容行，配对整理。
+    """
+    if not page_text:
+        return ""
+    lines = [l.strip() for l in page_text.split('\n') if l.strip()]
+    start = None
+    for i, l in enumerate(lines):
+        if "公告概要" in l:
+            start = i + 1
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for j in range(start, len(lines)):
+        if lines[j].startswith(("项目概况", "公告正文", "一、", "根据")):
+            end = j
+            break
+    block = lines[start:end]
+    if not block:
+        return ""
+
+    def is_label(l):
+        if l in _NOTICE_LABELS:
+            return l
+        for nl in _NOTICE_LABELS:
+            if l.startswith(nl + "：") or l.startswith(nl + ":"):
+                return nl
+        if l.endswith(("：", ":")):
+            core = l.rstrip("：:")
+            if 2 <= len(core) <= 15:
+                return core
+        return None
+
+    pairs, cur, buf = [], None, []
+    for l in block:
+        lab = is_label(l)
+        if lab:
+            if cur:
+                pairs.append((cur, " ".join(buf)))
+            cur, buf = lab, []
+            rest = l[len(lab):].lstrip("：: ").strip() if l != lab else ""
+            if rest:
+                buf.append(rest)
+        else:
+            if cur is None:
+                cur, buf = "公告信息", []
+            buf.append(l)
+    if cur:
+        pairs.append((cur, " ".join(buf)))
+    return "；".join(f"{k}：{v}" for k, v in pairs if v)
+
+
+def build_service_content(lead, summary):
+    """用公告概要重建线索的 service_content（概要优先展示）。"""
+    parts = [
+        ("公告概要", summary), ("客户方", lead.purchaser),
+        ("中标/成交单位", lead.winner), ("联系人", lead.contact_name),
+        ("联系方式", lead.contact_phone), ("地址", lead.address),
+        ("预算", lead.budget),
+    ]
+    return "；".join(f"{k}: {v}" for k, v in parts if v)
+
+
 def extract_deadline(text):
     m = re.search(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})", text)
     if m:
@@ -614,12 +691,14 @@ def run_crawl(app=None):
                 item.get("region"), item["title"], page_text[:3000],
             ) or item.get("region") or extract_region(page_text)
             winner = (ai.get("winner") or extract_winner(page_text) or "").strip()
+            summary = extract_notice_summary(page_text) or ai["summary"]
             service = "；".join(
                 f"{k}: {v}" for k, v in [
-                    ("客户方", ai["purchaser"]), ("中标/成交单位", winner),
+                    ("公告概要", summary), ("客户方", ai["purchaser"]),
+                    ("中标/成交单位", winner),
                     ("联系人", ai["contact_name"]),
                     ("联系方式", ai["contact_phone"]), ("地址", ai["address"]),
-                    ("预算", budget), ("摘要", ai["summary"]),
+                    ("预算", budget),
                 ] if v
             )
             lead = Lead(

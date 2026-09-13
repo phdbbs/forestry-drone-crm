@@ -1190,6 +1190,16 @@ def _esc_md(s):
     return (s or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
+def _backfill_summary(lead, raw_text):
+    """线索的 service_content 缺少公告概要时，从全文提取并回填（惰性补齐存量数据）。"""
+    if not raw_text or '公告概要' in (lead.service_content or ''):
+        return
+    from app.services.crawler import extract_notice_summary, build_service_content
+    summary = extract_notice_summary(raw_text)
+    if summary:
+        lead.service_content = build_service_content(lead, summary)
+
+
 def _html_to_md(soup):
     """按 DOM 顺序把正文转为近似 Markdown：标题层级/段落/列表/表格。"""
     out, seen = [], set()
@@ -1278,6 +1288,8 @@ def lead_fulltext(id):
     """线索公告全文：返回 Markdown 格式文本，近似还原公告原版式。"""
     l = Lead.query.get_or_404(id)
     if l.full_text:
+        _backfill_summary(l, l.full_text)
+        db.session.commit()
         return jsonify({"source": "stored", "text": _text_to_md(l.full_text)})
     if not l.source_url:
         return jsonify({"error": "该线索无原文链接，无法获取全文"}), 400
@@ -1312,9 +1324,12 @@ def lead_fulltext(id):
     soup = BeautifulSoup(resp.text, 'html.parser')
     for tag in soup(['script', 'style', 'noscript', 'iframe', 'form', 'button']):
         tag.decompose()
+    raw_text = soup.get_text('\n')
     md = _html_to_md(soup)
     if not md.strip():
-        md = _text_to_md(soup.get_text('\n'))
+        md = _text_to_md(raw_text)
+    _backfill_summary(l, raw_text)
+    db.session.commit()
     return jsonify({"source": "fetched", "text": md})
 
 @api.route('/analytics', methods=['GET'])

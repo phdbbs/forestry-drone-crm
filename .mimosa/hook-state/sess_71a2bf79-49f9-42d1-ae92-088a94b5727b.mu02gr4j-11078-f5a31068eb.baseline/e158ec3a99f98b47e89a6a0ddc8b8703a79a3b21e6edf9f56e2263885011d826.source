@@ -1185,12 +1185,100 @@ def release_lead(id):
     db.session.commit()
     return jsonify({"message": "已释放至公海池"})
 
+def _esc_md(s):
+    """转义文本中的 HTML 字符，防止原文内容被当作标签渲染。"""
+    return (s or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def _html_to_md(soup):
+    """按 DOM 顺序把正文转为近似 Markdown：标题层级/段落/列表/表格。"""
+    out, seen = [], set()
+    if not soup.body:
+        return ''
+    tags = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'tr']
+    for el in soup.body.find_all(tags):
+        if el in seen:
+            continue
+        for d in el.find_all(True):
+            seen.add(d)
+        if el.name == 'tr':
+            if el.find_parent('table') and el.find_parent('table') in seen:
+                continue
+            cells = [c.get_text(' ', strip=True) for c in el.find_all(['td', 'th'])]
+            cells = [c.replace('|', '/') for c in cells if c != '' or True]
+            if not any(cells):
+                continue
+            out.append('| ' + ' | '.join(cells) + ' |')
+            if el.find('th') or el is el.find_parent('table').find('tr'):
+                cols = len(cells)
+                out.append('|' + '---|' * cols)
+            continue
+        text = el.get_text(' ', strip=True)
+        if not text:
+            continue
+        if el.name.startswith('h'):
+            level = int(el.name[1])
+            out.append('#' * min(level + 1, 5) + ' ' + text)
+        elif el.name == 'li':
+            out.append('- ' + text)
+        else:
+            out.append(text)
+        out.append('')
+    md = '\n'.join(out)
+    # 修补表格分隔行：若 | 行后紧跟另一个 | 行且无分隔行，插入之
+    fixed = []
+    for i, line in enumerate(md.split('\n')):
+        fixed.append(line)
+        if (line.startswith('|') and not line.startswith('|---')
+                and i + 1 < len(md.split('\n')) and md.split('\n')[i + 1].startswith('|')
+                and not md.split('\n')[i + 1].startswith('|---')):
+            cols = line.count('|') - 1
+            fixed.append('|' + '---|' * cols)
+    return '\n'.join(fixed)[:60000]
+
+
+def _text_to_md(text):
+    """采集存储的纯文本 → 启发式 Markdown：章节号/短行作小标题，其余作段落。"""
+    import re as _re
+    heading_pat = _re.compile(r'^([一二三四五六七八九十]{1,3}、|（[一二三四五六七八九十]{1,3}）|\d{1,2}[、.．]\s*\S|第[一二三四五六七八九十\d]+[条章节部分])')
+    # 页面导航/样板行过滤
+    boiler_pat = _re.compile(
+        r'^(首页|关闭|打印|分享|上一篇|下一篇|当前位置|»|【|】|服务热线|服务投诉|财政部唯一指定|'
+        r'E-?mail|邮件订阅|【打印】|【关闭】|中\s*小|大\s*中\s*小|扫一扫|微信|微博|二维码|'
+        r'版权所有|网站地图|主办单位|承办单位|技术支持|浏览次数|附件下载|相关附件|打印本页|关闭窗口|'
+        r'政采法规|购买服务|监督检查|信息公告|国际专栏|政采公告|地方公告|中央公告|地方动态|采购需求|'
+        r'政采知识|政策法规|互动交流|专题专栏|站内检索|无障碍|长者模式).*'
+    )
+    lines = [l.strip() for l in (text or '').split('\n') if l.strip()]
+    out = []
+    for i, line in enumerate(lines):
+        esc = _esc_md(line)
+        if i == 0 and len(line) > 8:
+            out.append('# ' + esc)  # 首行为公告标题
+            continue
+        if boiler_pat.match(line) or len(line) <= 3:
+            continue
+        if heading_pat.match(line) and len(line) <= 60:
+            out.append('### ' + esc)
+        elif (2 <= len(line) <= 6 and not line.endswith(('。', '；', '，', ',', '、'))
+              and '：' not in line and ':' not in line and not line.startswith(('http', 'www.'))):
+            out.append('**' + esc + '**')  # 字段标签行加粗（采购单位/开标时间等）
+        elif (6 < len(line) <= 30 and not line.endswith(('。', '；', '，', ',', '、'))
+              and '：' not in line and ':' not in line and not line.startswith(('http', 'www.'))):
+            out.append('### ' + esc)
+        elif line.endswith(('：', ':')) and len(line) <= 15:
+            out.append('**' + esc + '**')  # "公告概要："式标签
+        else:
+            out.append(esc + '  ')
+    return '\n'.join(out)[:60000]
+
+
 @api.route('/leads/<int:id>/fulltext', methods=['GET'])
 def lead_fulltext(id):
-    """线索公告全文：优先取采集时存储的全文，缺失时从原文链接实时抓取。"""
+    """线索公告全文：返回 Markdown 格式文本，近似还原公告原版式。"""
     l = Lead.query.get_or_404(id)
     if l.full_text:
-        return jsonify({"source": "stored", "text": l.full_text})
+        return jsonify({"source": "stored", "text": _text_to_md(l.full_text)})
     if not l.source_url:
         return jsonify({"error": "该线索无原文链接，无法获取全文"}), 400
     # SSRF 防护：仅 http/https，且目标主机不得为内网/环回/保留地址
@@ -1222,13 +1310,12 @@ def lead_fulltext(id):
         resp.encoding = resp.apparent_encoding or 'utf-8'
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(resp.text, 'html.parser')
-    for tag in soup(['script', 'style', 'noscript']):
+    for tag in soup(['script', 'style', 'noscript', 'iframe', 'form', 'button']):
         tag.decompose()
-    text = '\n'.join(line.strip() for line in soup.get_text('\n').split('\n') if line.strip())
-    text = text[:60000]
-    l.full_text = text  # 抓取成功后缓存，下次直接读取
-    db.session.commit()
-    return jsonify({"source": "fetched", "text": text})
+    md = _html_to_md(soup)
+    if not md.strip():
+        md = _text_to_md(soup.get_text('\n'))
+    return jsonify({"source": "fetched", "text": md})
 
 @api.route('/analytics', methods=['GET'])
 def analytics():

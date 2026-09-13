@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260913T163938481Z-5285-b5d8554b730d",
+  "runId": "20260913T163938481Z-5285-b5d8554b730d",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "project_check_failed",
+        "stage": "supply-chain-check",
+        "target": ".",
+        "detail": "spawnSync /opt/homebrew/Cellar/node/25.2.1/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "9b4f718c389f2dbf3a2e3f092b807db716a856a4",
+  "diffHash": "2770aadd4bbd1e9adf92158fadfec41ef2bbf832831473081cef09e9016a7c20",
+  "rulesVersion": "unavailable",
+  "sessionHash": "0a1d16ac4249bae819b28bcdf25b43af94cc3043431069e3d305719efb45be68",
+  "reportRef": ".mimosa/reports/task-review-sess_71a2bf79-49f9-42d1-ae92-088a94b5727b-20260913T163938481Z-5285-b5d8554b730d.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-9aeb729c00490b7eecc233d9"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "app/routes/api.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-13T16:39:38.717Z"
+}
