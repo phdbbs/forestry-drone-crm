@@ -85,7 +85,9 @@ EXTRACT_SYSTEM_PROMPT = (
     '"contact_phone":"联系电话/项目联系电话(纯数字或含区号)","address":"采购单位地址",'
     '"budget":"预算金额(纯数字，单位万元，无法确定填null)",'
     '"deadline":"报名/投标截止时间(YYYY-MM-DD，无则null)","summary":"60字以内业务摘要",'
-    '"winner":"中标/成交供应商（单位）名称，仅中标公告、成交公告等结果类公告有此字段，其他公告填null"}。'
+    '"winner":"中标/成交供应商（单位）名称，仅中标公告、成交公告等结果类公告有此字段，其他公告填null",'
+    '"region":"项目所在行政区划，根据采购单位地址/公告正文推断，格式为完整的省+市+县区'
+    '(如"黑龙江省哈尔滨市依兰县"、"浙江省丽水市松阳县")，只能确定省市时填省市，无法确定填null"}。'
     "注意：公告末尾的'联系人及联系方式'区域中，'项目联系人'后面的姓名和'项目联系电话'后面的号码"
     "是重要字段，必须提取；中标/成交类公告中的'中标（成交）供应商名称'或'中标供应商'同样必须提取到 winner；"
     "无法确定的字段填 null。"
@@ -109,6 +111,7 @@ def extract_lead(title, page_text, source_url, bid_type=""):
         "contact_name": (data.get("contact_name") or "").strip(),
         "contact_phone": (data.get("contact_phone") or "").strip(),
         "address": (data.get("address") or "").strip(),
+        "region": (data.get("region") or "").strip(),
         "budget": data.get("budget"),
         "deadline": data.get("deadline"),
         "summary": (data.get("summary") or "").strip(),

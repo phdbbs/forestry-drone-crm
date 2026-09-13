@@ -5,6 +5,7 @@ from app import db
 from app.models import Lead, SystemConfig
 from app.services.matcher import match_lead
 from app.services.ai_client import extract_lead
+from app.services.regions import resolve_region
 import re, time, json
 
 HEADERS = {
@@ -607,7 +608,10 @@ def run_crawl(app=None):
                     deadline = datetime.strptime(str(deadline)[:10], "%Y-%m-%d")
                 except ValueError:
                     deadline = None
-            region = extract_region_full(page_text, ai.get("purchaser") or "") or item["region"] or extract_region(page_text)
+            region = resolve_region(
+                ai.get("address"), ai.get("region"), ai.get("purchaser"),
+                item.get("region"), item["title"], page_text[:3000],
+            ) or item.get("region") or extract_region(page_text)
             winner = (ai.get("winner") or extract_winner(page_text) or "").strip()
             service = "；".join(
                 f"{k}: {v}" for k, v in [
