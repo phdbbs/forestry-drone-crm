@@ -71,9 +71,12 @@ def _add_kanban_card(title, description='', deadline=None, color='blue',
     col = _first_board_column()
     if not col:
         return None
+    next_order = (db.session.query(db.func.max(KanbanCard.sort_order))
+                  .filter_by(column_id=col.id).scalar() or 0) + 1
     card = KanbanCard(column_id=col.id, title=title, description=description,
                       deadline=deadline, label_color=color,
-                      source_type=source_type, source_id=source_id)
+                      source_type=source_type, source_id=source_id,
+                      sort_order=next_order)
     db.session.add(card)
     return card
 
@@ -854,10 +857,78 @@ def move_card(card_id):
     card = KanbanCard.query.get_or_404(card_id)
     d = request.get_json() or {}
     col = KanbanColumn.query.get_or_404(d.get('column_id'))
+    position = d.get('position')
     card.column_id = col.id
-    # 移动到目标列末尾，保持列内排序连贯
-    card.sort_order = (db.session.query(db.func.max(KanbanCard.sort_order))
-                       .filter_by(column_id=col.id).scalar() or 0) + 1
+    if position is None:
+        # 移动到目标列末尾
+        card.sort_order = (db.session.query(db.func.max(KanbanCard.sort_order))
+                           .filter_by(column_id=col.id).scalar() or 0) + 1
+    else:
+        # 插入到目标列指定位置（0-based），列内其余卡片重新编号
+        siblings = [c for c in KanbanCard.query.filter_by(column_id=col.id)
+                    .order_by(KanbanCard.sort_order).all() if c.id != card_id]
+        position = max(0, min(int(position), len(siblings)))
+        siblings.insert(position, card)
+        for i, c in enumerate(siblings):
+            c.sort_order = i
+    db.session.commit()
+    return jsonify({"ok": True})
+
+@api.route('/kanban/cards', methods=['POST'])
+def create_card():
+    d = request.get_json() or {}
+    if not (d.get('title') or '').strip():
+        return jsonify({"error": "标题不能为空"}), 400
+    col = KanbanColumn.query.get_or_404(d.get('column_id'))
+    next_order = (db.session.query(db.func.max(KanbanCard.sort_order))
+                  .filter_by(column_id=col.id).scalar() or 0) + 1
+    card = KanbanCard(column_id=col.id, title=d['title'].strip(),
+                      description=d.get('description', ''),
+                      label_color=d.get('color', 'blue'),
+                      deadline=_parse_date(d.get('deadline')),
+                      sort_order=next_order)
+    db.session.add(card)
+    db.session.commit()
+    return jsonify({"id": card.id})
+
+@api.route('/kanban/cards/<int:card_id>', methods=['PUT'])
+def update_card(card_id):
+    card = KanbanCard.query.get_or_404(card_id)
+    d = request.get_json() or {}
+    if 'title' in d:
+        card.title = (d.get('title') or '').strip() or card.title
+    if 'description' in d:
+        card.description = d.get('description', '')
+    if 'color' in d:
+        card.label_color = d.get('color', 'blue')
+    if 'deadline' in d:
+        card.deadline = _parse_date(d.get('deadline'))
+    db.session.commit()
+    return jsonify({"ok": True})
+
+@api.route('/kanban/columns/<int:col_id>', methods=['PUT'])
+def update_column(col_id):
+    col = KanbanColumn.query.get_or_404(col_id)
+    d = request.get_json() or {}
+    if (d.get('name') or '').strip():
+        col.name = d['name'].strip()
+    db.session.commit()
+    return jsonify({"ok": True})
+
+@api.route('/kanban/columns/<int:col_id>', methods=['DELETE'])
+def delete_column(col_id):
+    col = KanbanColumn.query.get_or_404(col_id)
+    db.session.delete(col)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+@api.route('/kanban/boards/<int:board_id>/columns/reorder', methods=['POST'])
+def reorder_columns(board_id):
+    d = request.get_json() or {}
+    for i, cid in enumerate(d.get('ids', [])):
+        col = KanbanColumn.query.get(cid)
+        if col and col.board_id == board_id:
+            col.sort_order = i
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -882,7 +953,9 @@ def import_to_kanban():
         db.session.add(target_col)
         db.session.flush()
     for item in items:
-        card = KanbanCard(column_id=target_col.id, title=item.get('title',''), description=item.get('description',''), label_color=item.get('color','blue'), deadline=_parse_date(item.get('deadline')), source_type=item.get('source_type',''), source_id=item.get('source_id'))
+        next_order = (db.session.query(db.func.max(KanbanCard.sort_order))
+                      .filter_by(column_id=target_col.id).scalar() or 0) + 1
+        card = KanbanCard(column_id=target_col.id, title=item.get('title',''), description=item.get('description',''), label_color=item.get('color','blue'), deadline=_parse_date(item.get('deadline')), source_type=item.get('source_type',''), source_id=item.get('source_id'), sort_order=next_order)
         db.session.add(card)
     db.session.commit()
     return jsonify({"message": f"已导入 {len(items)} 张卡片"})
