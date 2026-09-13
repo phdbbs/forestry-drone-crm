@@ -47,7 +47,7 @@
                 :style="{ borderLeftColor: cardColor(card.color) }"
                 @click="openCard(card)">
                 <div class="card-title">{{ card.title }}</div>
-                <div v-if="card.description" class="muted card-desc">{{ card.description }}</div>
+                <div v-if="card.description" class="card-desc">{{ card.description }}</div>
                 <div class="card-foot">
                   <el-tag v-if="card.color && card.color !== 'blue'" size="small" :color="cardColor(card.color)" effect="dark" style="border:none;height:16px;padding:0 6px;font-size:10px">
                     {{ colorLabel(card.color) }}
@@ -284,8 +284,12 @@ onMounted(async () => { await load(); crawl.checkRunning() })
   box-shadow: 0 1px 2px rgba(0,0,0,.08); cursor: pointer; border-left: 4px solid transparent;
 }
 .kanban-card:hover { box-shadow: 0 3px 8px rgba(0,0,0,.12); }
-.card-title { font-weight: 500; font-size: 13px; }
-.card-desc { margin-top: 4px; font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-title { font-weight: 600; font-size: 13px; color: #1f2d24; line-height: 1.45; }
+.card-desc {
+  margin-top: 6px; font-size: 12px; line-height: 1.55;
+  color: #94a3b8; background: #f5f7f6; border-radius: 5px; padding: 5px 8px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
 .card-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .card-deadline {
   display: inline-flex; align-items: center; gap: 3px; font-size: 11px;
