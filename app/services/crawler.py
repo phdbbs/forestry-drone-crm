@@ -201,6 +201,29 @@ CITY_TO_PROVINCE = {
 }
 
 
+# 省份简称 → 全称（extract_region 返回简称，需补全为"XX省/自治区/市"）
+PROVINCE_FULL = {
+    "北京": "北京市", "上海": "上海市", "天津": "天津市", "重庆": "重庆市",
+    "内蒙古": "内蒙古自治区", "广西": "广西壮族自治区", "西藏": "西藏自治区",
+    "宁夏": "宁夏回族自治区", "新疆": "新疆维吾尔自治区",
+    "香港": "香港特别行政区", "澳门": "澳门特别行政区",
+}
+
+
+def province_full(name):
+    """把省份简称补全为全称：山东→山东省，内蒙古→内蒙古自治区。
+
+    extract_region 走的是简称列表（"山东"），而地址解析路径产出的是全称
+    （"安徽省"），不统一会导致同一函数返回"安徽省合肥市庐阳区"与
+    "山东威海市"两种格式。
+    """
+    if not name:
+        return ""
+    if name.endswith(("省", "自治区", "市", "特别行政区")):
+        return name
+    return PROVINCE_FULL.get(name, name + "省")
+
+
 def extract_region_full(text, purchaser=""):
     """从公告文本提取完整省市区县，如'山东省威海市荣成市'。
 
@@ -227,6 +250,10 @@ def extract_region_full(text, purchaser=""):
         # 2. 市/州/盟（非贪婪匹配，避免"长治市潞州区"被误匹配为"长治市潞州"）
         #    如候选城市在映射表中且无省份，用城市补全省份
         m = re.search(r"([\u4e00-\u9fa5]+?[市州盟])", rest)
+        # "万州区""通州区"这类区县名以"州"结尾，其后紧跟"区/县/市/旗"说明它是
+        # 县级单位而非地级市，否则会被截成"重庆市万州"并丢掉县区
+        if m and m.group(1).endswith("州") and rest[m.end():m.end() + 1] in ("区", "县", "市", "旗"):
+            m = None
         if m:
             candidate = m.group(1)
             if candidate in CITY_TO_PROVINCE and not province:
@@ -251,7 +278,7 @@ def extract_region_full(text, purchaser=""):
             return prov
         if city_name and city_name in CITY_TO_PROVINCE:
             return CITY_TO_PROVINCE[city_name]
-        return extract_region(text)
+        return province_full(extract_region(text))
 
     # 1. 从采购单位地址 / 采购人地址 / 地址 提取（兼容完整页文本与服务详情）
     m = re.search(r"(?:采购单位|采购人(?:办公)?|)?地址[:：\s]*([^\s，。；\n]{4,80})", text)
@@ -265,19 +292,19 @@ def extract_region_full(text, purchaser=""):
             for city_name in reversed([muni, county]):
                 if city_name and city_name in CITY_TO_PROVINCE:
                     return CITY_TO_PROVINCE[city_name] + city_name + (" " + county if city_name != county else "")
-            # 退回到从文本提取省份
+            # 退回到从文本提取省份（简称补全为全称，与地址路径输出保持一致）
             prov = extract_region(text)
             if prov and prov not in county:
-                return prov + ("省" if not prov.endswith("市") else "") + county
+                return province_full(prov) + county
             return county
 
     # 2. 行政区域（省级）+ 采购单位名称中的市县
     province = ""
     m = re.search(r"行政区域[:：\s]*([\u4e00-\u9fa5]{2,4})", text)
     if m:
-        province = m.group(1).strip()
+        province = province_full(m.group(1).strip())
     else:
-        province = extract_region(text)
+        province = province_full(extract_region(text))
 
     city_county = ""
     if purchaser and not (province and province.endswith("市")):

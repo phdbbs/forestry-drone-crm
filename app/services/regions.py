@@ -65,30 +65,54 @@ def _match_province(name):
     return None
 
 
+def _extract_province(s, data):
+    """定位省份全称（如"福建省"），返回 (原名, (起, 止))。
+
+    用离线索引里的全称做锚点，而不是正则贪婪匹配——否则
+    "本项目建设地点在福建省"会被匹配成"设地点在福建省"。
+    只认 省/自治区/特别行政区/直辖市 全称，避免把城市名误当省份。
+    """
+    best = None
+    for full in data['provinces']:
+        if not full.endswith(('省', '自治区', '特别行政区', '市')):
+            continue
+        idx = s.find(full)
+        if idx < 0:
+            continue
+        if best is None or idx < best[1] or (idx == best[1] and len(full) > len(best[0])):
+            best = (full, idx)
+    if best:
+        return best[0], (best[1], best[1] + len(best[0]))
+    return '', None
+
+
 def _extract_candidates(s):
     """从一段文本提取 省/市/县 候选原名（不校验）。
 
     县级：对每个行政区划后缀（县/区/旗/市…），从后缀往前取 1~6 字逐长度
     尝试命中索引，避免贪婪匹配把市名吞进县名（如"泉州市洛江区"）。
+    市级：先把省份片段屏蔽掉再匹配，否则"黑龙江省哈尔滨市"会被吞成
+    "龙江省哈尔滨市"、进而查不到城市索引而丢失市级信息。
     """
     if not s:
         return '', '', ''
-    prov = ''
-    m = re.search(r'[\u4e00-\u9fa5]{2,8}?(?:自治区|特别行政区)|[\u4e00-\u9fa5]{2,6}省', s)
-    if m:
-        prov = m.group(0)
-    else:
+    data = _load()
+    prov, prov_span = _extract_province(s, data)
+    if not prov:
         for dm in ('北京', '上海', '天津', '重庆'):
             if re.search(dm + r'市', s):
                 prov = dm + '市'
                 break
+    # 用非汉字字符占位屏蔽省份，使城市正则无法跨越省级片段
+    masked = s if prov_span is None else (
+        s[:prov_span[0]] + '\u3000' * (prov_span[1] - prov_span[0]) + s[prov_span[1]:])
     city = ''
-    m = re.search(r'[\u4e00-\u9fa5]{2,10}?(?:自治州|地区|盟)', s)
+    m = re.search(r'[\u4e00-\u9fa5]{2,10}?(?:自治州|地区|盟)', masked)
     if m:
         city = m.group(0)
     else:
-        # 普通地级市：取"XX市"，排除直辖市（已归为省）
-        for mm in re.finditer(r'([\u4e00-\u9fa5]{2,6})市', s):
+        # 普通地级市：取最短的"XX市"，排除直辖市（已归为省）
+        for mm in re.finditer(r'([\u4e00-\u9fa5]{2,6}?)市', masked):
             name = mm.group(1)
             if name not in ('北京', '上海', '天津', '重庆'):
                 city = name + '市'
