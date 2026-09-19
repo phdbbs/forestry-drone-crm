@@ -238,8 +238,8 @@
       <template #footer><el-button @click="detailVisible = false">关闭</el-button></template>
     </el-dialog>
 
-    <!-- 公告全文 -->
-    <el-drawer v-model="fulltextVisible" size="55%" title="公告全文">
+    <!-- 公告全文：窄屏用近满宽，55% 在手机上只有约 210px，正文读不了 -->
+    <el-drawer v-model="fulltextVisible" :size="isMobile ? '92%' : '55%'" title="公告全文">
       <div v-loading="fulltextLoading" class="drawer-body">
         <el-alert v-if="fulltextError" type="warning" :closable="false" :title="fulltextError" />
         <!-- eslint-disable-next-line vue/no-v-html -->
@@ -259,9 +259,11 @@ import FilterBar from '../components/FilterBar.vue'
 import DetailGrid from '../components/DetailGrid.vue'
 import { get, getList, post, put, fmtDate, fmtNum, exportCsv } from '../api'
 import { useDictStore, useCrawlStore } from '../stores/app'
+import { useIsMobile } from '../composables/useIsMobile'
 
 const dict = useDictStore()
 const crawl = useCrawlStore()
+const isMobile = useIsMobile()
 
 const leads = ref([])
 const loading = ref(false)

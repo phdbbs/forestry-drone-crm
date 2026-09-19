@@ -102,6 +102,41 @@ body {
   .el-table .cell { padding: 0 8px; line-height: 1.45; }
 }
 
+/* ---------------------- 移动端弹窗与表单 ---------------------- */
+/*
+ * 弹窗宽度由各页面用 prop 写死（420–760px），Element Plus 把它落到
+ * .el-dialog 的内联 CSS 变量上：
+ *   <div class="el-dialog" style="--el-dialog-width: 640px">
+ * 390px 视口下 640px 会溢出 250px —— 右侧输入框和底部按钮全部被裁掉。
+ * 内联声明只有样式表里的 !important 能压过，所以这里必须带 !important。
+ */
+@media (max-width: 768px) {
+  .el-dialog {
+    width: 92vw !important;
+    margin-top: 6vh !important;
+  }
+
+  /* 表单标签改顶对齐：固定 label-width（100–150px）在窄屏会把输入框挤没 */
+  .el-dialog .el-form-item { display: block; }
+  .el-dialog .el-form-item__label {
+    width: auto !important;
+    text-align: left !important;
+    padding: 0 0 4px !important;
+    line-height: 1.5;
+  }
+
+  /* 底部按钮允许换行，避免被挤出可视区 */
+  .el-dialog__footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+  /* ElMessageBox（确认/输入框）同样是写死的 420px，靠它自己的变量收窄即可 */
+  .el-message-box { --el-messagebox-width: 88vw; }
+
+  /* 标签页在窄屏会超出可视宽度：客户详情 4 个标签要 360px，可用只有 327px，
+     最后一个「动态信息」被裁掉（EP 只给一个很窄的滚动箭头兜底）。
+     收紧内边距让它们放得下。 */
+  .el-tabs__item { padding: 0 10px; font-size: 13px; }
+}
+
 /* ---------------------------- 卡片 ---------------------------- */
 .el-card {
   --el-card-border-color: var(--el-border-color-lighter);

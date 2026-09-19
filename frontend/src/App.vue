@@ -125,7 +125,7 @@ const NAV_GROUPS = [
 ]
 
 const collapsed = ref(localStorage.getItem('crm_v2_sidebar') === '1')
-const isMobile = ref(window.innerWidth < 768)
+const isMobile = ref(window.innerWidth <= 768)
 const drawerOpen = ref(false)
 const notifCount = ref(0)
 
@@ -135,7 +135,7 @@ function toggleSide() {
   localStorage.setItem('crm_v2_sidebar', collapsed.value ? '1' : '0')
 }
 function onResize() {
-  const m = window.innerWidth < 768
+  const m = window.innerWidth <= 768
   if (m && !isMobile.value) drawerOpen.value = false
   // 窗口变窄自动收起侧边栏，变宽自动展开
   if (!m) {
