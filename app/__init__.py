@@ -4,6 +4,48 @@ import os
 
 db = SQLAlchemy()
 
+# 网络卷上的 SQLite 出现 I/O 层错误时，池中连接已不可用。
+# 命中这些关键字说明是 I/O 层故障（而非 SQL 语法/约束问题），应丢弃整个连接池重连。
+_IO_ERROR_MARKERS = (
+    'disk i/o error',
+    'unable to open database file',
+    'database disk image is malformed',
+)
+
+_io_recovery_installed = False
+
+
+def _install_io_error_recovery():
+    """I/O 故障后自动丢弃连接池，使服务无需重启即可恢复。
+
+    背景：本项目数据库文件放在 SMB 网络卷上。挂载瞬时抖动会让连接池里
+    已建立的连接失效（sqlite3.OperationalError: disk I/O error）。失效的是
+    「池中的连接」本身，因此此后每个请求都会继续失败，只有重启进程才能恢复。
+    挂载恢复后新建连接是正常的，所以这里在引擎层捕获 I/O 类错误并 dispose 连接池，
+    下一个请求重新建连即可正常服务。
+
+    Engine 上的监听是全局的，重复注册会叠加回调，故用模块级标志确保只装一次
+    （测试会反复调用 create_app）。
+    """
+    global _io_recovery_installed
+    if _io_recovery_installed:
+        return
+    _io_recovery_installed = True
+
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, 'handle_error')
+    def _drop_pool_on_io_error(exception_context):
+        msg = str(exception_context.original_exception).lower()
+        if any(marker in msg for marker in _IO_ERROR_MARKERS):
+            try:
+                exception_context.engine.dispose()
+            except Exception:
+                # 自愈失败不应掩盖原始异常
+                pass
+
+
 def create_app(config=None):
     app = Flask(__name__, static_folder='static', template_folder='templates')
     app.config['SECRET_KEY'] = os.environ.get('CRM_SECRET_KEY', 'forest-drone-crm-2026')
@@ -12,6 +54,18 @@ def create_app(config=None):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # 数据库文件位于网络卷（SMB）上时，挂载一旦瞬时抖动，
+    # 连接池中已持有的连接会失效并抛出 sqlite3.OperationalError: disk I/O error；
+    # 由于失效的是池中连接本身，此后所有请求都会持续失败，只能重启进程才恢复。
+    # 下面的配置让连接池能自愈，无需重启。
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        # 取用连接前先做一次轻量探测，失效连接会被丢弃并重建
+        'pool_pre_ping': True,
+        # 限制连接最长存活时间，避免长期持有网络卷上的文件描述符
+        'pool_recycle': 300,
+        # 网络卷上的锁竞争比本地磁盘慢，放宽等待时间
+        'connect_args': {'timeout': 30},
+    }
     if config:
         app.config.update(config)
     cors_origins = os.environ.get('CRM_CORS_ORIGINS', '')
@@ -22,6 +76,7 @@ def create_app(config=None):
         except ImportError:
             pass
     db.init_app(app)
+    _install_io_error_recovery()
     _register_error_handlers(app)
     from app.routes import api
     app.register_blueprint(api, url_prefix='/api')
