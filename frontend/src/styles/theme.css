@@ -68,6 +68,40 @@ body {
 .el-table .cell-strong { color: var(--el-text-color-primary); font-weight: 600; }
 .el-table .cell-sub { color: var(--el-text-color-secondary); }
 
+/* ---------------------- 移动端表格：取消固定列 ---------------------- */
+/*
+ * 窄屏下 Element Plus 的固定列（fixed="right"）会覆盖在可视区右侧：
+ *   .el-table__header-wrapper tr th.el-table-fixed-column--right { position: sticky !important }
+ * 而手机表格可视宽度只有 ~330px，操作列却有 140–230px（线索页 230px，占 69%），
+ * 中间的普通列被挤成一条细缝。这里让固定列在窄屏退化为静态定位，
+ * 操作列回到行尾，整行随表格正常横向滚动。
+ *
+ * 覆盖它有两个坑，都已处理：
+ *   1. EP 用了 !important，覆盖时也必须带 !important；
+ *   2. EP 的选择器优先级是 (0,2,2)（2 个类 + 2 个元素），
+ *      下面刻意镜像它的结构再多带一个类，达到 (0,3,1)，
+ *      这样不依赖样式表的引入顺序也能稳定压过。
+ */
+@media (max-width: 768px) {
+  .el-table .el-table__header tr .el-table-fixed-column--left,
+  .el-table .el-table__header tr .el-table-fixed-column--right,
+  .el-table .el-table__body tr .el-table-fixed-column--left,
+  .el-table .el-table__body tr .el-table-fixed-column--right {
+    position: static !important;
+  }
+
+  /* 固定列滚动时的那道 10px 投影：静态定位后它会锚到 .el-table 左上角造成错位，
+     直接把它依赖的两个变量置空（box-shadow: none 是合法值），比逐个伪元素覆盖更省事。 */
+  .el-table {
+    --el-table-fixed-right-column: none;
+    --el-table-fixed-left-column: none;
+  }
+
+  /* 顺带收紧密度，单屏能看到更多列 */
+  .el-table .el-table__cell { padding: 6px 0; }
+  .el-table .cell { padding: 0 8px; line-height: 1.45; }
+}
+
 /* ---------------------------- 卡片 ---------------------------- */
 .el-card {
   --el-card-border-color: var(--el-border-color-lighter);
