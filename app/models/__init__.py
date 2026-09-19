@@ -1,6 +1,18 @@
 from app import db
 from datetime import datetime
+from sqlalchemy.orm import validates
 from app.models.followup import FollowUp
+from app.services.textutil import clean_text
+
+
+def _clean(value):
+    """None 保持 None（不改变 nullable 语义），其余走 clean_text。
+
+    collapse_space=True 只把连续空格/制表符压成一个，不动换行，
+    所以 address / remark 这类多行字段也能安全使用。
+    """
+    return None if value is None else clean_text(value, collapse_space=True)
+
 
 class Customer(db.Model):
     __tablename__ = 'customers'
@@ -25,6 +37,15 @@ class Customer(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     contacts = db.relationship('Contact', backref='customer', lazy=True)
     news_items = db.relationship('CustomerNews', backref='customer', lazy=True)
+
+    # 客户名出现在所有下拉框、列表和弹窗标题里，采集带进来的控制字符
+    # （例如 0x1E）必须在这里拦掉。只补路由会漏掉将来的新写入口，
+    # 所以放在模型层：POST / PUT / _find_or_create_customer 全都过这里。
+    @validates('name', 'short_name', 'customer_type', 'level', 'region', 'address',
+               'website', 'registration_capital', 'operation_years', 'department',
+               'source', 'business_scope', 'intellectual_property', 'remark')
+    def _clean_fields(self, key, value):
+        return _clean(value)
 
 class CustomerNews(db.Model):
     __tablename__ = 'customer_news'
@@ -101,6 +122,16 @@ class Lead(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     opportunities = db.relationship('Opportunity', backref='lead', lazy=True)
     customer = db.relationship('Customer', backref='leads')
+
+    # 这些字段来自公告采集（正则/AI 抽取），是 0x1E 之类字符的第一入口；
+    # 而且 purchaser / winner 会被 _find_or_create_customer 拿去建客户，
+    # 不在这里拦就会把脏字符传染给客户库。
+    @validates('title', 'bid_number', 'region', 'purchaser', 'contact_name',
+               'contact_phone', 'address', 'winner', 'source_platform', 'bid_type',
+               'assignee', 'match_level', 'match_reason', 'match_keywords', 'reason',
+               'service_content')
+    def _clean_fields(self, key, value):
+        return _clean(value)
 
 class Opportunity(db.Model):
     __tablename__ = 'opportunities'

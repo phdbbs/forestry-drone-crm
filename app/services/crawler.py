@@ -7,6 +7,7 @@ from app.services.matcher import match_lead
 from app.services.ai_client import extract_lead
 from app.services.regions import resolve_region
 from app.services.serial import gen_serial
+from app.services.textutil import clean_text
 import re, time, json
 
 HEADERS = {
@@ -703,7 +704,8 @@ def run_crawl(app=None):
             rules = extract_contact_rules(page_text)
             for f in ("contact_name", "contact_phone", "address", "purchaser"):
                 if not ai.get(f) and rules.get(f):
-                    ai[f] = rules[f]
+                    # 正则路径同样要清洗：公告正文里的 0x1E / NBSP 会被正则一起捕获
+                    ai[f] = clean_text(rules[f], collapse_space=True)
             budget = ai["budget"]
             if budget is None:
                 budget = extract_budget(page_text)
@@ -717,9 +719,9 @@ def run_crawl(app=None):
                 ai.get("address"), ai.get("region"), ai.get("purchaser"),
                 item.get("region"), item["title"], page_text[:3000],
             ) or item.get("region") or extract_region(page_text)
-            winner = (ai.get("winner") or extract_winner(page_text) or "").strip()
+            winner = clean_text(ai.get("winner") or extract_winner(page_text), collapse_space=True)
             summary = extract_notice_summary(page_text) or ai["summary"]
-            service = "；".join(
+            service = clean_text("；".join(
                 f"{k}: {v}" for k, v in [
                     ("公告概要", summary), ("客户方", ai["purchaser"]),
                     ("中标/成交单位", winner),
@@ -727,24 +729,26 @@ def run_crawl(app=None):
                     ("联系方式", ai["contact_phone"]), ("地址", ai["address"]),
                     ("预算", budget),
                 ] if v
-            )
+            ))
             lead = Lead(
-                title=ai["title"][:500],
+                title=clean_text(ai["title"], collapse_space=True)[:500],
                 budget=str(budget) if budget else "",
                 deadline=deadline,
-                region=region,
-                purchaser=ai["purchaser"],
-                contact_name=(ai["contact_name"] or "")[:100],
-                contact_phone=(ai["contact_phone"] or "")[:100],
-                address=(ai["address"] or "")[:300],
+                region=clean_text(region, collapse_space=True),
+                purchaser=clean_text(ai["purchaser"], collapse_space=True),
+                contact_name=clean_text(ai["contact_name"], collapse_space=True)[:100],
+                contact_phone=clean_text(ai["contact_phone"], collapse_space=True)[:100],
+                address=clean_text(ai["address"], collapse_space=True)[:300],
                 service_content=service,
                 source_url=item["url"],
                 source_platform=item.get("source_name", "中国政府采购网"),
-                bid_type=(item.get("type") or "")[:50],
-                winner=winner[:200] if winner else "",
+                bid_type=clean_text(item.get("type"), collapse_space=True)[:50],
+                winner=winner[:200],
                 created_at=item["dt"],
                 status="active",
-                full_text=(page_text or "")[:60000],
+                # 全文要原样保留排版，所以不做 collapse_space（只去控制字符/零宽字符）；
+                # 它会在「公告全文」抽屉里渲染，NBSP 会阻止换行、0x200D 影响字形连接。
+                full_text=clean_text(page_text)[:60000],
             )
             lead.serial_no = gen_serial(item["dt"])
             match_lead(lead)

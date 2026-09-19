@@ -116,14 +116,28 @@ body {
     margin-top: 6vh !important;
   }
 
-  /* 表单标签改顶对齐：固定 label-width（100–150px）在窄屏会把输入框挤没 */
-  .el-dialog .el-form-item { display: block; }
-  .el-dialog .el-form-item__label {
+  /* 表单标签改顶对齐：固定 label-width（100–150px，EP 落在标签的内联 style 上）
+     在窄屏会把输入框挤没。设置页标签是 120px 内联，390px 下输入框只剩 188px。
+     与上面 el-row 一样，作用域只取「表单容器」三种，不动页面级布局。 */
+  .el-dialog .el-form-item,
+  .el-drawer .el-form-item,
+  .el-tab-pane .el-form-item { display: block; }
+  .el-dialog .el-form-item__label,
+  .el-drawer .el-form-item__label,
+  .el-tab-pane .el-form-item__label {
     width: auto !important;
     text-align: left !important;
     padding: 0 0 4px !important;
     line-height: 1.5;
   }
+
+  /* EP 给 .el-checkbox / __label 都设了 white-space: nowrap，
+     长文案（「启用关键词过滤（命中少时自动扩大范围）」274px）
+     在窄屏横向撑出表单 100px，又被 el-card 的 overflow: hidden 静默裁掉 ——
+     看不出溢出，只是文字缺了一截。放开换行即可。 */
+  .el-checkbox { white-space: normal; align-items: flex-start; }
+  .el-checkbox__label { white-space: normal; word-break: break-word; }
+  .el-checkbox__input { flex-shrink: 0; margin-top: 2px; }
 
   /* 底部按钮允许换行，避免被挤出可视区 */
   .el-dialog__footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
@@ -135,6 +149,33 @@ body {
      最后一个「动态信息」被裁掉（EP 只给一个很窄的滚动箭头兜底）。
      收紧内边距让它们放得下。 */
   .el-tabs__item { padding: 0 10px; font-size: 13px; }
+
+  /* el-row 的两列/三列表单在窄屏必须改单列。这里同时踩到两个坑：
+   *   1. gutter 的负边距/内边距是 EP 写在**内联 style** 上的
+   *      （row: margin: 0 -6px；col: padding: 0 6px），
+   *      内联声明只有样式表里的 !important 能压过；
+   *   2. 列宽来自 .el-col-12 的 flex/max-width: 50%，要提到 (0,2,0) 才稳。
+   * 不改的话：327px 的内容盒被撑到 339px（左右各溢 6px），
+   * 且两列把下拉框/日期选择器压到 157px，客户名读不全。
+   *
+   * 作用域只取「表单容器」三种：弹窗、抽屉、标签页。
+   * 页面级的 el-row（工作台/报表的卡片栅格、日常联络主栏）刻意不动 ——
+   * 它们用的是 :xs/:sm/:lg 原生断点，EP 自己会算，强行单列反而错。
+   */
+  .el-dialog .el-row,
+  .el-drawer .el-row,
+  .el-tab-pane .el-row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  .el-dialog .el-row > .el-col,
+  .el-drawer .el-row > .el-col,
+  .el-tab-pane .el-row > .el-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
 }
 
 /* ---------------------------- 卡片 ---------------------------- */

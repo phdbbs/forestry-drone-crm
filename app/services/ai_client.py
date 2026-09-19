@@ -6,6 +6,7 @@ import time
 import requests
 from app import db
 from app.models import SystemConfig
+from app.services.textutil import clean_text
 
 _ai_lock = threading.Lock()
 
@@ -105,17 +106,19 @@ def extract_lead(title, page_text, source_url, bid_type=""):
         max_tokens=1200,
     )
     data = _extract_json(text)
+    # 统一走 clean_text：公告正文常带 0x1E / NBSP / 零宽字符，
+    # 只 strip() 会让它们跟着"采购单位""中标单位"一起入库。
     return {
-        "title": str(data.get("title") or title).strip(),
-        "purchaser": (data.get("purchaser") or "").strip(),
-        "contact_name": (data.get("contact_name") or "").strip(),
-        "contact_phone": (data.get("contact_phone") or "").strip(),
-        "address": (data.get("address") or "").strip(),
-        "region": (data.get("region") or "").strip(),
+        "title": clean_text(data.get("title") or title, collapse_space=True),
+        "purchaser": clean_text(data.get("purchaser"), collapse_space=True),
+        "contact_name": clean_text(data.get("contact_name"), collapse_space=True),
+        "contact_phone": clean_text(data.get("contact_phone"), collapse_space=True),
+        "address": clean_text(data.get("address"), collapse_space=True),
+        "region": clean_text(data.get("region"), collapse_space=True),
         "budget": data.get("budget"),
         "deadline": data.get("deadline"),
-        "summary": (data.get("summary") or "").strip(),
-        "winner": (data.get("winner") or "").strip(),
+        "summary": clean_text(data.get("summary")),
+        "winner": clean_text(data.get("winner"), collapse_space=True),
     }
 
 
