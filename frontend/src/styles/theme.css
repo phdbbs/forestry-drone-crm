@@ -1,10 +1,16 @@
-/* 绿色林业主题：覆盖 Element Plus CSS 变量 */
+/* ==========================================================================
+   林业无人机 CRM — 全局主题
+   原则：颜色 / 圆角 / 间距一律取自 Element Plus 变量，不再散落硬编码十六进制。
+   品牌色仍为林业绿，通过覆盖 --el-color-primary 梯度实现。
+   ========================================================================== */
+
 :root {
+  /* 品牌主色（林业绿） */
   --crm-primary: #2f7d4f;
   --crm-primary-light: #3d9e66;
   --crm-primary-bg: #eef7f1;
 
-  /* Element Plus 主色 */
+  /* 覆盖 Element Plus 主色梯度 */
   --el-color-primary: var(--crm-primary);
   --el-color-primary-light-3: var(--crm-primary-light);
   --el-color-primary-light-5: #7cbd97;
@@ -12,109 +18,79 @@
   --el-color-primary-light-8: #cfe8d8;
   --el-color-primary-light-9: var(--crm-primary-bg);
   --el-color-primary-dark-2: #25653f;
-}
 
-/* 表格全局规范：表头/正文/主字段分层（EP 表格变量定义在组件级，须在 .el-table 上覆盖） */
-.el-table {
-  --el-table-header-bg-color: #eff3f0;
-  --el-table-header-text-color: #3f5147;
-  --el-table-text-color: #64756b;        /* 正文：浅灰绿 */
-  --el-table-row-hover-bg-color: #f3f8f4;
-  --el-table-border-color: #e4eae6;
+  /* 布局尺度 */
+  --crm-page-padding: 16px 20px 24px;
+  --crm-block-gap: 16px;
 }
-/* 表头：加粗深色、浅灰底，与正文明确区分 */
-.el-table th.el-table__cell {
-  background-color: #eff3f0;
-  color: #3f5147;
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: .02em;
-}
-/* 主字段列（标题/名称）：深色加粗 */
-.el-table .cell-strong {
-  color: #1f2d24;
-  font-weight: 600;
-}
-/* 表格内次级小字统一弱化 */
-.el-table .cell-sub { color: #8a9a90; }
 
 html, body, #app { height: 100%; margin: 0; }
+
 body {
   font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
-  background: #f5f7f6;
+  background: var(--el-bg-color-page);
+  color: var(--el-text-color-primary);
   -webkit-font-smoothing: antialiased;
 }
 
-/* 页面统一规范 */
-.page { padding: 20px 24px; }
+/* ---------------------------- 页面骨架 ---------------------------- */
+.page { padding: var(--crm-page-padding); }
+
 .page-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+  margin-bottom: var(--crm-block-gap); flex-wrap: wrap; gap: 10px;
 }
-.page-title { font-size: 20px; font-weight: 600; color: #1f2d24; margin: 0; }
-.page-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-title { font-size: 18px; font-weight: 600; color: var(--el-text-color-primary); margin: 0; }
+.page-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
-.card-block { margin-bottom: 16px; }
+.card-block { margin-bottom: var(--crm-block-gap); }
+
+/* ---------------------------- 文本工具类 ---------------------------- */
 .mono { font-variant-numeric: tabular-nums; }
 .text-right { text-align: right; }
-.muted { color: #8a9a90; font-size: 12px; }
+.muted { color: var(--el-text-color-secondary); font-size: 12px; }
 .break-all { word-break: break-all; }
+.cell-sub { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; }
 
-/* 表格内副行 */
-.cell-sub { font-size: 12px; color: #8a9a90; margin-top: 2px; }
-
-/* 统计卡 */
-.stat-card { display: flex; align-items: center; gap: 14px; padding: 18px 20px; }
-.stat-icon {
-  width: 48px; height: 48px; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center; font-size: 24px;
-  color: #fff; flex-shrink: 0;
+/* ---------------------------- 表格 ---------------------------- */
+.el-table {
+  --el-table-header-bg-color: var(--el-fill-color-light);
+  --el-table-header-text-color: var(--el-text-color-primary);
+  --el-table-text-color: var(--el-text-color-regular);
+  --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
+  --el-table-border-color: var(--el-border-color-lighter);
 }
-.stat-num { font-size: 24px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.stat-label { color: #8a9a90; font-size: 13px; }
-
-/* 看板 */
-.kanban-board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; align-items: flex-start; }
-.kanban-col { background: #eef1ef; border-radius: 8px; width: 272px; flex-shrink: 0; padding: 10px; }
-.kanban-card {
-  background: #fff; border-radius: 6px; padding: 10px 12px; margin-top: 8px;
-  box-shadow: 0 1px 2px rgba(0,0,0,.06); cursor: grab; border-left: 4px solid transparent;
+.el-table th.el-table__cell {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: .01em;
 }
-.kanban-card.dragging { opacity: .5; }
-.kanban-col.dragover { outline: 2px dashed var(--crm-primary); outline-offset: -2px; }
+.el-table .cell-strong { color: var(--el-text-color-primary); font-weight: 600; }
+.el-table .cell-sub { color: var(--el-text-color-secondary); }
 
-/* 管道阶段条 */
-.pipeline { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-bottom: 16px; }
-.pipeline-step { display: flex; align-items: center; }
-.pipeline-dot {
-  width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 600; color: #fff; flex-shrink: 0;
+/* ---------------------------- 卡片 ---------------------------- */
+.el-card {
+  --el-card-border-color: var(--el-border-color-lighter);
+  border-radius: var(--el-border-radius-base);
 }
-.pipeline-line { width: 48px; height: 3px; background: #dfe6e2; }
-.pipeline-meta { margin-left: 8px; margin-right: 8px; }
-.pipeline-name { font-size: 12px; color: #5a6b61; }
-.pipeline-amt { font-size: 12px; color: #8a9a90; }
+.el-card__header { font-weight: 600; }
 
-/* 详情网格 */
-.detail-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; font-size: 14px;
-}
-.detail-grid .dg-item.full { grid-column: 1 / -1; }
-.dg-label { color: #8a9a90; margin-right: 4px; }
+/* ---------------------------- 描述列表 ---------------------------- */
+.el-descriptions__label { color: var(--el-text-color-secondary) !important; font-weight: 400 !important; }
 
-/* 报表图表 */
-.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 900px) { .chart-grid, .detail-grid { grid-template-columns: 1fr; } }
+/* ---------------------------- 图表 ---------------------------- */
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--crm-block-gap); }
 .chart-box { height: 320px; }
+@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
 
-/* 全文 Markdown 排版（近似原公告版式） */
-.md-body { font-size: 14px; line-height: 1.9; color: #2c3a31; word-break: break-all; }
+/* ---------------------------- 全文 Markdown 排版 ---------------------------- */
+.md-body { font-size: 14px; line-height: 1.9; color: var(--el-text-color-primary); word-break: break-all; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5 {
-  color: #1f2d24; margin: 18px 0 8px; line-height: 1.5;
+  color: var(--el-text-color-primary); margin: 18px 0 8px; line-height: 1.5;
 }
-.md-body h1 { font-size: 18px; border-bottom: 2px solid var(--crm-primary-bg); padding-bottom: 6px; }
-.md-body h2 { font-size: 16px; border-bottom: 1px solid #e4eae6; padding-bottom: 5px; }
-.md-body h3 { font-size: 15px; color: #2f7d4f; }
+.md-body h1 { font-size: 18px; border-bottom: 2px solid var(--el-color-primary-light-8); padding-bottom: 6px; }
+.md-body h2 { font-size: 16px; border-bottom: 1px solid var(--el-border-color-lighter); padding-bottom: 5px; }
+.md-body h3 { font-size: 15px; color: var(--el-color-primary); }
 .md-body h4, .md-body h5 { font-size: 14px; }
 .md-body p { margin: 8px 0; }
 .md-body ul { margin: 8px 0; padding-left: 22px; }
@@ -123,8 +99,8 @@ body {
   border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 12.5px;
 }
 .md-body th, .md-body td {
-  border: 1px solid #d7e0da; padding: 6px 10px; text-align: left; vertical-align: top;
+  border: 1px solid var(--el-border-color); padding: 6px 10px; text-align: left; vertical-align: top;
 }
-.md-body th { background: #eff3f0; color: #3f5147; font-weight: 600; }
-.md-body tr:nth-child(even) td { background: #fafcfb; }
-.md-body strong { color: #1f2d24; }
+.md-body th { background: var(--el-fill-color-light); color: var(--el-text-color-primary); font-weight: 600; }
+.md-body tr:nth-child(even) td { background: var(--el-fill-color-lighter); }
+.md-body strong { color: var(--el-text-color-primary); }

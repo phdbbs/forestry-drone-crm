@@ -8,9 +8,9 @@
         <el-tab-pane name="abandoned"><template #label>已删除 ({{ counts.abandoned }})</template></el-tab-pane>
       </el-tabs>
       <div class="page-toolbar">
-        <el-button type="primary" @click="openForm()"><el-icon><Plus /></el-icon>&nbsp;手工新增</el-button>
-        <el-button type="primary" plain @click="doCrawl"><el-icon><Refresh /></el-icon>&nbsp;采集线索</el-button>
-        <el-button @click="doExport"><el-icon><Download /></el-icon>&nbsp;导出</el-button>
+        <el-button type="primary" :icon="Plus" @click="openForm()">手工新增</el-button>
+        <el-button type="primary" plain :icon="Refresh" @click="doCrawl">采集线索</el-button>
+        <el-button :icon="Download" @click="doExport">导出</el-button>
       </div>
     </div>
 
@@ -56,7 +56,9 @@
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column prop="budget" label="预算(万)" width="100" sortable="custom" align="right" />
+        <el-table-column prop="budget" label="预算(万)" width="100" sortable="custom" align="right">
+          <template #default="{ row }">{{ fmtNum(row.budget) }}</template>
+        </el-table-column>
         <el-table-column prop="region" label="地区" width="130" sortable="custom" show-overflow-tooltip />
         <el-table-column prop="deadline" label="截止" width="110" sortable="custom" />
         <el-table-column prop="created_at" label="创建" width="110" sortable="custom" />
@@ -217,19 +219,18 @@
           { label: '状态', value: statusLabel(detail.status) },
         ]">
           <template #serial>
-            <span class="mono" style="font-weight:600;color:#1f2d24">{{ detail.serial_no || '-' }}</span>
+            <span class="mono dg-serial">{{ detail.serial_no || '-' }}</span>
           </template>
           <template #bid>
             <el-tag size="small" :type="bidTagType(detail.bid_type)">{{ detail.bid_type || '待分类' }}</el-tag>
           </template>
         </DetailGrid>
-        <div v-if="detail.match_reason" class="muted" style="margin-top:12px">匹配原因: {{ detail.match_reason }}</div>
-        <div v-if="detail.service_content" class="muted" style="margin-top:8px">服务内容：{{ detail.service_content }}</div>
-        <div v-if="detail.source_url" class="break-all"
-          style="margin-top:12px;font-size:13px;padding:8px 12px;background:#f8fafc;border-radius:6px;display:flex;align-items:flex-start;gap:8px">
-          <div style="flex:1">
+        <div v-if="detail.match_reason" class="muted detail-extra">匹配原因：{{ detail.match_reason }}</div>
+        <div v-if="detail.service_content" class="muted detail-extra">服务内容：{{ detail.service_content }}</div>
+        <div v-if="detail.source_url" class="source-box">
+          <div class="source-url">
             <span class="muted">原文链接：</span>
-            <a :href="detail.source_url" target="_blank" style="color:var(--el-color-primary)">{{ detail.source_url }}</a>
+            <el-link type="primary" :href="detail.source_url" target="_blank" :underline="false">{{ detail.source_url }}</el-link>
           </div>
           <el-button type="primary" size="small" :loading="fulltextLoading" @click="openFulltext">全文</el-button>
         </div>
@@ -239,7 +240,7 @@
 
     <!-- 公告全文 -->
     <el-drawer v-model="fulltextVisible" size="55%" title="公告全文">
-      <div v-loading="fulltextLoading" style="min-height:200px">
+      <div v-loading="fulltextLoading" class="drawer-body">
         <el-alert v-if="fulltextError" type="warning" :closable="false" :title="fulltextError" />
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else-if="fulltext" class="md-body" v-html="fulltextHtml"></div>
@@ -256,7 +257,7 @@ import { marked } from 'marked'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
 import DetailGrid from '../components/DetailGrid.vue'
-import { get, post, put, fmtDate, exportCsv } from '../api'
+import { get, getList, post, put, fmtDate, fmtNum, exportCsv } from '../api'
 import { useDictStore, useCrawlStore } from '../stores/app'
 
 const dict = useDictStore()
@@ -291,7 +292,7 @@ const statusType = (s) => ({ converted: 'success', abandoned: 'danger', pool: 'w
 
 async function load() {
   loading.value = true
-  leads.value = (await get('/leads')) || []
+  leads.value = await getList('/leads')
   loading.value = false
 }
 function applyFilter() { Object.assign(filter, draft) }
@@ -314,25 +315,29 @@ async function claimLead(id) {
   ElMessage.success(r.message || '已领取'); load()
 }
 async function releaseLead(id) {
-  const { value: reason } = await ElMessageBox.prompt('释放原因（将显示在公海池列表）:', '释放至公海', {
+  const res = await ElMessageBox.prompt('释放原因（将显示在公海池列表）:', '释放至公海', {
     inputPlaceholder: '如：地区不符 / 暂无跟进人力 / 已有同事对接',
     inputValidator: (v) => !!v?.trim() || '请填写释放原因',
-  })
-  const r = await post(`/leads/${id}/release`, { reason: reason.trim() })
+  }).catch(() => null)
+  if (!res) return
+  const r = await post(`/leads/${id}/release`, { reason: res.value.trim() })
   if (r.error) return ElMessage.error(r.error)
   ElMessage.success(r.message || '已释放至公海池'); load()
 }
 async function deleteLead(id) {
-  const { value: reason } = await ElMessageBox.prompt('删除原因（将显示在已删除列表，可恢复）:', '删除线索', {
+  const res = await ElMessageBox.prompt('删除原因（将显示在已删除列表，可恢复）:', '删除线索', {
     inputPlaceholder: '如：重复线索 / 与业务无关 / 信息有误',
     inputValidator: (v) => !!v?.trim() || '请填写删除原因',
-  })
-  const r = await post(`/leads/${id}/abandon`, { reason: reason.trim() })
+  }).catch(() => null)
+  if (!res) return
+  const r = await post(`/leads/${id}/abandon`, { reason: res.value.trim() })
   if (r.error) return ElMessage.error(r.error)
   ElMessage.success(r.message || '已删除'); load()
 }
 async function restoreLead(id) {
-  await ElMessageBox.confirm('确认恢复该线索为待转化？', '恢复线索')
+  try {
+    await ElMessageBox.confirm('确认恢复该线索为待转化？', '恢复线索')
+  } catch (e) { return }
   const r = await put(`/leads/${id}`, { status: 'active' })
   if (r.error) return ElMessage.error(r.error)
   ElMessage.success(r.message || '已恢复'); load()
@@ -469,4 +474,30 @@ onMounted(async () => {
 <style scoped>
 .flex-1 { flex: 1; }
 .flex-1 :deep(.el-tabs__header) { margin-bottom: 0; }
+
+/* 详情弹窗内的辅助信息 */
+.dg-serial {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.detail-extra { margin-top: 12px; }
+
+/* 原文链接区：淡底卡片，替代原型的 #f8fafc 硬编码背景 */
+.source-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--el-fill-color-lighter);
+  border-radius: var(--el-border-radius-base);
+}
+.source-url {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.drawer-body { min-height: 200px; }
 </style>

@@ -14,7 +14,6 @@
       <slot />
     </el-table>
     <div class="pt-footer">
-      <span class="muted">共 {{ sorted.length }} 条</span>
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
@@ -104,7 +103,7 @@ onMounted(() => nextTick(applyWidths))
 
 <style scoped>
 .pt-footer {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-top: 12px; flex-wrap: wrap; gap: 8px;
+  display: flex; justify-content: flex-end;
+  margin-top: 16px; flex-wrap: wrap; gap: 8px;
 }
 </style>
