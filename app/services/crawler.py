@@ -22,6 +22,13 @@ HEADERS = {
 # Delay between keyword requests (seconds) to avoid triggering rate limits
 REQUEST_DELAY = 3
 
+# 每入库多少条就提交一次事务。
+# 每条公告都要走"抓取正文 + AI 抽取"，单条耗时可达数秒，整轮采集常常持续数分钟。
+# 若把提交攒到最后，SQLite 的写事务（连同回滚日志）会全程驻留：期间一旦发生 I/O
+# 抖动，就会留下"热日志"，此后数据库对所有连接都不可用——现象就是前端数据全部为空。
+# 分批提交把事务窗口压到秒级，且已提交的条目不会因后续条目失败而回滚丢失。
+COMMIT_BATCH_SIZE = 5
+
 
 def get_crawl_keywords():
     """Get keywords from system config"""
@@ -695,6 +702,7 @@ def run_crawl(app=None):
         _update_status(message=f"增量采集：从 {checkpoint.strftime('%Y-%m-%d %H:%M')} 起，搜索到 {len(candidates)} 条候选")
         _crawl_status["from_at"] = checkpoint.strftime("%Y-%m-%d %H:%M")
     count = 0
+    pending = 0  # 距上次提交的待入库条数
     for idx, item in enumerate(filtered, 1):
         _update_status(progress=idx, current=item["title"][:60])
         try:
@@ -754,19 +762,34 @@ def run_crawl(app=None):
             match_lead(lead)
             db.session.add(lead)
             count += 1
+            pending += 1
             _update_status(count=count)
+            # 分批提交，避免长时间持有写事务（详见 COMMIT_BATCH_SIZE 说明）
+            if pending >= COMMIT_BATCH_SIZE:
+                db.session.commit()
+                pending = 0
         except Exception as e:
+            # 单条失败必须回滚：否则 session 进入失败状态，
+            # 同批已 add 未提交的条目以及后续所有条目都会连带失败
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            count -= pending
+            pending = 0
             errors.append(f"[{item['title'][:30]}] {str(e)[:120]}")
         time.sleep(1)
 
-    # 统一提交：避免逐条 commit 的 I/O 开销，且失败条目不影响已成功条目入库
-    if count > 0:
+    # 提交最后不足一批的条目
+    if pending > 0:
         try:
             db.session.commit()
+            pending = 0
         except Exception as e:
             db.session.rollback()
             errors.append(f"批量入库失败: {str(e)[:120]}")
-            count = 0
+            count -= pending
+            pending = 0
 
     _update_status(phase="完成", count=count, errors=errors)
     # 记录本次采集时间点，供下次增量采集使用（仅在有新线索成功入库时推进，
@@ -815,6 +838,12 @@ def _crawl_worker(app):
                 "message": f"采集完成，新增 {count} 条线索{extra}" + (f"（{len(errors)} 个异常）" if errors else ""),
             })
     except Exception as e:
+        # 采集链路中断时必须回滚：把未提交事务留给后续请求，
+        # 会在库上残留热日志，进而拖垮整个服务
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         _crawl_status.update({"message": f"采集失败: {str(e)[:200]}"})
     finally:
         _crawl_status.update({"running": False, "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})

@@ -1,28 +1,53 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+import logging
 import os
 
 db = SQLAlchemy()
+logger = logging.getLogger('crm')
 
-# 网络卷上的 SQLite 出现 I/O 层错误时，池中连接已不可用。
-# 命中这些关键字说明是 I/O 层故障（而非 SQL 语法/约束问题），应丢弃整个连接池重连。
+# SQLite 在文件/锁/磁盘层面出错时，池中连接已经不可用。
+# 命中这些关键字说明是「连接已坏」而非「SQL 语法/约束问题」，应丢弃整个连接池重连。
 _IO_ERROR_MARKERS = (
     'disk i/o error',
     'unable to open database file',
     'database disk image is malformed',
+    # 检测到残留热日志、需要回滚却写不进去时的报错。
+    # 曾经正是因为它不在这份名单里，导致连接池永不重建、服务只能人工重启。
+    'attempt to write a readonly database',
+    'readonly database',
+    'database is locked',
+    'database table is locked',
 )
 
 _io_recovery_installed = False
 
 
-def _install_io_error_recovery():
-    """I/O 故障后自动丢弃连接池，使服务无需重启即可恢复。
+def _is_pool_poisoning_error(exc):
+    """判断异常是否意味着「池中连接已坏、必须整个重建」。
 
-    背景：本项目数据库文件放在 SMB 网络卷上。挂载瞬时抖动会让连接池里
-    已建立的连接失效（sqlite3.OperationalError: disk I/O error）。失效的是
-    「池中的连接」本身，因此此后每个请求都会继续失败，只有重启进程才能恢复。
-    挂载恢复后新建连接是正常的，所以这里在引擎层捕获 I/O 类错误并 dispose 连接池，
-    下一个请求重新建连即可正常服务。
+    除了关键字匹配，凡是 sqlite3 的 OperationalError / DatabaseError 都算：
+    它们都由文件、锁或磁盘层面引起，与业务 SQL 无关，重建池是无害的
+    （最坏只是丢弃几个尚可用的连接，代价远小于让服务持续 500）。
+    关键字匹配保留是为了兼容非 sqlite3 原生异常（如经过包装的错误）。
+    """
+    import sqlite3
+    if isinstance(exc, (sqlite3.OperationalError, sqlite3.DatabaseError)):
+        return True
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _IO_ERROR_MARKERS)
+
+
+def _install_io_error_recovery():
+    """连接池坏掉后自动丢弃重建，使服务无需重启即可恢复。
+
+    背景：数据库一旦出现热日志残留、磁盘瞬时抖动或锁异常，池中已建立的连接
+    会进入不可用状态（例如 sqlite3.OperationalError: attempt to write a readonly
+    database —— 它表示连接检测到热日志需要回滚、却写不进主库）。失效的是
+    「池中的连接」本身，文件随后往往已经恢复正常，因此此后每个请求仍会继续失败，
+    只有重启进程才能恢复，表象就是前端「数据全部消失」。
+
+    这里在引擎层捕获这类错误并 dispose 连接池，下一个请求重新建连即可正常服务。
 
     Engine 上的监听是全局的，重复注册会叠加回调，故用模块级标志确保只装一次
     （测试会反复调用 create_app）。
@@ -37,13 +62,80 @@ def _install_io_error_recovery():
 
     @event.listens_for(Engine, 'handle_error')
     def _drop_pool_on_io_error(exception_context):
-        msg = str(exception_context.original_exception).lower()
-        if any(marker in msg for marker in _IO_ERROR_MARKERS):
+        if _is_pool_poisoning_error(exception_context.original_exception):
             try:
                 exception_context.engine.dispose()
+                logger.warning(
+                    'SQLite 连接异常，已丢弃连接池等待下次请求重建: %s',
+                    exception_context.original_exception,
+                )
             except Exception:
                 # 自愈失败不应掩盖原始异常
                 pass
+
+
+def _heal_sqlite_on_startup(db_path):
+    """启动时用一次性裸连接清理残留热日志，并把数据库切到 WAL 模式。
+
+    为什么必须放在 SQLAlchemy 建池之前：
+    服务进程或采集线程若在写事务中途被强杀（会话回收、kill、崩溃），DELETE 模式会
+    留下「热日志」（crm.db-journal）。此后任何连接打开数据库，都要先把日志里的
+    原始页回滚写回主库才能使用。若让池里的连接去做这件事，一旦回滚失败，坏连接
+    就会被反复复用，导致全部接口 500 —— 表象正是「数据全部消失」，且必须人工干预
+    才能恢复（此前两次故障都是这个机理）。这里用独立连接先完成回滚，
+    异常只记录、不阻断启动，保证进入连接池的一定是干净状态。
+
+    切到 WAL 之后：崩溃恢复不再依赖「把原始页写回主库」这种脆弱操作，
+    且读写互不阻塞 —— 采集线程长时间写入时，前端读取不会再被拖垮。
+    """
+    import sqlite3
+    if not os.path.exists(db_path):
+        return
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path, timeout=15)
+        # 先做一次读取：若存在热日志，SQLite 会在此刻自动完成回滚（这正是目的）
+        conn.execute('SELECT count(*) FROM sqlite_master').fetchone()
+        conn.commit()
+        mode = conn.execute('PRAGMA journal_mode=WAL').fetchone()[0]
+        conn.execute('PRAGMA synchronous=NORMAL')
+        conn.commit()
+        logger.info('SQLite 启动自愈完成：journal_mode=%s', mode)
+    except Exception as e:
+        # 自愈失败不阻断启动：应用照常拉起，由池层自愈兜底
+        logger.warning('SQLite 启动自愈未完成（不阻断启动）: %s', e)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _configure_file_logging(app):
+    """把服务日志落盘，便于故障回溯。
+
+    此前日志只进终端：进程一旦被回收，故障现场（500 的真实堆栈）就无从查证，
+    排查只能靠猜。这里追加一个轮转文件 handler，日志写到 instance/crm.log。
+    """
+    from logging.handlers import RotatingFileHandler
+    log_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'instance', 'crm.log'
+    )
+    try:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        # 测试会反复 create_app，避免重复挂载同一文件 handler
+        for h in app.logger.handlers:
+            if isinstance(h, RotatingFileHandler) and getattr(h, 'baseFilename', '') == log_path:
+                return
+        handler = RotatingFileHandler(log_path, maxBytes=2 * 1024 * 1024, backupCount=3, encoding='utf-8')
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+        ))
+        handler.setLevel(logging.INFO)
+        app.logger.addHandler(handler)
+    except Exception as e:
+        logger.warning('日志文件初始化失败（不影响服务）: %s', e)
 
 
 def create_app(config=None):
@@ -61,9 +153,15 @@ def create_app(config=None):
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         # 取用连接前先做一次轻量探测，失效连接会被丢弃并重建
         'pool_pre_ping': True,
-        # 限制连接最长存活时间，避免长期持有网络卷上的文件描述符
-        'pool_recycle': 300,
-        # 网络卷上的锁竞争比本地磁盘慢，放宽等待时间
+        # 限制连接最长存活时间：坏连接最多存活 1 分钟就会被换掉，
+        # 而不是像原先那样躺 5 分钟继续污染每个请求
+        'pool_recycle': 60,
+        # SQLite 是单文件库，连接数没有必要开大；池子小一点，
+        # 持有可能失效的文件句柄也更少
+        'pool_size': 5,
+        'max_overflow': 5,
+        'pool_timeout': 30,
+        # 网络卷/磁盘锁竞争比内存慢，放宽等待时间，避免瞬时竞争直接报 locked
         'connect_args': {'timeout': 30},
     }
     if config:
@@ -76,6 +174,10 @@ def create_app(config=None):
         except ImportError:
             pass
     db.init_app(app)
+    _configure_file_logging(app)
+    # 必须在建池/建表之前完成：清掉可能残留的热日志并切换 WAL。
+    # 顺序错了就失去意义 —— 坏状态会先被连接池持有，之后难以清除。
+    _heal_sqlite_on_startup(db_path)
     _install_io_error_recovery()
     _register_error_handlers(app)
     from app.routes import api
@@ -130,7 +232,12 @@ def create_app(config=None):
 
 
 def _enable_sqlite_foreign_keys():
-    """SQLite 默认不校验外键，开启后杜绝 customer_id/contact_id 等悬空引用。"""
+    """配置每个 SQLite 连接：外键校验 + WAL + 锁等待。
+
+    WAL 是这里最关键的一项。默认的 DELETE 模式下一个写事务会阻塞其他连接读取，
+    采集线程持续写入时前端就会大面积超时/报错；WAL 下读写互不阻塞，
+    且崩溃后的恢复由 -wal 文件自动完成，不再依赖脆弱的「回滚主库」操作。
+    """
     from sqlalchemy import event
     if db.engine.dialect.name != 'sqlite':
         return
@@ -139,9 +246,17 @@ def _enable_sqlite_foreign_keys():
     def _set_sqlite_pragma(dbapi_connection, connection_record):
         try:
             cursor = dbapi_connection.cursor()
+            # SQLite 默认不校验外键，开启后杜绝 customer_id/contact_id 等悬空引用
             cursor.execute('PRAGMA foreign_keys=ON')
+            # 崩溃后自动恢复；读写互不阻塞
+            cursor.execute('PRAGMA journal_mode=WAL')
+            # WAL 下 NORMAL 兼顾安全与写入开销（FULL 会让每次提交都 fsync）
+            cursor.execute('PRAGMA synchronous=NORMAL')
+            # 锁等待：瞬时竞争时排队而不是立刻抛 database is locked
+            cursor.execute('PRAGMA busy_timeout=30000')
             cursor.close()
         except Exception:
+            # 连接级 PRAGMA 失败不应阻断连接建立（例如库文件只读时）
             pass
 
 def _migrate_db():
@@ -219,5 +334,17 @@ def _register_error_handlers(app):
 
     @app.errorhandler(500)
     def handle_server_error(e):
-        db.session.rollback()
+        # rollback 自身也可能因连接已坏而失败，不能让清理动作掩盖原始错误
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        import traceback
+        orig = getattr(e, 'original_exception', None) or e
+        try:
+            detail = ''.join(traceback.format_exception(type(orig), orig, orig.__traceback__))
+        except Exception:
+            detail = str(orig)
+        # 落盘完整堆栈：接口只返回通用文案，不记日志就等于故障无法回溯
+        app.logger.error('服务器内部错误: %s\n%s', orig, detail)
         return jsonify({"error": "服务器内部错误"}), 500
