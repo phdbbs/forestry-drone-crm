@@ -412,7 +412,8 @@ const taskTypes = ref([])
 const errorTypes = ref([])
 const detail = ref(null)
 const drawer = ref(false)
-const filters = reactive({ task_type: 'all', status: 'all', error_code: 'all', days: '7', q: '' })
+// 默认看全部时间：采集不是每天都有，默认收窄窗口会让页面看起来"没有日志"
+const filters = reactive({ task_type: 'all', status: 'all', error_code: 'all', days: 'all', q: '' })
 const logStats = reactive({ total: 0, items_total: 0, error_total: 0, by_status: {}, error_types: [] })
 
 const logTabLabel = computed(() => (logStats.total ? `采集日志 (${logStats.total})` : '采集日志'))
@@ -559,7 +560,7 @@ async function loadErrorTypes() {
 }
 
 function resetFilters() {
-  Object.assign(filters, { task_type: 'all', status: 'all', error_code: 'all', days: '7', q: '' })
+  Object.assign(filters, { task_type: 'all', status: 'all', error_code: 'all', days: 'all', q: '' })
   page.value = 1
   loadLogs()
 }
