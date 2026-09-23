@@ -8,6 +8,8 @@ from app.services.ai_client import extract_lead
 from app.services.regions import resolve_region
 from app.services.serial import gen_serial
 from app.services.textutil import clean_text
+from app.services.crawl_log import start_log, finish_log
+from app.services.error_classifier import format_error
 import re, time, json
 
 HEADERS = {
@@ -646,11 +648,26 @@ def _update_status(**kw):
     _crawl_status.update(kw)
 
 
-def run_crawl(app=None):
+def run_crawl(app=None, log=None):
     """搜索接口采集：按关键词+时间范围搜索 → 详情页 → AI 抽取 → 生成线索。
-    返回 (count, errors)。"""
+
+    返回 (count, errors)：errors 为「可直接阅读」的短文本列表（供运行态状态栏展示）。
+    完整报错（含分类结果）通过 log（CrawlLog）落库；未传入时内部自建一条。
+    """
     cfg = get_crawl_config()
-    errors = []
+    errors = []          # 展示用短文本，保持原有的返回约定
+    error_records = []   # 落库用结构化记录 {stage,target,raw}
+    if log is None:
+        log = start_log('线索采集')
+
+    def _err(stage, raw, target=''):
+        """记录一条异常：结构化明细落库，展示文本带上已分类的类型标签。"""
+        raw = str(raw)[:300]
+        target = str(target or '')[:100]
+        rec = {'stage': stage, 'target': target, 'raw': raw}
+        error_records.append(rec)
+        errors.append(format_error(rec, with_raw=True))
+
     session = requests.Session()
     session.headers.update(HEADERS)
     try:
@@ -667,9 +684,15 @@ def run_crawl(app=None):
     else:
         start_date = now - timedelta(days=cfg["days"])
     end_date = now
+    if log is not None:
+        log.range_start = start_date.strftime("%Y-%m-%d %H:%M")
+        log.range_end = end_date.strftime("%Y-%m-%d %H:%M")
 
     # 按关键词搜索政府采购网
     keywords = get_crawl_keywords()
+    if log is not None:
+        log.keywords = ','.join(keywords)[:500]
+        log.sources = '中国政府采购网(搜索接口)'
     _update_status(phase="关键词搜索", total=len(keywords), current=",".join(keywords))
     candidates = []
     seen_urls = set()
@@ -678,16 +701,16 @@ def run_crawl(app=None):
         try:
             results, err = fetch_search_results(kw, start_date, end_date, session)
             if err:
-                errors.append(f"[关键词:{kw}] {err}")
+                _err('关键词搜索', err, f'关键词:{kw}')
             for it in results:
                 if it["url"] not in seen_urls:
                     seen_urls.add(it["url"])
                     it["source_name"] = f"搜索:{kw}"
                     candidates.append(it)
             if not results and not err:
-                errors.append(f"[关键词:{kw}] 搜索结果为0条")
+                _err('关键词搜索', '搜索结果为0条', f'关键词:{kw}')
         except Exception as e:
-            errors.append(f"[关键词:{kw}] 搜索失败: {str(e)[:100]}")
+            _err('关键词搜索', f'搜索失败: {str(e)[:100]}', f'关键词:{kw}')
         time.sleep(REQUEST_DELAY)
 
     # 按时间倒序；已入库 URL 先剔除（避免重复项占用抽取上限，回溯重采时能捞到漏网新公告），再取 limit 条
@@ -697,7 +720,7 @@ def run_crawl(app=None):
     candidates.sort(key=lambda it: it["dt"], reverse=True)
     filtered = candidates[: cfg["limit"]]
 
-    _update_status(phase="AI抽取", total=len(filtered), count=0, errors=errors)
+    _update_status(phase="AI抽取", total=len(filtered), count=0, errors=list(errors))
     if checkpoint:
         _update_status(message=f"增量采集：从 {checkpoint.strftime('%Y-%m-%d %H:%M')} 起，搜索到 {len(candidates)} 条候选")
         _crawl_status["from_at"] = checkpoint.strftime("%Y-%m-%d %H:%M")
@@ -777,7 +800,7 @@ def run_crawl(app=None):
                 pass
             count -= pending
             pending = 0
-            errors.append(f"[{item['title'][:30]}] {str(e)[:120]}")
+            _err('AI抽取', str(e)[:200], item['title'][:40])
         time.sleep(1)
 
     # 提交最后不足一批的条目
@@ -787,11 +810,11 @@ def run_crawl(app=None):
             pending = 0
         except Exception as e:
             db.session.rollback()
-            errors.append(f"批量入库失败: {str(e)[:120]}")
+            _err('入库', f'批量入库失败: {str(e)[:150]}')
             count -= pending
             pending = 0
 
-    _update_status(phase="完成", count=count, errors=errors)
+    _update_status(phase="完成", count=count, errors=list(errors))
     # 记录本次采集时间点，供下次增量采集使用（仅在有新线索成功入库时推进，
     # 防止 AI 全部抽取失败时检查点空转、漏掉本批次公告）
     if count > 0:
@@ -803,6 +826,12 @@ def run_crawl(app=None):
             store = SystemConfig(key='last_crawl_at', value=ts, description='上次采集时间点(增量采集)')
             db.session.add(store)
         db.session.commit()
+
+    # 收尾：写完整日志（状态自动判定 + 报错分类汇总）
+    scope = f"自 {checkpoint.strftime('%Y-%m-%d %H:%M')}" if checkpoint else f"回溯 {cfg['days']} 天"
+    message = (f"{scope}，搜索到 {len(candidates)} 条候选，抽取 {len(filtered)} 条，"
+               f"新增 {count} 条线索" + (f"，{len(error_records)} 个异常" if error_records else ""))
+    finish_log(log, items_count=count, errors=error_records, message=message)
     return count, errors
 
 
@@ -830,9 +859,11 @@ def start_crawl_background(app):
 
 
 def _crawl_worker(app):
+    log = None
     try:
         with app.app_context():
-            count, errors = run_crawl(app)
+            log = start_log('线索采集')
+            count, errors = run_crawl(app, log=log)
             extra = f"（自 {_crawl_status.get('from_at', '首次/回溯')} 起）" if _crawl_status.get("from_at") else ""
             _crawl_status.update({
                 "message": f"采集完成，新增 {count} 条线索{extra}" + (f"（{len(errors)} 个异常）" if errors else ""),
@@ -845,6 +876,16 @@ def _crawl_worker(app):
         except Exception:
             pass
         _crawl_status.update({"message": f"采集失败: {str(e)[:200]}"})
+        # 中断也要留下一条可查的日志：否则日志里会出现「查不到这次采集」的空档
+        try:
+            with app.app_context():
+                rec = log
+                if rec is not None and rec.status == 'running':
+                    finish_log(rec, status='failed',
+                               errors=[{'stage': '采集链路', 'raw': f'{type(e).__name__}: {e}'}],
+                               message=f"采集链路中断: {str(e)[:200]}")
+        except Exception:
+            pass
     finally:
         _crawl_status.update({"running": False, "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 

@@ -237,6 +237,12 @@ def create_app(config=None):
         _enable_sqlite_foreign_keys()
         db.create_all()
         _migrate_db()
+        # 上次进程若在采集中途退出，日志会永远停在 running；启动时补记为中断
+        try:
+            from app.services.crawl_log import mark_stale_logs
+            mark_stale_logs()
+        except Exception as e:
+            logger.warning('清理残留采集日志失败（不影响服务）: %s', e)
         from app.services.seed import seed_if_empty
         seed_if_empty()
     return app
@@ -293,6 +299,13 @@ def _migrate_db():
         ('leads', 'serial_no', "VARCHAR(20) DEFAULT ''"),
         ('leads', 'full_text', 'TEXT'),
         ('leads', 'reason', "VARCHAR(300) DEFAULT ''"),
+        # 采集日志：完整上下文 + 已分类报错（详见 app/services/crawl_log.py）
+        ('crawl_logs', 'keywords', "VARCHAR(500) DEFAULT ''"),
+        ('crawl_logs', 'range_start', "VARCHAR(30) DEFAULT ''"),
+        ('crawl_logs', 'range_end', "VARCHAR(30) DEFAULT ''"),
+        ('crawl_logs', 'duration_ms', 'INTEGER DEFAULT 0'),
+        ('crawl_logs', 'error_types', "TEXT DEFAULT ''"),
+        ('crawl_logs', 'error_detail', "TEXT DEFAULT ''"),
     ]
     with db.engine.connect() as conn:
         for table, column, col_type in migrations:

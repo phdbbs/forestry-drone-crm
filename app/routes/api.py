@@ -798,14 +798,13 @@ def collect_all_news_api():
 
 @api.route('/news/logs', methods=['GET'])
 def news_logs():
-    logs = CrawlLog.query.order_by(CrawlLog.started_at.desc()).limit(50).all()
-    return jsonify([{
-        "id": l.id, "task_type": l.task_type, "sources": l.sources,
-        "status": l.status, "items_count": l.items_count, "error_count": l.error_count,
-        "message": l.message,
-        "started_at": str(l.started_at) if l.started_at else None,
-        "finished_at": str(l.finished_at) if l.finished_at else None,
-    } for l in logs])
+    """新闻采集日志（兼容旧接口，字段与 /crawl/logs 对齐）。"""
+    try:
+        limit = min(200, max(1, int(request.args.get('limit', 50))))
+    except (TypeError, ValueError):
+        limit = 50
+    logs = CrawlLog.query.order_by(CrawlLog.started_at.desc()).limit(limit).all()
+    return jsonify([_crawl_log_brief(l) for l in logs])
 
 @api.route('/news/customer/<int:id>', methods=['DELETE'])
 def delete_customer_news(id):
@@ -1024,12 +1023,20 @@ def update_config():
 
 @api.route('/config/test-ai', methods=['POST'])
 def test_ai_connection():
+    from app.services.error_classifier import classify_error
     configs = {c.key: c.value for c in SystemConfig.query.all()}
     api_key = configs.get('ai_api_key', '')
     endpoint = configs.get('ai_api_endpoint', 'https://api.openai.com/v1')
     model = configs.get('ai_model', 'gpt-4o')
+
+    def _fail(raw):
+        """把原始报错翻译成可直接识别的类型（模型额度不足 / 鉴权失败 / 服务不可用…）。"""
+        v = classify_error(raw, 'ai')
+        return jsonify({"ok": False, "error": raw, "code": v['code'],
+                        "label": v['label'], "hint": v['hint']}), 200
+
     if not api_key:
-        return jsonify({"ok": False, "error": "请先配置 API Key"}), 400
+        return _fail('模型鉴权失败: 未配置 API Key')
     try:
         resp = http_requests.post(
             endpoint.rstrip('/') + '/chat/completions',
@@ -1039,10 +1046,9 @@ def test_ai_connection():
         )
         if resp.status_code == 200:
             return jsonify({"ok": True, "message": f"连接成功！模型 {model} 响应正常", "model": model})
-        else:
-            return jsonify({"ok": False, "error": f"连接失败 (HTTP {resp.status_code}): {resp.text[:200]}"}), 200
+        return _fail(f"AI 接口返回 HTTP {resp.status_code}: {(resp.text or '')[:500]}")
     except Exception as e:
-        return jsonify({"ok": False, "error": f"连接异常: {str(e)}"}), 200
+        return _fail(f"AI 请求异常: {type(e).__name__}: {e}")
 
 @api.route('/config/crawl-targets', methods=['GET'])
 def get_crawl_targets():
@@ -1082,6 +1088,164 @@ def trigger_crawl():
 def crawl_status():
     from app.services.crawler import get_crawl_status
     return jsonify(get_crawl_status())
+
+
+# ---------------------------------------------------------------------------
+# 采集日志：完整的采集过程记录 + 已分类的报错
+# ---------------------------------------------------------------------------
+def _crawl_log_brief(log, with_detail=False):
+    from app.services.crawl_log import loads
+    from app.services.error_classifier import ERROR_TYPES
+    types = loads(log.error_types, [])
+    for t in types:
+        meta = ERROR_TYPES.get(t.get('code'), {})
+        t.setdefault('severity', meta.get('severity', 'error'))
+        t.setdefault('category', meta.get('category', '其他'))
+        t.setdefault('hint', meta.get('hint', ''))
+    data = {
+        "id": log.id,
+        "task_type": log.task_type or '',
+        "sources": log.sources or '',
+        "keywords": log.keywords or '',
+        "status": log.status or '',
+        "items_count": log.items_count or 0,
+        "error_count": log.error_count or 0,
+        "message": log.message or '',
+        "range_start": log.range_start or '',
+        "range_end": log.range_end or '',
+        "duration_ms": log.duration_ms or 0,
+        "started_at": str(log.started_at) if log.started_at else None,
+        "finished_at": str(log.finished_at) if log.finished_at else None,
+        "error_types": types,
+    }
+    if with_detail:
+        data["error_detail"] = loads(log.error_detail, [])
+    return data
+
+
+def _crawl_log_query():
+    """按查询参数组装过滤条件（列表与统计共用，保证口径一致）。"""
+    q = CrawlLog.query
+    task_type = (request.args.get('task_type') or '').strip()
+    if task_type and task_type != 'all':
+        names = [t.strip() for t in task_type.split(',') if t.strip()]
+        q = q.filter(CrawlLog.task_type.in_(names))
+    status = (request.args.get('status') or '').strip()
+    if status and status != 'all':
+        q = q.filter(CrawlLog.status == status)
+    error_code = (request.args.get('error_code') or '').strip()
+    if error_code and error_code != 'all':
+        # error_types 为 JSON 文本；统一用无空格紧凑格式写入，故可安全 LIKE
+        q = q.filter(CrawlLog.error_types.like(f'%"code":"{error_code}"%'))
+    days = (request.args.get('days') or '').strip()
+    if days == 'today':
+        q = q.filter(CrawlLog.started_at >= datetime.now().replace(hour=0, minute=0, second=0, microsecond=0))
+    elif days and days != 'all':
+        try:
+            since = datetime.now() - timedelta(days=int(days))
+            q = q.filter(CrawlLog.started_at >= since)
+        except (TypeError, ValueError):
+            pass
+    kw = (request.args.get('q') or '').strip()
+    if kw:
+        like = f'%{kw}%'
+        q = q.filter(db.or_(
+            CrawlLog.message.like(like), CrawlLog.keywords.like(like),
+            CrawlLog.sources.like(like), CrawlLog.task_type.like(like),
+        ))
+    return q
+
+
+@api.route('/crawl/logs', methods=['GET'])
+def crawl_logs():
+    """采集日志列表：支持筛选 + 分页，并返回同口径的统计汇总。"""
+    from app.services.crawl_log import loads
+    base = _crawl_log_query()
+
+    # 统计口径与筛选一致，但不受分页影响
+    rows = (base.with_entities(CrawlLog.status, CrawlLog.items_count,
+                               CrawlLog.error_count, CrawlLog.error_types)
+            .order_by(CrawlLog.started_at.desc()).limit(2000).all())
+    status_count = {}
+    items_total = error_total = 0
+    type_bucket = {}
+    for st, items, errs, types_json in rows:
+        status_count[st or 'unknown'] = status_count.get(st or 'unknown', 0) + 1
+        items_total += items or 0
+        error_total += errs or 0
+        for t in loads(types_json, []):
+            code = t.get('code') or 'unknown'
+            entry = type_bucket.setdefault(code, {
+                'code': code, 'label': t.get('label') or code,
+                'severity': t.get('severity') or 'error',
+                'category': t.get('category') or '', 'count': 0,
+            })
+            entry['count'] += t.get('count') or 1
+
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = min(100, max(1, int(request.args.get('page_size', 20))))
+    except (TypeError, ValueError):
+        page_size = 20
+
+    total = base.count()
+    logs = (base.order_by(CrawlLog.started_at.desc())
+            .offset((page - 1) * page_size).limit(page_size).all())
+    task_types = [t for (t,) in db.session.query(CrawlLog.task_type).distinct().all() if t]
+
+    return jsonify({
+        "items": [_crawl_log_brief(l) for l in logs],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "task_types": sorted(task_types),
+        "stats": {
+            "total": len(rows),
+            "items_total": items_total,
+            "error_total": error_total,
+            "by_status": status_count,
+            "error_types": sorted(type_bucket.values(), key=lambda x: -x['count']),
+        },
+    })
+
+
+@api.route('/crawl/logs/<int:log_id>', methods=['GET'])
+def crawl_log_detail(log_id):
+    log = CrawlLog.query.get_or_404(log_id)
+    return jsonify(_crawl_log_brief(log, with_detail=True))
+
+
+@api.route('/crawl/logs', methods=['DELETE'])
+def clear_crawl_logs():
+    """清理采集日志：?days=N 只清 N 天前，缺省全部清空。"""
+    q = CrawlLog.query
+    days = (request.args.get('days') or '').strip()
+    scope = '全部'
+    if days and days != 'all':
+        try:
+            cutoff = datetime.now() - timedelta(days=int(days))
+            q = q.filter(CrawlLog.started_at < cutoff)
+            scope = f'{int(days)} 天前'
+        except (TypeError, ValueError):
+            pass
+    try:
+        n = q.delete(synchronize_session=False)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"清理失败: {str(e)[:120]}"}), 200
+    return jsonify({"ok": True, "deleted": n, "message": f"已清理{scope}的 {n} 条采集日志"})
+
+
+@api.route('/error-types', methods=['GET'])
+def error_types():
+    """报错类型字典：前端图例与筛选下拉使用。"""
+    from app.services.error_classifier import taxonomy
+    return jsonify(taxonomy())
+
 
 @api.route('/ai/urgent-tasks', methods=['GET'])
 def get_urgent_tasks():

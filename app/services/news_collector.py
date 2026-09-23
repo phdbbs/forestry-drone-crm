@@ -13,6 +13,8 @@ from urllib.parse import urljoin
 
 from app import db
 from app.models import Customer, Contact, CustomerNews, ContactNews, CrawlLog, SystemConfig
+from app.services.crawl_log import start_log, finish_log
+from app.services.error_classifier import format_error
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -138,10 +140,19 @@ def _sources_for(customer=None, contact=None):
 def collect_customer_news(customer_id):
     """采集单个客户的新闻（含官网与媒体源），并同步识别该客户下的联系人动态。"""
     customer = Customer.query.get_or_404(customer_id)
-    log = CrawlLog(task_type='客户新闻', sources='', status='success', items_count=0, error_count=0,
-                   started_at=datetime.now())
-    db.session.add(log)
-    errors = []
+    names = [customer.name, customer.short_name] if customer.short_name else [customer.name]
+    sources = _sources_for(customer=customer)
+    log = start_log('客户新闻', sources='; '.join(s["name"] for s in sources))
+    errors = []          # 展示用短文本
+    error_records = []   # 落库用结构化明细
+
+    def _err(stage, raw, target=''):
+        raw = str(raw)[:300]
+        target = str(target or '')[:100]
+        rec = {'stage': stage, 'target': target, 'raw': raw}
+        error_records.append(rec)
+        errors.append(format_error(rec, with_raw=True))
+
     count = 0
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -149,9 +160,6 @@ def collect_customer_news(customer_id):
         session.get('https://www.ccgp.gov.cn/', timeout=15)
     except Exception:
         pass
-    names = [customer.name, customer.short_name] if customer.short_name else [customer.name]
-    sources = _sources_for(customer=customer)
-    log.sources = '; '.join(s["name"] for s in sources)
     try:
         for source in sources:
             try:
@@ -179,20 +187,17 @@ def collect_customer_news(customer_id):
                             count += 1
                             _sync_contact_news_from_text(customer, text, item['title'], item['url'], source['name'], publish)
                         except Exception as e:
-                            errors.append(f"[{source['name']}] {item['title'][:20]}: {str(e)[:80]}")
+                            _err('详情抓取', f'{item["title"][:20]}: {str(e)[:120]}', source['name'])
             except Exception as e:
-                errors.append(f"[{source['name']}] 列表页失败: {str(e)[:100]}")
+                _err('列表页', f'列表页失败: {str(e)[:150]}', source['name'])
             db.session.commit()
     except Exception as e:
-        errors.append(str(e)[:150])
+        _err('采集链路', str(e)[:200])
         db.session.rollback()
-    log.status = 'failed' if len(sources) and len(errors) >= len(sources) else ('partial' if errors else 'success')
-    log.items_count = count
-    log.error_count = len(errors)
-    log.message = f"客户[{customer.name}] 新增 {count} 条新闻" + (f"，{len(errors)} 个异常" if errors else "")
-    log.finished_at = datetime.now()
-    db.session.commit()
-    return {"count": count, "errors": errors, "message": log.message}
+    status = 'failed' if len(sources) and len(error_records) >= len(sources) else ('partial' if error_records else 'success')
+    message = f"客户[{customer.name}] 新增 {count} 条新闻" + (f"，{len(error_records)} 个异常" if error_records else "")
+    finish_log(log, items_count=count, errors=error_records, status=status, message=message)
+    return {"count": count, "errors": errors, "message": message}
 
 
 def _sync_contact_news_from_text(customer, text, title, url, source_name, publish):
@@ -216,10 +221,18 @@ def _sync_contact_news_from_text(customer, text, title, url, source_name, publis
 def collect_contact_news(contact_id):
     """采集单个联系人的动态信息（官网+媒体源按姓名匹配）。"""
     contact = Contact.query.get_or_404(contact_id)
-    log = CrawlLog(task_type='联系人动态', sources='', status='success', items_count=0, error_count=0,
-                   started_at=datetime.now())
-    db.session.add(log)
+    sources = _sources_for(contact=contact)
+    log = start_log('联系人动态', sources='; '.join(s["name"] for s in sources))
     errors = []
+    error_records = []
+
+    def _err(stage, raw, target=''):
+        raw = str(raw)[:300]
+        target = str(target or '')[:100]
+        rec = {'stage': stage, 'target': target, 'raw': raw}
+        error_records.append(rec)
+        errors.append(format_error(rec, with_raw=True))
+
     count = 0
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -227,8 +240,6 @@ def collect_contact_news(contact_id):
         session.get('https://www.ccgp.gov.cn/', timeout=15)
     except Exception:
         pass
-    sources = _sources_for(contact=contact)
-    log.sources = '; '.join(s["name"] for s in sources)
     try:
         for source in sources:
             try:
@@ -254,20 +265,17 @@ def collect_contact_news(contact_id):
                         db.session.add(cn)
                         count += 1
                     except Exception as e:
-                        errors.append(f"[{source['name']}] {item['title'][:20]}: {str(e)[:80]}")
+                        _err('详情抓取', f'{item["title"][:20]}: {str(e)[:120]}', source['name'])
             except Exception as e:
-                errors.append(f"[{source['name']}] 列表页失败: {str(e)[:100]}")
+                _err('列表页', f'列表页失败: {str(e)[:150]}', source['name'])
             db.session.commit()
     except Exception as e:
-        errors.append(str(e)[:150])
+        _err('采集链路', str(e)[:200])
         db.session.rollback()
-    log.status = 'failed' if len(sources) and len(errors) >= len(sources) else ('partial' if errors else 'success')
-    log.items_count = count
-    log.error_count = len(errors)
-    log.message = f"联系人[{contact.name}] 新增 {count} 条动态" + (f"，{len(errors)} 个异常" if errors else "")
-    log.finished_at = datetime.now()
-    db.session.commit()
-    return {"count": count, "errors": errors, "message": log.message}
+    status = 'failed' if len(sources) and len(error_records) >= len(sources) else ('partial' if error_records else 'success')
+    message = f"联系人[{contact.name}] 新增 {count} 条动态" + (f"，{len(error_records)} 个异常" if error_records else "")
+    finish_log(log, items_count=count, errors=error_records, status=status, message=message)
+    return {"count": count, "errors": errors, "message": message}
 
 
 def collect_all(kind='all'):

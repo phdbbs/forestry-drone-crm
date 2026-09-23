@@ -50,6 +50,7 @@
             <el-form-item>
               <el-button type="primary" :loading="crawlSaving" @click="saveCrawl">保存采集配置</el-button>
               <el-button :icon="Lightning" :loading="crawl.running" @click="doCrawl">立即采集</el-button>
+              <el-button :icon="Document" @click="tab = 'logs'">查看采集日志</el-button>
             </el-form-item>
           </el-form>
           <el-alert
@@ -59,12 +60,211 @@
             show-icon
             :title="`采集进行中: ${crawl.phase} ${crawl.progress}/${crawl.total || '-'} ${crawl.current} 已生成 ${crawl.count} 条`"
           />
-          <el-alert
-            v-else-if="crawl.message"
-            type="success"
-            :closable="false"
-            show-icon
-            :title="`上次: ${crawl.message}${crawl.errors.length ? ' | ' + crawl.errors.slice(0, 2).join('; ') : ''}`"
+          <template v-else-if="crawl.message">
+            <el-alert type="success" :closable="false" show-icon :title="`上次: ${crawl.message}`" />
+            <div v-if="crawl.errors.length" class="run-errors">
+              <div class="run-errors-title">本次异常（已按类型识别）：</div>
+              <el-tag
+                v-for="(e, i) in crawl.errors"
+                :key="i"
+                size="small"
+                type="danger"
+                effect="light"
+                class="err-chip"
+              >{{ e }}</el-tag>
+            </div>
+          </template>
+        </el-tab-pane>
+
+        <!-- ------------------------------ 采集日志 ------------------------------ -->
+        <el-tab-pane :label="logTabLabel" name="logs">
+          <!-- 概览 -->
+          <el-row :gutter="12" class="stat-row">
+            <el-col :xs="12" :sm="6">
+              <div class="mini-card">
+                <div class="mini-label">采集任务</div>
+                <div class="mini-value">{{ logStats.total }}</div>
+              </div>
+            </el-col>
+            <el-col :xs="12" :sm="6">
+              <div class="mini-card">
+                <div class="mini-label">新增数据</div>
+                <div class="mini-value ok">{{ logStats.items_total }}</div>
+              </div>
+            </el-col>
+            <el-col :xs="12" :sm="6">
+              <div class="mini-card">
+                <div class="mini-label">异常总数</div>
+                <div class="mini-value bad">{{ logStats.error_total }}</div>
+              </div>
+            </el-col>
+            <el-col :xs="12" :sm="6">
+              <div class="mini-card">
+                <div class="mini-label">成功率</div>
+                <div class="mini-value">{{ successRate }}</div>
+              </div>
+            </el-col>
+          </el-row>
+
+          <!-- 状态分布 -->
+          <div class="chip-bar">
+            <span class="bar-label">状态：</span>
+            <el-tag
+              v-for="s in STATUS_LIST"
+              :key="s.value"
+              size="small"
+              :type="s.tag"
+              :effect="filters.status === s.value ? 'dark' : 'plain'"
+              class="chip"
+              @click="filters.status = filters.status === s.value ? 'all' : s.value; loadLogs()"
+            >{{ s.label }} {{ logStats.by_status[s.value] || 0 }}</el-tag>
+          </div>
+
+          <!-- 错误类型分布 -->
+          <div v-if="logStats.error_types.length" class="chip-bar">
+            <span class="bar-label">报错类型：</span>
+            <el-tooltip
+              v-for="t in logStats.error_types"
+              :key="t.code"
+              :content="typeHint(t.code)"
+              placement="top"
+            >
+              <el-tag
+                size="small"
+                :type="sevTag(t.severity)"
+                :effect="filters.error_code === t.code ? 'dark' : 'plain'"
+                class="chip"
+                @click="filters.error_code = filters.error_code === t.code ? 'all' : t.code; loadLogs()"
+              >{{ t.label }} × {{ t.count }}</el-tag>
+            </el-tooltip>
+          </div>
+
+          <!-- 筛选 -->
+          <div class="log-filters">
+            <el-select v-model="filters.task_type" size="small" class="f-select" @change="loadLogs">
+              <el-option label="全部任务" value="all" />
+              <el-option v-for="t in taskTypes" :key="t" :label="t" :value="t" />
+            </el-select>
+            <el-select v-model="filters.status" size="small" class="f-select" @change="loadLogs">
+              <el-option label="全部状态" value="all" />
+              <el-option v-for="s in STATUS_LIST" :key="s.value" :label="s.label" :value="s.value" />
+            </el-select>
+            <el-select v-model="filters.error_code" size="small" class="f-select wide" @change="loadLogs">
+              <el-option label="全部报错类型" value="all" />
+              <el-option-group v-for="g in errorTypeGroups" :key="g.category" :label="g.category">
+                <el-option v-for="t in g.items" :key="t.code" :label="t.label" :value="t.code" />
+              </el-option-group>
+            </el-select>
+            <el-select v-model="filters.days" size="small" class="f-select" @change="loadLogs">
+              <el-option label="全部时间" value="all" />
+              <el-option label="今天" value="today" />
+              <el-option label="近 7 天" value="7" />
+              <el-option label="近 30 天" value="30" />
+            </el-select>
+            <el-input
+              v-model="filters.q"
+              size="small"
+              class="f-search"
+              placeholder="搜索关键词 / 来源 / 结果信息"
+              clearable
+              @keyup.enter="loadLogs"
+              @clear="loadLogs"
+            />
+            <el-button size="small" :icon="Search" @click="loadLogs">查询</el-button>
+            <el-button size="small" @click="resetFilters">重置</el-button>
+            <div class="grow" />
+            <el-button size="small" :icon="Refresh" @click="loadLogs">刷新</el-button>
+            <el-button size="small" type="danger" plain :icon="Delete" @click="clearLogs">清理日志</el-button>
+          </div>
+
+          <!-- 日志表 -->
+          <el-table
+            v-loading="logsLoading"
+            :data="logs"
+            size="small"
+            row-key="id"
+            empty-text="暂无采集日志，可在「采集配置」中点击「立即采集」"
+            @expand-change="onExpand"
+          >
+            <el-table-column type="expand">
+              <template #default="{ row }">
+                <div class="detail-wrap">
+                  <div v-if="!row._detail" class="muted">加载明细中…</div>
+                  <template v-else-if="row._detail.length">
+                    <div class="detail-head">本次异常明细（{{ row._detail.length }}）</div>
+                    <el-table :data="row._detail" size="small" border class="detail-table">
+                      <el-table-column label="报错类型" width="140">
+                        <template #default="{ row: d }">
+                          <el-tag size="small" :type="sevTag(d.severity)">{{ d.label }}</el-tag>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="stage" label="阶段" width="110" />
+                      <el-table-column prop="target" label="对象" min-width="160" show-overflow-tooltip />
+                      <el-table-column prop="raw" label="原始报错" min-width="280" show-overflow-tooltip />
+                      <el-table-column prop="hint" label="处理建议" min-width="260" show-overflow-tooltip />
+                    </el-table>
+                  </template>
+                  <div v-else class="muted">本次采集无异常。</div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="开始时间" width="150">
+              <template #default="{ row }">{{ fmtTime(row.started_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="task_type" label="任务类型" width="110" show-overflow-tooltip />
+            <el-table-column label="状态" width="96" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="采集内容" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.keywords || row.sources || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="结果信息" min-width="260" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.message || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="新增" width="72" align="center">
+              <template #default="{ row }">
+                <span :class="{ ok: row.items_count > 0 }">{{ row.items_count }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="异常" width="200">
+              <template #default="{ row }">
+                <template v-if="row.error_types && row.error_types.length">
+                  <el-tooltip
+                    v-for="t in row.error_types.slice(0, 2)"
+                    :key="t.code"
+                    :content="typeHint(t.code)"
+                    placement="top"
+                  >
+                    <el-tag size="small" :type="sevTag(t.severity)" class="chip-sm">{{ t.label }} {{ t.count }}</el-tag>
+                  </el-tooltip>
+                  <span v-if="row.error_types.length > 2" class="muted">+{{ row.error_types.length - 2 }}</span>
+                </template>
+                <span v-else class="muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="耗时" width="80" align="right">
+              <template #default="{ row }">{{ fmtDuration(row.duration_ms) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="72" align="center" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-pagination
+            v-if="logTotal > 0"
+            class="pager"
+            size="small"
+            layout="total, sizes, prev, pager, next"
+            :total="logTotal"
+            :current-page="page"
+            :page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            @current-change="(p) => { page = p; loadLogs() }"
+            @size-change="(s) => { pageSize = s; page = 1; loadLogs() }"
           />
         </el-tab-pane>
 
@@ -107,40 +307,78 @@
               <el-button :loading="batchLoading" @click="batchCollect">批量采集客户新闻 + 联系人动态</el-button>
             </el-form-item>
           </el-form>
-
-          <el-divider content-position="left">采集日志</el-divider>
-          <el-table v-loading="logsLoading" :data="logs" size="small" max-height="280" empty-text="暂无采集日志">
-            <el-table-column label="时间" width="110">
-              <template #default="{ row }">{{ fmtDate(row.started_at) }}</template>
-            </el-table-column>
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag size="small" :type="logTagType(row.status)">{{ logLabel(row.status) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="task_type" label="类型" width="140" show-overflow-tooltip />
-            <el-table-column label="结果" width="140">
-              <template #default="{ row }">
-                新增 {{ row.items_count }} 条<template v-if="row.error_count"> / 异常 {{ row.error_count }}</template>
-              </template>
-            </el-table-column>
-            <el-table-column prop="message" label="信息" min-width="240" show-overflow-tooltip />
-          </el-table>
+          <el-alert type="info" :closable="false" show-icon
+            title="新闻采集的运行记录已并入「采集日志」标签页，可按任务类型「客户新闻 / 联系人动态」筛选。">
+            <el-button link type="primary" @click="filters.task_type = 'all'; tab = 'logs'">前往采集日志 →</el-button>
+          </el-alert>
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <!-- 日志详情抽屉 -->
+    <el-drawer v-model="drawer" title="采集日志详情" size="720px" direction="rtl">
+      <div v-if="detail" class="drawer-body">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="任务类型">{{ detail.task_type || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag size="small" :type="statusTag(detail.status)">{{ statusLabel(detail.status) }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{ fmtTime(detail.started_at) }}</el-descriptions-item>
+          <el-descriptions-item label="结束时间">{{ fmtTime(detail.finished_at) }}</el-descriptions-item>
+          <el-descriptions-item label="耗时">{{ fmtDuration(detail.duration_ms) }}</el-descriptions-item>
+          <el-descriptions-item label="新增 / 异常">
+            <span class="ok">{{ detail.items_count }}</span> / <span class="bad">{{ detail.error_count }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="搜索范围" :span="2">
+            {{ detail.range_start || '—' }} ~ {{ detail.range_end || '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="关键词" :span="2">{{ detail.keywords || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="来源" :span="2">{{ detail.sources || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="结果信息" :span="2">{{ detail.message || '—' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="detail-head">报错分类汇总</div>
+        <div v-if="detail.error_types && detail.error_types.length" class="chip-bar">
+          <el-tag v-for="t in detail.error_types" :key="t.code" size="small" :type="sevTag(t.severity)">
+            {{ t.label }} × {{ t.count }}
+          </el-tag>
+        </div>
+        <div v-else class="muted">本次采集未产生异常。</div>
+
+        <div class="detail-head">异常明细（{{ (detail.error_detail || []).length }}）</div>
+        <el-table :data="detail.error_detail || []" size="small" border empty-text="无">
+          <el-table-column label="报错类型" width="130">
+            <template #default="{ row }">
+              <el-tag size="small" :type="sevTag(row.severity)">{{ row.label }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="stage" label="阶段" width="100" />
+          <el-table-column prop="target" label="对象" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="raw" label="原始报错" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="hint" label="处理建议" min-width="240" show-overflow-tooltip />
+        </el-table>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lightning, Tools } from '@element-plus/icons-vue'
-import { get, getList, post, put, del, fmtDate } from '../api'
+import { Lightning, Tools, Document, Refresh, Search, Delete } from '@element-plus/icons-vue'
+import { get, getList, post, put, del } from '../api'
 import { useCrawlStore } from '../stores/app'
 
 const crawl = useCrawlStore()
 const tab = ref('ai')
+
+const STATUS_LIST = [
+  { value: 'running', label: '进行中', tag: 'info' },
+  { value: 'success', label: '成功', tag: 'success' },
+  { value: 'partial', label: '部分异常', tag: 'warning' },
+  { value: 'failed', label: '失败', tag: 'danger' },
+  { value: 'interrupted', label: '已中断', tag: 'info' },
+]
 
 const ai = reactive({ endpoint: '', key: '', model: '' })
 const aiFormRef = ref(null)
@@ -162,12 +400,51 @@ const newsSources = ref('')
 const newsSaving = ref(false)
 const skills = ref([])
 const skillsLoading = ref(false)
-const logs = ref([])
-const logsLoading = ref(false)
 const batchLoading = ref(false)
 
-const logTagType = (s) => (s === 'success' ? 'success' : s === 'partial' ? 'warning' : 'danger')
-const logLabel = (s) => (s === 'success' ? '成功' : s === 'partial' ? '部分异常' : '失败')
+// ------------------------------ 采集日志 ------------------------------
+const logs = ref([])
+const logsLoading = ref(false)
+const logTotal = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
+const taskTypes = ref([])
+const errorTypes = ref([])
+const detail = ref(null)
+const drawer = ref(false)
+const filters = reactive({ task_type: 'all', status: 'all', error_code: 'all', days: '7', q: '' })
+const logStats = reactive({ total: 0, items_total: 0, error_total: 0, by_status: {}, error_types: [] })
+
+const logTabLabel = computed(() => (logStats.total ? `采集日志 (${logStats.total})` : '采集日志'))
+
+const successRate = computed(() => {
+  const st = logStats.by_status || {}
+  const ok = (st.success || 0) + (st.partial || 0)
+  const all = logStats.total || 0
+  return all ? Math.round((ok / all) * 100) + '%' : '—'
+})
+
+// 报错类型字典按大类分组，供筛选下拉使用
+const errorTypeGroups = computed(() => {
+  const groups = {}
+  for (const t of errorTypes.value) {
+    (groups[t.category] = groups[t.category] || []).push(t)
+  }
+  return Object.entries(groups).map(([category, items]) => ({ category, items }))
+})
+
+const typeHint = (code) => errorTypes.value.find((t) => t.code === code)?.hint || ''
+
+const statusLabel = (s) => STATUS_LIST.find((x) => x.value === s)?.label || s || '—'
+const statusTag = (s) => STATUS_LIST.find((x) => x.value === s)?.tag || 'info'
+const sevTag = (sev) => (sev === 'error' ? 'danger' : sev === 'warning' ? 'warning' : 'info')
+
+const fmtTime = (d) => (d ? String(d).substring(0, 19) : '—')
+const fmtDuration = (ms) => {
+  const n = Number(ms) || 0
+  if (!n) return '—'
+  return n < 1000 ? `${n}ms` : `${(n / 1000).toFixed(1)}s`
+}
 
 const parseSources = (v) => (v || '').split('\n').map((s) => s.trim()).filter(Boolean).map((l) => {
   const sep = l.indexOf('|')
@@ -201,7 +478,9 @@ async function testAI() {
   aiTesting.value = true
   try {
     const r = await post('/config/test-ai')
-    r.ok ? ElMessage.success(r.message || '连接正常') : ElMessage.error(r.error || '连接失败')
+    if (r.ok) return ElMessage.success(r.message || '连接正常')
+    // 报错已按类型归类：直接展示「模型额度不足 / 鉴权失败…」及处理建议
+    ElMessage.error(r.label ? `${r.label}：${r.hint || r.error}` : (r.error || '连接失败'))
   } finally {
     aiTesting.value = false
   }
@@ -257,8 +536,61 @@ async function batchCollect() {
 
 async function loadLogs() {
   logsLoading.value = true
-  logs.value = await getList('/news/logs')
-  logsLoading.value = false
+  try {
+    const qs = new URLSearchParams({
+      page: String(page.value), page_size: String(pageSize.value),
+      task_type: filters.task_type, status: filters.status,
+      error_code: filters.error_code, days: filters.days,
+    })
+    if (filters.q) qs.set('q', filters.q)
+    const r = await get('/crawl/logs?' + qs.toString())
+    if (r.error) { ElMessage.error(r.error); return }
+    logs.value = r.items || []
+    logTotal.value = r.total || 0
+    taskTypes.value = r.task_types || []
+    Object.assign(logStats, r.stats || {})
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+async function loadErrorTypes() {
+  errorTypes.value = await getList('/error-types')
+}
+
+function resetFilters() {
+  Object.assign(filters, { task_type: 'all', status: 'all', error_code: 'all', days: '7', q: '' })
+  page.value = 1
+  loadLogs()
+}
+
+// 展开行时才拉取明细，避免列表接口返回大字段
+async function onExpand(row, expanded) {
+  const isOpen = Array.isArray(expanded) ? expanded.some((r) => r.id === row.id) : !!expanded
+  if (!isOpen || row._detail) return
+  const r = await get(`/crawl/logs/${row.id}`)
+  row._detail = r.error_detail || []
+}
+
+async function openDetail(row) {
+  const r = await get(`/crawl/logs/${row.id}`)
+  if (r.error) return ElMessage.error(r.error)
+  detail.value = r
+  drawer.value = true
+}
+
+async function clearLogs() {
+  try {
+    await ElMessageBox.confirm(
+      '将删除所选时间范围内的采集日志记录（不影响已采集的线索/客户数据）。是否继续？',
+      '清理采集日志', { type: 'warning', confirmButtonText: '删除全部', cancelButtonText: '取消' },
+    )
+  } catch (e) { return }
+  const r = await del('/crawl/logs?days=all')
+  if (r.error) return ElMessage.error(r.error)
+  ElMessage.success(r.message || '已清理')
+  page.value = 1
+  loadLogs()
 }
 
 async function loadSkills() {
@@ -297,11 +629,15 @@ onMounted(async () => {
   aiFormRef.value?.clearValidate()
   crawlFormRef.value?.clearValidate()
   loadSkills()
+  loadErrorTypes()
   loadLogs()
   crawl.checkRunning()
 })
 
-watch(() => crawl.finishedAt, () => { loadLogs() })
+// 采集结束后自动刷新日志
+watch(() => crawl.finishedAt, () => {
+  if (crawl.finishedAt) { page.value = 1; loadLogs() }
+})
 </script>
 
 <style scoped>
@@ -310,4 +646,41 @@ watch(() => crawl.finishedAt, () => { loadLogs() })
 .skill-cell { display: flex; align-items: center; gap: 8px; }
 .skill-icon { color: var(--el-color-primary); }
 .skill-name { font-weight: 500; }
+
+.run-errors { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.run-errors-title { font-size: 13px; color: var(--el-text-color-secondary); margin-right: 4px; }
+.err-chip { max-width: 100%; }
+
+.stat-row { margin-bottom: 14px; }
+.mini-card {
+  background: var(--el-fill-color-blank);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+.mini-label { font-size: 12px; color: var(--el-text-color-secondary); }
+.mini-value { font-size: 22px; font-weight: 600; margin-top: 2px; }
+.mini-value.ok { color: var(--el-color-success); }
+.mini-value.bad { color: var(--el-color-danger); }
+
+.chip-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.bar-label { font-size: 13px; color: var(--el-text-color-secondary); }
+.chip { cursor: pointer; }
+.chip-sm { margin-right: 4px; }
+
+.log-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 12px; }
+.f-select { width: 128px; }
+.f-select.wide { width: 168px; }
+.f-search { width: 220px; }
+.grow { flex: 1; }
+
+.detail-wrap { padding: 8px 12px 12px; }
+.detail-head { font-size: 13px; font-weight: 600; margin: 14px 0 8px; }
+.detail-table { margin-bottom: 4px; }
+.pager { margin-top: 12px; justify-content: flex-end; }
+.drawer-body { padding-bottom: 20px; }
+
+.ok { color: var(--el-color-success); }
+.bad { color: var(--el-color-danger); }
+.muted { color: var(--el-text-color-secondary); font-size: 13px; }
 </style>

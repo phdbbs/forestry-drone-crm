@@ -10,6 +10,10 @@ from app.services.textutil import clean_text
 
 _ai_lock = threading.Lock()
 
+# 这些状态码重试没有意义：请求体/密钥/额度的问题，重试 2 轮只会白等 30 秒，
+# 还会把「模型额度不足」这类本可立刻识别的故障拖到超时。直接抛出交给分类器。
+_NON_RETRYABLE_STATUS = {400, 401, 402, 403, 404, 422}
+
 
 def get_ai_config():
     configs = {c.key: c.value for c in SystemConfig.query.all()}
@@ -57,10 +61,15 @@ def chat(messages, max_tokens=1200, temperature=0.2, timeout=240, retries=2):
                     return data["choices"][0]["message"]["content"] or ""
                 except (KeyError, IndexError, TypeError):
                     raise RuntimeError(f"AI 响应格式异常: {str(data)[:200]}")
+            # 保留完整错误体（最多 500 字符）：额度/鉴权类错误的关键词
+            # （insufficient_quota、余额不足…）只在 body 里，截太短会分类不出来
+            body = (resp.text or '')[:500]
+            if resp.status_code in _NON_RETRYABLE_STATUS:
+                raise RuntimeError(f"AI 接口返回 HTTP {resp.status_code}: {body}")
             if attempt < retries:
                 time.sleep(15)
                 continue
-            raise RuntimeError(f"AI 接口返回 HTTP {resp.status_code}: {resp.text[:200]}")
+            raise RuntimeError(f"AI 接口返回 HTTP {resp.status_code}: {body}")
 
 
 def _extract_json(text):

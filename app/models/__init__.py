@@ -78,17 +78,34 @@ class ContactNews(db.Model):
     contact = db.relationship('Contact', backref='news_items')
 
 class CrawlLog(db.Model):
-    """采集任务日志。"""
+    """采集任务日志。
+
+    status 取值：running（进行中）/ success（成功）/ partial（部分异常）/
+    failed（失败）/ interrupted（进程中断，启动时由 mark_stale_logs 补记）。
+
+    error_types / error_detail 为 JSON 文本，存的是「已分类」的报错：
+      error_types  : [{"code":"ai_quota","label":"模型额度不足","count":3,...}]
+      error_detail : [{"stage":"AI抽取","target":"某公告","raw":"...","code":...}]
+    分类逻辑见 app/services/error_classifier.py。
+    """
     __tablename__ = 'crawl_logs'
     id = db.Column(db.Integer, primary_key=True)
     task_type = db.Column(db.String(50))
     sources = db.Column(db.String(500), default='')
-    status = db.Column(db.String(20), default='success')  # success/partial/failed
+    status = db.Column(db.String(20), default='success')
     items_count = db.Column(db.Integer, default=0)
     error_count = db.Column(db.Integer, default=0)
     message = db.Column(db.Text)
     started_at = db.Column(db.DateTime, default=datetime.now)
     finished_at = db.Column(db.DateTime)
+    # 本次采集的上下文：关键词、时间范围、耗时（毫秒）
+    keywords = db.Column(db.String(500), default='')
+    range_start = db.Column(db.String(30), default='')
+    range_end = db.Column(db.String(30), default='')
+    duration_ms = db.Column(db.Integer, default=0)
+    # 分类后的报错汇总 / 明细（JSON 文本）
+    error_types = db.Column(db.Text, default='')
+    error_detail = db.Column(db.Text, default='')
 
 class Lead(db.Model):
     __tablename__ = 'leads'
