@@ -125,15 +125,26 @@ def _configure_file_logging(app):
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         # 测试会反复 create_app，避免重复挂载同一文件 handler
+        handler = None
         for h in app.logger.handlers:
             if isinstance(h, RotatingFileHandler) and getattr(h, 'baseFilename', '') == log_path:
-                return
-        handler = RotatingFileHandler(log_path, maxBytes=2 * 1024 * 1024, backupCount=3, encoding='utf-8')
-        handler.setFormatter(logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-        ))
-        handler.setLevel(logging.INFO)
-        app.logger.addHandler(handler)
+                handler = h
+                break
+        if handler is None:
+            handler = RotatingFileHandler(log_path, maxBytes=2 * 1024 * 1024, backupCount=3, encoding='utf-8')
+            handler.setFormatter(logging.Formatter(
+                '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+            ))
+            handler.setLevel(logging.INFO)
+            app.logger.addHandler(handler)
+        app.logger.setLevel(logging.INFO)
+        # 模块级 logger（启动自愈、连接池重建等诊断信息）默认会被 root 的
+        # WARNING 级别拦掉，导致 crm.log 一直是空的；这里显式接上同一个 handler
+        if handler not in logger.handlers:
+            logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        # 已有专用 handler，关掉向上传播，避免同一条日志被 root 重复输出
+        logger.propagate = False
     except Exception as e:
         logger.warning('日志文件初始化失败（不影响服务）: %s', e)
 
