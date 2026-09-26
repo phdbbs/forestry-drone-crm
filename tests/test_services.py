@@ -206,11 +206,12 @@ class TestRegions:
 
 class TestCrawlerHelpers:
     def test_unit_04_001_extract_budget(self):
-        """UNIT-04-001 预算提取支持三种常见写法。"""
+        """UNIT-04-001 预算提取支持常见写法，并归一为"N万"（万元口径）。"""
         from app.services.crawler import extract_budget
-        assert extract_budget('预算金额：150万元') == '150'
-        assert extract_budget('项目预算：1,200') == '1,200'
-        assert extract_budget('总预算：88') == '88'
+        assert extract_budget('预算金额：150万元') == '150万'
+        assert extract_budget('项目预算：1,200') == '1200万'
+        assert extract_budget('总预算：88') == '88万'
+        assert extract_budget('预算金额：3亿元') == '30000万'
         assert extract_budget('无预算信息') == ''
 
     def test_unit_04_002_extract_region(self):

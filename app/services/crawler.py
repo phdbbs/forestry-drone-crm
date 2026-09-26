@@ -8,6 +8,7 @@ from app.services.ai_client import extract_lead
 from app.services.regions import resolve_region
 from app.services.serial import gen_serial
 from app.services.textutil import clean_text
+from app.services.amountutil import normalize_amount_text
 from app.services.crawl_log import start_log, finish_log
 from app.services.error_classifier import format_error
 import re, time, json
@@ -60,10 +61,14 @@ def get_crawl_keywords():
 
 
 def extract_budget(text):
-    for p in [r"预算[金额价格]*[:：]\s*([\d,.]+)\s*[万]?元", r"项目预算[:：]\s*([\d,.]+)", r"总预算[:：]\s*([\d,.]+)"]:
+    # 连同"万/亿/元"单位一起捕获，避免"150万元"被剥成"150"后单位信息丢失；
+    # 结果统一归一为"N万"（万元）字符串，无法解析时返回空串。
+    for p in [r"预算[金额价格]*[:：]\s*([\d,.]+\s*(?:万|亿)?\s*元?)",
+              r"项目预算[:：]\s*([\d,.]+\s*(?:万|亿)?\s*元?)",
+              r"总预算[:：]\s*([\d,.]+\s*(?:万|亿)?\s*元?)"]:
         m = re.search(p, text)
         if m:
-            return m.group(1)
+            return normalize_amount_text(m.group(1))
     return ""
 
 
@@ -740,6 +745,8 @@ def run_crawl(app=None, log=None):
             budget = ai["budget"]
             if budget is None:
                 budget = extract_budget(page_text)
+            # AI 与正则两条路径的产物口径不一（数字/带逗号/元万混杂），统一归一为"N万"
+            budget = normalize_amount_text(budget)
             deadline = ai["deadline"]
             if deadline:
                 try:
@@ -763,7 +770,7 @@ def run_crawl(app=None, log=None):
             ))
             lead = Lead(
                 title=clean_text(ai["title"], collapse_space=True)[:500],
-                budget=str(budget) if budget else "",
+                budget=budget or "",
                 deadline=deadline,
                 region=clean_text(region, collapse_space=True),
                 purchaser=clean_text(ai["purchaser"], collapse_space=True),

@@ -149,7 +149,8 @@ class TestAICSM002Lead:
         lid = seed['lead_active']
         ok(client.put(f'/api/leads/{lid}', json={'budget': '180', 'region': '浙江省'}))
         body = ok(client.get(f'/api/leads/{lid}'))
-        assert body['budget'] == '180' and body['region'] == '浙江省'
+        # 裸数字按万元惯例归一为 "180万"（v3.1 金额归一化）
+        assert body['budget'] == '180万' and body['region'] == '浙江省'
 
     def test_m002_006_status_filter(self, client):
         """AICS-M002-006 按状态过滤。"""
@@ -287,7 +288,7 @@ class TestAICSM003Opportunity:
                                customer_id=seed['customer'], amount='500',
                                current_stage='需求调研', probability=40)
         body = ok(client.get(f'/api/opportunities/{oid}'))
-        assert body['amount'] == '500' and body['current_stage'] == '需求调研'
+        assert body['amount'] == '500万' and body['current_stage'] == '需求调研'
         assert body['probability'] == 40
 
     def test_m003_003_detail_with_lead(self, client):
@@ -308,7 +309,7 @@ class TestAICSM003Opportunity:
             'expected_close': '2026-12-31'}))
         body = ok(client.get(f'/api/opportunities/{oid}'))
         assert body['title'] == 'AICS 编辑后商机'
-        assert body['amount'] == '180' and body['probability'] == 66
+        assert body['amount'] == '180万' and body['probability'] == 66
         assert body['expected_close'] == '2026-12-31'
 
     def test_m003_005_stage_change_writes_record(self, client, seed):
@@ -505,6 +506,18 @@ class TestAICSM005Activity:
         ok(client.put(f'/api/activities/{aid}', json={'next_time': '2026-08-10'}))
         plans = [f for f in ok(client.get('/api/followups')) if f['source_activity_id'] == aid]
         assert plans and plans[0]['plan_date'].startswith('2026-08-10')
+
+    def test_m005_008b_update_syncs_next_content(self, client, seed):
+        """AICS-M005-008b 编辑联络的「下次预计联系内容」同步到联络计划（#7 回归）。"""
+        aid = make_activity(client, 'AICS 改下次内容', customer_id=seed['customer'],
+                            time='2026-07-31 10:00', next_time='2026-08-05', next_content='初始下次内容')
+        plans = [f for f in ok(client.get('/api/followups')) if f['source_activity_id'] == aid]
+        assert plans and plans[0]['content'] == '初始下次内容'
+        # 前端编辑时以 next_content 字段提交，须落到联动计划
+        ok(client.put(f'/api/activities/{aid}',
+                      json={'next_time': '2026-08-05', 'next_content': '修改后的下次内容'}))
+        plans = [f for f in ok(client.get('/api/followups')) if f['source_activity_id'] == aid]
+        assert plans and plans[0]['content'] == '修改后的下次内容'
 
     def test_m005_009_clear_next_time_removes_plan(self, client, seed):
         """AICS-M005-009 清空下次跟进时间时删除未执行的联动计划。"""
@@ -861,9 +874,20 @@ class TestAICSM010Dashboard:
         assert r.status_code == 200 and '<!DOCTYPE html>' in r.get_data(as_text=True)
 
     def test_m010_002_spa_fallback_and_static(self, client):
-        """AICS-M010-002 前端路由回退到 SPA 入口，静态资源可直接访问。"""
+        """AICS-M010-002 前端路由回退到 SPA 入口；真实静态资源直接可访问；
+        不存在的 JS 分块必须返回真 404，而不是被兜底成 index.html
+        （HTML 顶替 JS 会让浏览器动态 import 静默失败，页面“点了没反应”）。"""
         assert client.get('/leads').status_code == 200
-        assert client.get('/assets/index-CVvyZIj2.css').status_code == 200
+        import os
+        dist_assets = os.path.join(client.application.static_folder, 'dist', 'assets')
+        if os.path.isdir(dist_assets):
+            real = sorted(f for f in os.listdir(dist_assets) if f.endswith('.css'))
+            assert real, 'dist/assets 应存在 css 产物'
+            r = client.get('/assets/' + real[0])
+            assert r.status_code == 200 and 'text/css' in r.content_type
+        missing = client.get('/assets/__definitely_missing__.js')
+        assert missing.status_code == 404
+        assert 'text/html' not in missing.content_type
 
     def test_m010_003_stats(self, client):
         """AICS-M010-003 统计卡数据齐全且活跃线索数与列表一致。"""

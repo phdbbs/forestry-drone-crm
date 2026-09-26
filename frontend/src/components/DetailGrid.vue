@@ -1,51 +1,93 @@
 <template>
-  <el-descriptions
-    :column="cols"
-    :border="border"
-    :label-width="labW"
-    size="default"
-    class="detail-desc"
-  >
-    <el-descriptions-item
-      v-for="(it, i) in items"
+  <!--
+    详情去格线版：把 "label : value" 从 el-descriptions 的重表格里解放出来。
+    items = [{ label, value, full, slot, mono, tone }]
+      - full=true 独占整行；slot 走具名插槽；mono 用等宽字；tone 语义色
+    两列响应式：窄屏退化一列，标签在值上方。
+  -->
+  <dl class="dg" :class="{ 'dg--bordered': bordered, 'dg--dense': dense }">
+    <div
+      v-for="(it, i) in normalized"
       :key="i"
-      :label="it.label"
-      :span="it.full ? cols : 1"
+      class="dg-row"
+      :class="{ 'dg-row--full': it.full }"
     >
-      <slot v-if="it.slot" :name="it.slot" :item="it" />
-      <span v-else class="dg-value">{{ it.value || (it.value === 0 ? 0 : '-') }}</span>
-    </el-descriptions-item>
-  </el-descriptions>
+      <dt class="dg-label">{{ it.label }}</dt>
+      <dd class="dg-value" :class="{ 'is-mono': it.mono, 'is-empty': it._empty, [`is-${it.tone}`]: it.tone }">
+        <slot v-if="it.slot" :name="it.slot" :item="it" />
+        <template v-else>{{ it._empty ? '—' : it.value }}</template>
+      </dd>
+    </div>
+  </dl>
 </template>
 
 <script setup>
-// 详情字段展示：基于 el-descriptions 封装（替代原先手写的 grid）。
-// items = [{ label, value, full, slot }]，full=true 时该字段占满整行。
-// 具名插槽按 item.slot 转发，用法与旧版一致：<template #serial>...</template>
-//
-// 窄屏降为单列：两列时每列仅约 180px，减去 label 就放不下内容。
-// 这是 prop 驱动的布局，CSS 改不了，只能走 useIsMobile。
 import { computed } from 'vue'
 import { useIsMobile } from '../composables/useIsMobile'
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
-  column: { type: Number, default: 2 },
-  border: { type: Boolean, default: true },
-  labelWidth: { type: [String, Number], default: 108 },
+  bordered: { type: Boolean, default: false },
+  dense: { type: Boolean, default: false },
 })
-
 const isMobile = useIsMobile()
-const cols = computed(() => (isMobile.value ? 1 : props.column))
-const labW = computed(() => (isMobile.value ? 84 : props.labelWidth))
+const normalized = computed(() => props.items.map((it) => {
+  const v = it.value
+  const empty = v === null || v === undefined || v === '' || (typeof v === 'string' && v.trim() === '')
+  return { ...it, _empty: empty }
+}))
 </script>
 
 <style scoped>
-.detail-desc :deep(.el-descriptions__label) {
-  color: var(--el-text-color-secondary);
+.dg {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  font-size: 13.5px;
+}
+.dg--dense { font-size: 13px; }
+.dg-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 0;
+  min-width: 0;
+}
+.dg-row--full { grid-column: 1 / -1; }
+.dg--bordered .dg-row {
+  border-bottom: 1px solid var(--crm-border-soft);
+}
+.dg--bordered .dg-row:last-child { border-bottom: none; }
+.dg-label {
+  color: var(--crm-fg-3);
   font-weight: 400;
+  font-size: 12.5px;
+  line-height: 1.6;
+  letter-spacing: -0.005em;
 }
 .dg-value {
-  word-break: break-all;
+  color: var(--crm-fg-1);
+  margin: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  font-weight: 500;
+}
+.dg-value.is-empty { color: var(--crm-fg-4); font-weight: 400; }
+.dg-value.is-mono { font-family: var(--crm-font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.dg-value.is-warning { color: var(--crm-amber-500); }
+.dg-value.is-danger { color: var(--crm-rose-500); }
+.dg-value.is-success { color: var(--crm-pine-600); }
+.dg-value.is-primary { color: var(--crm-primary); }
+
+@media (max-width: 900px) {
+  .dg { grid-template-columns: 1fr; }
+  .dg-row { grid-template-columns: 88px minmax(0, 1fr); padding: 7px 0; }
+}
+@media (max-width: 560px) {
+  .dg-row { grid-template-columns: 1fr; gap: 2px; padding: 10px 0; }
+  .dg-label { font-size: 11.5px; }
 }
 </style>

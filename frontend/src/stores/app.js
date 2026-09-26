@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { get, post, STAGES_FALLBACK } from '../api'
+import { get, getList, post, STAGES_FALLBACK } from '../api'
 
 // 字典 store：多页面共用的客户/联系人/商机/阶段/选项下拉数据
 export const useDictStore = defineStore('dict', {
@@ -11,20 +11,26 @@ export const useDictStore = defineStore('dict', {
     options: { customer_types: [], customer_levels: [], regions: [] },
   }),
   actions: {
-    async loadCustomers() { this.customers = (await get('/customers')) || [] },
-    async loadContacts() { this.contacts = (await get('/contacts')) || [] },
-    async loadOpportunities() { this.opportunities = (await get('/opportunities')) || [] },
+    // 一律用 getList()：get() 失败时返回 truthy 的 { error } 对象，
+    // `get() || []` 挡不住它，后续 .filter()/.map() 直接抛错（点击无反应的元凶）
+    async loadCustomers() { this.customers = await getList('/customers') },
+    async loadContacts() { this.contacts = await getList('/contacts') },
+    async loadOpportunities() { this.opportunities = await getList('/opportunities') },
     async loadStages() {
       const st = await get('/stages')
       if (Array.isArray(st) && st.length) {
         this.stageNames = st.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map((s) => s.name)
       }
     },
-    async loadOptions() { this.options = (await get('/options')) || this.options },
+    async loadOptions() {
+      const o = await get('/options')
+      if (o && !o.error && typeof o === 'object') this.options = { ...this.options, ...o }
+    },
     // 按客户过滤联系人（级联下拉）
     contactsOf(customerId) {
-      if (!customerId) return this.contacts
-      return this.contacts.filter((c) => String(c.customer_id) === String(customerId))
+      const list = Array.isArray(this.contacts) ? this.contacts : []
+      if (!customerId) return list
+      return list.filter((c) => String(c.customer_id) === String(customerId))
     },
   },
 })

@@ -1,136 +1,131 @@
 <template>
   <div class="page">
-    <el-row :gutter="16" class="card-block">
+    <PageHeader title="工作台" subtitle="线索、商机与今日待办的一眼全览">
+      <template #actions>
+        <el-button :icon="Refresh" plain :loading="loading" @click="reload">刷新</el-button>
+      </template>
+    </PageHeader>
+
+    <el-row :gutter="14" class="stat-row">
       <el-col v-for="s in statCards" :key="s.label" :xs="12" :sm="12" :md="6">
         <StatCard v-bind="s" :loading="loading" />
       </el-col>
     </el-row>
 
-    <el-row :gutter="16">
+    <div class="dash-grid">
       <!-- 左栏 -->
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="never" class="card-block">
-          <template #header>
-            <div class="card-head">
-              <el-icon class="head-icon head-icon--danger"><Warning /></el-icon>
-              <span>紧急事项</span>
-              <el-tag v-if="urgentLeads.length" size="small" type="danger" effect="light" class="head-tag">
-                {{ urgentLeads.length }}
-              </el-tag>
+      <div class="dash-col">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="ph-icon ph-icon--danger"><el-icon :size="14"><Warning /></el-icon></span>
+            <span class="ph-title">紧急事项</span>
+            <span v-if="urgentLeads.length" class="ph-badge danger">{{ urgentLeads.length }}</span>
+          </div>
+          <div class="panel-body">
+            <div v-if="urgentLeads.length" class="list-rows">
+              <div v-for="(row, i) in urgentLeads" :key="i" class="list-row">
+                <div class="lr-main">
+                  <div class="lr-title">{{ row.title }}</div>
+                  <div class="lr-sub muted">{{ row.customer_name || '—' }} · 截止 {{ row.deadline || '—' }}</div>
+                </div>
+                <span class="lr-level" :class="row.level === '高匹配' ? 'is-hot' : 'is-warm'">{{ row.level || '关注' }}</span>
+              </div>
             </div>
-          </template>
-          <el-table v-if="urgentLeads.length" :data="urgentLeads" size="small" :show-header="false">
-            <el-table-column min-width="220">
-              <template #default="{ row }">
-                <div class="item-title">{{ row.title }}</div>
-                <div class="muted">{{ row.customer_name || '-' }} · 截止 {{ row.deadline || '-' }}</div>
-              </template>
-            </el-table-column>
-            <el-table-column width="86" align="right">
-              <template #default="{ row }">
-                <el-tag size="small" effect="light" :type="row.level === '高匹配' ? 'danger' : 'warning'">
-                  {{ row.level || '关注' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-else description="暂无紧急事项" :image-size="60" />
-        </el-card>
+            <div v-else class="panel-empty muted">暂无紧急事项</div>
+          </div>
+        </div>
 
-        <el-card shadow="never" class="card-block">
-          <template #header>
-            <div class="card-head">
-              <el-icon class="head-icon"><Lightning /></el-icon>
-              <span>AI 紧急任务 · 当日跟进方案</span>
-              <el-button size="small" :icon="Refresh" :loading="aiLoading" class="head-tag" @click="loadTasks(true)">刷新</el-button>
-            </div>
-          </template>
-          <el-skeleton v-if="aiLoading" animated :rows="4" />
-          <template v-else-if="aiTasks.length">
-            <el-table :data="aiTasks" size="small" :show-header="false">
-              <el-table-column min-width="260">
-                <template #default="{ row }">
-                  <div class="item-title">{{ row.title }}</div>
-                  <div class="muted">{{ row.content }}</div>
-                  <div v-if="row.related" class="muted">关联：{{ row.related }}</div>
-                </template>
-              </el-table-column>
-              <el-table-column width="76" align="right">
-                <template #default="{ row }">
-                  <el-tag size="small" effect="light" :type="row.priority === 'high' ? 'danger' : 'warning'">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="ph-icon"><el-icon :size="14"><Lightning /></el-icon></span>
+            <span class="ph-title">AI 紧急任务 · 当日跟进方案</span>
+            <el-button text size="small" :icon="Refresh" :loading="aiLoading" class="ph-refresh" @click="loadTasks(true)">刷新</el-button>
+          </div>
+          <div class="panel-body">
+            <el-skeleton v-if="aiLoading" animated :rows="4" />
+            <template v-else-if="aiTasks.length">
+              <div class="list-rows">
+                <div v-for="(row, i) in aiTasks" :key="i" class="list-row">
+                  <div class="lr-main">
+                    <div class="lr-title">{{ row.title }}</div>
+                    <div class="lr-sub">{{ row.content }}</div>
+                    <div v-if="row.related" class="lr-sub muted">关联：{{ row.related }}</div>
+                  </div>
+                  <span class="lr-level" :class="row.priority === 'high' ? 'is-hot' : 'is-warm'">
                     {{ row.priority === 'high' ? '高' : '中' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-            </el-table>
-            <div class="muted meta-line">
-              生成时间：{{ aiMeta.generated_at || '-' }}{{ aiMeta.source === 'cache' ? '（缓存，可点刷新）' : '' }}
-            </div>
-          </template>
-          <el-empty v-else :description="aiError || '暂无 AI 跟进任务'" :image-size="60" />
-        </el-card>
+                  </span>
+                </div>
+              </div>
+              <div class="muted meta-line">
+                生成时间 {{ aiMeta.generated_at || '—' }}<template v-if="aiMeta.source === 'cache'">（缓存，可点刷新）</template>
+              </div>
+            </template>
+            <div v-else class="panel-empty muted">{{ aiError || '暂无 AI 跟进任务' }}</div>
+          </div>
+        </div>
 
-        <el-card shadow="never">
-          <template #header>
-            <div class="card-head">
-              <el-icon class="head-icon"><AlarmClock /></el-icon>
-              <span>今日联络计划</span>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="ph-icon"><el-icon :size="14"><AlarmClock /></el-icon></span>
+            <span class="ph-title">今日联络计划</span>
+            <span v-if="todayFollowups.length" class="ph-badge">{{ todayFollowups.length }}</span>
+          </div>
+          <div class="panel-body">
+            <div v-if="todayFollowups.length" class="list-rows">
+              <div v-for="(row, i) in todayFollowups" :key="i" class="list-row">
+                <span class="fu-dot"></span>
+                <div class="lr-main">
+                  <span class="fu-name">{{ row.contact_name || '—' }}</span>
+                  <span class="fu-content">{{ row.content }}</span>
+                </div>
+              </div>
             </div>
-          </template>
-          <el-table v-if="todayFollowups.length" :data="todayFollowups" size="small" :show-header="false">
-            <el-table-column min-width="140">
-              <template #default="{ row }">
-                <span class="contact-name">{{ row.contact_name || '-' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="content" min-width="220" show-overflow-tooltip />
-          </el-table>
-          <el-empty v-else description="今日无联络计划" :image-size="60" />
-        </el-card>
-      </el-col>
+            <div v-else class="panel-empty muted">今日无联络计划</div>
+          </div>
+        </div>
+      </div>
 
       <!-- 右栏 -->
-      <el-col :xs="24" :lg="12">
-        <el-card v-if="suggestions.length" shadow="never" class="card-block suggestions-card">
-          <template #header>
-            <div class="card-head">
-              <el-icon class="head-icon"><MagicStick /></el-icon>
-              <span>AI 智能建议</span>
-            </div>
-          </template>
-          <ul class="suggestion-list">
-            <li v-for="(s, i) in suggestions.slice(0, 5)" :key="i">
-              <el-icon class="sug-icon"><CaretRight /></el-icon>
-              <span>{{ typeof s === 'string' ? s : s.title || s.text || '' }}</span>
-            </li>
-          </ul>
-        </el-card>
+      <div class="dash-col">
+        <div v-if="suggestions.length" class="panel panel--ai">
+          <div class="panel-head">
+            <span class="ph-icon ph-icon--ai"><el-icon :size="14"><MagicStick /></el-icon></span>
+            <span class="ph-title">AI 智能建议</span>
+          </div>
+          <div class="panel-body">
+            <ul class="suggestion-list">
+              <li v-for="(s, i) in suggestions.slice(0, 5)" :key="i">
+                <span class="sug-idx mono">{{ i + 1 }}</span>
+                <span class="sug-text">{{ typeof s === 'string' ? s : s.title || s.text || '' }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
 
-        <el-card shadow="never">
-          <template #header>
-            <div class="card-head">
-              <el-icon class="head-icon"><TrendCharts /></el-icon>
-              <span>最新商机</span>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="ph-icon"><el-icon :size="14"><TrendCharts /></el-icon></span>
+            <span class="ph-title">最新商机</span>
+          </div>
+          <div class="panel-body">
+            <div v-if="opportunities.length" class="list-rows">
+              <div v-for="(row, i) in opportunities" :key="i" class="list-row">
+                <div class="lr-main lr-title-1line">{{ row.title }}</div>
+                <span class="stage-chip">{{ row.stage || '—' }}</span>
+              </div>
             </div>
-          </template>
-          <el-table v-if="opportunities.length" :data="opportunities" size="small" :show-header="false">
-            <el-table-column prop="title" min-width="220" show-overflow-tooltip class-name="cell-strong" />
-            <el-table-column width="110" align="right">
-              <template #default="{ row }">
-                <el-tag size="small" effect="light">{{ row.stage || '-' }}</el-tag>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-else description="暂无商机" :image-size="60" />
-        </el-card>
-      </el-col>
-    </el-row>
+            <div v-else class="panel-empty muted">暂无商机</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { Lightning, Warning, AlarmClock, MagicStick, CaretRight, TrendCharts, Refresh } from '@element-plus/icons-vue'
+import { Lightning, Warning, AlarmClock, MagicStick, TrendCharts, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '../components/PageHeader.vue'
 import StatCard from '../components/StatCard.vue'
 import { get, getList, post } from '../api'
 import { useDictStore, useCrawlStore } from '../stores/app'
@@ -171,6 +166,15 @@ async function loadTasks(force) {
   if (force) dict.loadOpportunities()
 }
 
+async function reload() {
+  loading.value = true
+  const [d, s] = await Promise.all([get('/dashboard'), getList('/suggestions')])
+  loading.value = false
+  data.value = d || {}
+  suggestions.value = Array.isArray(s) ? s : []
+  loadTasks(false)
+}
+
 onMounted(async () => {
   const [d, s] = await Promise.all([
     get('/dashboard'),
@@ -191,22 +195,103 @@ watch(() => crawl.finishedAt, async () => {
 </script>
 
 <style scoped>
-.card-head { display: flex; align-items: center; gap: 8px; }
-.head-icon { color: var(--el-color-primary); }
-.head-icon--danger { color: var(--el-color-danger); }
-.head-tag { margin-left: auto; }
+.stat-row { margin-bottom: 14px; }
+.stat-row :deep(.el-col) { margin-bottom: 14px; }
 
-.item-title { font-weight: 500; color: var(--el-text-color-primary); line-height: 1.5; }
-.meta-line { margin-top: 8px; }
-.contact-name { color: var(--el-color-primary); font-weight: 500; }
+/* ---- 双栏 ---- */
+.dash-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.dash-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (max-width: 1100px) { .dash-grid { grid-template-columns: 1fr; } }
 
-.suggestions-card { border-left: 3px solid var(--el-color-primary); }
+/* ---- 面板 ---- */
+.panel {
+  background: var(--crm-bg-card);
+  border: 1px solid var(--crm-border-soft);
+  border-radius: var(--crm-radius-lg);
+  box-shadow: var(--crm-shadow-xs);
+}
+.panel--ai { border-left: 3px solid var(--crm-pine-300); }
+.panel-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--crm-border-soft);
+}
+.ph-icon {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--crm-pine-25); color: var(--crm-pine-600);
+  flex-shrink: 0;
+}
+.ph-icon--danger { background: var(--crm-rose-50, #fef2f2); color: var(--crm-rose-500); }
+.ph-icon--ai { background: var(--crm-sky-50); color: var(--crm-sky-500); }
+.ph-title { font-size: 13px; font-weight: 600; color: var(--crm-fg-1); letter-spacing: -0.005em; }
+.ph-badge {
+  font-family: var(--crm-font-mono); font-size: 11px;
+  padding: 1px 7px; border-radius: 8px;
+  background: var(--crm-slate-100); color: var(--crm-fg-3);
+}
+.ph-badge.danger { background: var(--crm-rose-50, #fef2f2); color: var(--crm-rose-500); }
+.ph-refresh { margin-left: auto; }
+.panel-body { padding: 6px 16px 12px; }
+.panel-empty { padding: 24px 0; text-align: center; font-size: 12.5px; }
+
+/* ---- 行式列表 ---- */
+.list-rows { display: flex; flex-direction: column; }
+.list-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--crm-border-soft);
+}
+.list-row:last-child { border-bottom: none; }
+.lr-main { flex: 1; min-width: 0; }
+.lr-title { font-size: 13px; font-weight: 500; color: var(--crm-fg-1); line-height: 1.5; }
+.lr-title-1line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lr-sub { font-size: 12px; color: var(--crm-fg-3); line-height: 1.55; margin-top: 2px; }
+.lr-level {
+  flex-shrink: 0; margin-top: 1px;
+  font-size: 11px; font-weight: 500;
+  padding: 1px 8px; border-radius: var(--crm-radius-full);
+}
+.lr-level.is-hot { background: var(--crm-rose-50, #fef2f2); color: var(--crm-rose-500); }
+.lr-level.is-warm { background: var(--crm-amber-50); color: var(--crm-amber-500); }
+
+.meta-line { margin-top: 8px; font-size: 11.5px; }
+
+/* 今日联络 */
+.fu-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--crm-pine-500); flex-shrink: 0; margin-top: 8px;
+}
+.fu-name { font-size: 13px; font-weight: 600; color: var(--crm-pine-600); margin-right: 8px; }
+.fu-content { font-size: 12.5px; color: var(--crm-fg-2); line-height: 1.6; }
+
+/* AI 建议 */
 .suggestion-list { margin: 0; padding: 0; list-style: none; }
 .suggestion-list li {
-  display: flex; gap: 6px; align-items: flex-start;
-  font-size: 13px; line-height: 1.7; margin-bottom: 8px;
-  color: var(--el-text-color-regular);
+  display: flex; gap: 10px; align-items: flex-start;
+  font-size: 13px; line-height: 1.7; padding: 7px 0;
+  border-bottom: 1px dashed var(--crm-border-soft);
+  color: var(--crm-fg-2);
 }
-.suggestion-list li:last-child { margin-bottom: 0; }
-.sug-icon { color: var(--el-color-primary); margin-top: 4px; flex-shrink: 0; }
+.suggestion-list li:last-child { border-bottom: none; }
+.sug-idx {
+  flex-shrink: 0; width: 18px; height: 18px; margin-top: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 600;
+  background: var(--crm-pine-25); color: var(--crm-pine-600);
+  border-radius: 5px;
+}
+.sug-text { min-width: 0; }
+
+.stage-chip {
+  flex-shrink: 0;
+  display: inline-block; padding: 1px 8px;
+  font-size: 11.5px; border-radius: var(--crm-radius-full);
+  background: var(--crm-slate-100); color: var(--crm-fg-2);
+}
 </style>

@@ -17,7 +17,7 @@ def _clean(value):
 class Customer(db.Model):
     __tablename__ = 'customers'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
+    name = db.Column(db.String(200), nullable=False, index=True)
     short_name = db.Column(db.String(50))
     customer_type = db.Column(db.String(50))
     level = db.Column(db.String(50))
@@ -50,7 +50,7 @@ class Customer(db.Model):
 class CustomerNews(db.Model):
     __tablename__ = 'customer_news'
     id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
     title = db.Column(db.String(500))
     content = db.Column(db.Text)
     url = db.Column(db.String(1000))
@@ -64,8 +64,8 @@ class ContactNews(db.Model):
     """联系人动态信息：官网/媒体新闻中出现联系人姓名/职务时自动关联。"""
     __tablename__ = 'contact_news'
     id = db.Column(db.Integer, primary_key=True)
-    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
+    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'), index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
     title = db.Column(db.String(500))
     content = db.Column(db.Text)
     url = db.Column(db.String(1000))
@@ -109,6 +109,10 @@ class CrawlLog(db.Model):
 
 class Lead(db.Model):
     __tablename__ = 'leads'
+    # 复合索引覆盖最常见查询：状态过滤 + 创建时间倒序分页（单列索引需临时 B-Tree 排序）
+    __table_args__ = (
+        db.Index('ix_leads_status_created_at', 'status', 'created_at'),
+    )
     id = db.Column(db.Integer, primary_key=True)
     bid_number = db.Column(db.String(100))
     title = db.Column(db.String(500), nullable=False)
@@ -118,14 +122,14 @@ class Lead(db.Model):
     purchaser = db.Column(db.String(200))
     service_content = db.Column(db.Text)
     match_keywords = db.Column(db.Text)
-    match_level = db.Column(db.String(20))
+    match_level = db.Column(db.String(20), index=True)
     match_score = db.Column(db.Integer, default=0)
     match_reason = db.Column(db.Text)
     contact_name = db.Column(db.String(100), default='')
     contact_phone = db.Column(db.String(100), default='')
     address = db.Column(db.String(300), default='')
     assignee = db.Column(db.String(50), default='')
-    source_url = db.Column(db.String(1000))
+    source_url = db.Column(db.String(1000), index=True)
     source_platform = db.Column(db.String(100))
     bid_type = db.Column(db.String(50), default='')
     winner = db.Column(db.String(200), default='')
@@ -133,9 +137,9 @@ class Lead(db.Model):
     serial_no = db.Column(db.String(20), default='')  # 流水编号：年1位+月1位+日2位+流水2位
     full_text = db.Column(db.Text)  # 公告全文（用于详情弹窗查看）
     reason = db.Column(db.String(300), default='')  # 释放/删除原因
-    status = db.Column(db.String(20), default='active')
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
-    created_at = db.Column(db.DateTime, default=datetime.now)
+    status = db.Column(db.String(20), default='active')  # 单列不建索引：由 (status, created_at) 复合索引前缀覆盖
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     opportunities = db.relationship('Opportunity', backref='lead', lazy=True)
     customer = db.relationship('Customer', backref='leads')
@@ -153,16 +157,16 @@ class Lead(db.Model):
 class Opportunity(db.Model):
     __tablename__ = 'opportunities'
     id = db.Column(db.Integer, primary_key=True)
-    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'))
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
-    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
+    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'), index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'), index=True)
     title = db.Column(db.String(500), nullable=False)
     amount = db.Column(db.String(50))
     source_url = db.Column(db.String(1000))
-    current_stage = db.Column(db.String(100))
+    current_stage = db.Column(db.String(100), index=True)
     probability = db.Column(db.Integer, default=20)
     expected_close = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.now)
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     customer = db.relationship('Customer', backref='opportunities')
     contact = db.relationship('Contact', backref='opportunities')
@@ -179,7 +183,7 @@ class OpportunityStage(db.Model):
 class StageRecord(db.Model):
     __tablename__ = 'stage_records'
     id = db.Column(db.Integer, primary_key=True)
-    opportunity_id = db.Column(db.Integer, db.ForeignKey('opportunities.id'))
+    opportunity_id = db.Column(db.Integer, db.ForeignKey('opportunities.id'), index=True)
     stage_name = db.Column(db.String(100))
     content = db.Column(db.Text)
     deadline = db.Column(db.DateTime)
@@ -202,7 +206,7 @@ class Contact(db.Model):
     avatar = db.Column(db.String(10), default='')
     business_scope = db.Column(db.Text)
     importance = db.Column(db.String(20))
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
@@ -213,13 +217,13 @@ class Activity(db.Model):
     __tablename__ = 'activities'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(300))
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
-    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
-    opportunity_id = db.Column(db.Integer, db.ForeignKey('opportunities.id'))
-    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'))
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'), index=True)
+    opportunity_id = db.Column(db.Integer, db.ForeignKey('opportunities.id'), index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'), index=True)
     method = db.Column(db.String(50))
     content = db.Column(db.Text)
-    activity_time = db.Column(db.DateTime)
+    activity_time = db.Column(db.DateTime, index=True)
     next_followup_time = db.Column(db.DateTime)
     next_followup_content = db.Column(db.Text)
     add_to_kanban = db.Column(db.Boolean, default=False)
@@ -240,7 +244,7 @@ class KanbanBoard(db.Model):
 class KanbanColumn(db.Model):
     __tablename__ = 'kanban_columns'
     id = db.Column(db.Integer, primary_key=True)
-    board_id = db.Column(db.Integer, db.ForeignKey('kanban_boards.id'))
+    board_id = db.Column(db.Integer, db.ForeignKey('kanban_boards.id'), index=True)
     name = db.Column(db.String(100), nullable=False)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.now)
@@ -249,7 +253,7 @@ class KanbanColumn(db.Model):
 class KanbanCard(db.Model):
     __tablename__ = 'kanban_cards'
     id = db.Column(db.Integer, primary_key=True)
-    column_id = db.Column(db.Integer, db.ForeignKey('kanban_columns.id'))
+    column_id = db.Column(db.Integer, db.ForeignKey('kanban_columns.id'), index=True)
     title = db.Column(db.String(300), nullable=False)
     description = db.Column(db.Text)
     label_color = db.Column(db.String(20))

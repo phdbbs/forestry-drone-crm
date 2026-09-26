@@ -39,6 +39,17 @@ export async function getList(path, opts) {
 export function fmtDate(d) { return d ? String(d).substring(0, 10) : '' }
 
 /**
+ * 列表展示专用日期格式：MM-DD-YY（如 2026-09-25 → 09-25-26）。
+ * 仅用于显示，切勿用于筛选/比较（比较请用 fmtDate 的 ISO 口径）。
+ */
+export function fmtDateMDY(d) {
+  if (!d) return ''
+  const m = String(d).match(/(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return String(d).substring(0, 10)
+  return `${m[2]}-${m[3]}-${m[1].slice(2)}`
+}
+
+/**
  * 数值格式化：113.268083 → "113.27"，100 → "100"，空值 → "-"。
  * 用于金额/预算等列，避免表格里出现一长串小数。
  */
@@ -90,13 +101,14 @@ export async function exportCsv(type, list) {
 // 语义色统一走 Element Plus 变量，避免与主题脱钩
 export const matchColor = (score) => (score >= 80 ? 'var(--el-color-success)' : score >= 60 ? 'var(--el-color-warning)' : score >= 40 ? 'var(--el-color-primary)' : 'var(--el-color-danger)')
 export const probColor = (p) => (p >= 80 ? 'var(--el-color-success)' : p >= 50 ? 'var(--el-color-warning)' : p >= 30 ? 'var(--el-color-primary)' : 'var(--el-color-danger)')
-export const STAGES_FALLBACK = ['初步接触', '需求确认', '方案报价', '商务谈判', '合同签订']
+export const STAGES_FALLBACK = ['初步接触', '需求确认', '方案报价', '商务谈判', '合同签订', '关闭']
 export const STAGE_COLORS = [
   'var(--el-color-info)',
   'var(--el-color-primary)',
   'var(--el-color-warning)',
   'var(--el-color-success)',
   'var(--el-color-danger)',
+  'var(--crm-slate-400)', // 关闭：中性灰，不与任何进展阶段抢色
 ]
 export const stageColor = (name, names) => {
   const i = (names || STAGES_FALLBACK).indexOf(name)

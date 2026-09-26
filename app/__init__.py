@@ -194,15 +194,24 @@ def create_app(config=None):
     from app.routes import api
     app.register_blueprint(api, url_prefix='/api')
 
+    def _missing_dist_response():
+        # v3.0 内联 SPA（static/index.html）已下线归档至 deprecated/，
+        # Vue 构建产物是唯一入口；缺失时不再静默回退旧原型，而是给出明确修复指引。
+        from flask import jsonify
+        return jsonify({
+            "error": "前端构建产物缺失",
+            "hint": "请在 frontend/ 目录执行 npm install && npm run build，产物会输出到 app/static/dist/",
+        }), 503
+
     @app.route('/')
     def serve_index():
         from flask import send_from_directory
         import os
-        # 优先返回 Vue 构建产物 dist/index.html，不存在则回退旧版原型
+        # 返回 Vue 构建产物 dist/index.html（唯一入口）
         dist_index = os.path.join(app.static_folder, 'dist', 'index.html')
         if os.path.isfile(dist_index):
             return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
-        return send_from_directory(app.static_folder, 'index.html')
+        return _missing_dist_response()
 
     @app.route('/<path:path>')
     def serve_spa(path):
@@ -229,10 +238,15 @@ def create_app(config=None):
             file_path = os.path.join(base, path)
             if os.path.isfile(file_path):
                 return send_from_directory(base, path)
+        # 静态资源（尤其 /assets/*.js 分块）找不到时必须返回真 404，
+        # 绝不能兜底成 index.html：HTML 顶替 JS 会让浏览器动态 import 抛出
+        # 难以定位的 MIME/解析错误，前端"点击菜单没反应"多源于此。
+        if path.startswith('assets/') or path.endswith(('.js', '.css', '.svg', '.png', '.ico', '.woff', '.woff2')):
+            return jsonify({"error": "静态资源不存在", "path": path}), 404
         dist_index = os.path.join(app.static_folder, 'dist', 'index.html')
         if os.path.isfile(dist_index):
             return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
-        return send_from_directory(app.static_folder, 'index.html')
+        return _missing_dist_response()
     with app.app_context():
         _enable_sqlite_foreign_keys()
         db.create_all()
@@ -313,6 +327,44 @@ def _migrate_db():
                 cols = [c['name'] for c in inspector.get_columns(table)]
                 if column not in cols:
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {col_type}'))
+            except Exception:
+                pass
+        # 索引：db.create_all() 只会为"新建表"建索引，已存在的旧表必须显式补建。
+        # 命名与 SQLAlchemy index=True 自动生成的 ix_<table>_<column> 保持一致，
+        # 保证新旧库最终状态相同。均为高频查询列（线索列表过滤/排序、采集查重、
+        # 外键关联、看板/日程时间轴）。
+        for stmt in [
+            "CREATE INDEX IF NOT EXISTS ix_customers_name ON customers (name)",
+            "CREATE INDEX IF NOT EXISTS ix_customer_news_customer_id ON customer_news (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_contact_news_contact_id ON contact_news (contact_id)",
+            "CREATE INDEX IF NOT EXISTS ix_contact_news_customer_id ON contact_news (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_leads_match_level ON leads (match_level)",
+            "CREATE INDEX IF NOT EXISTS ix_leads_source_url ON leads (source_url)",
+            "CREATE INDEX IF NOT EXISTS ix_leads_customer_id ON leads (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_leads_created_at ON leads (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_leads_status_created_at ON leads (status, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_opportunities_lead_id ON opportunities (lead_id)",
+            "CREATE INDEX IF NOT EXISTS ix_opportunities_customer_id ON opportunities (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_opportunities_contact_id ON opportunities (contact_id)",
+            "CREATE INDEX IF NOT EXISTS ix_opportunities_current_stage ON opportunities (current_stage)",
+            "CREATE INDEX IF NOT EXISTS ix_opportunities_created_at ON opportunities (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_stage_records_opportunity_id ON stage_records (opportunity_id)",
+            "CREATE INDEX IF NOT EXISTS ix_contacts_customer_id ON contacts (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_activities_customer_id ON activities (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_activities_contact_id ON activities (contact_id)",
+            "CREATE INDEX IF NOT EXISTS ix_activities_opportunity_id ON activities (opportunity_id)",
+            "CREATE INDEX IF NOT EXISTS ix_activities_lead_id ON activities (lead_id)",
+            "CREATE INDEX IF NOT EXISTS ix_activities_activity_time ON activities (activity_time)",
+            "CREATE INDEX IF NOT EXISTS ix_kanban_columns_board_id ON kanban_columns (board_id)",
+            "CREATE INDEX IF NOT EXISTS ix_kanban_cards_column_id ON kanban_cards (column_id)",
+            "CREATE INDEX IF NOT EXISTS ix_followups_contact_id ON followups (contact_id)",
+            "CREATE INDEX IF NOT EXISTS ix_followups_customer_id ON followups (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_followups_opportunity_id ON followups (opportunity_id)",
+            "CREATE INDEX IF NOT EXISTS ix_followups_lead_id ON followups (lead_id)",
+            "CREATE INDEX IF NOT EXISTS ix_followups_plan_date ON followups (plan_date)",
+        ]:
+            try:
+                conn.execute(text(stmt))
             except Exception:
                 pass
         conn.commit()

@@ -188,10 +188,14 @@ class TestCrawlLogAPI:
         assert first['retryable'] is False
 
     def test_daily_filter_and_delete(self, client, seeded):
-        assert client.delete('/api/crawl/logs?days=7').get_json()['deleted'] == 0
-        r = client.delete('/api/crawl/logs?days=all').get_json()
+        # #9 不再默认全删：仅带 days=all（等同于无有效筛选）时拒绝清理
+        refused = client.delete('/api/crawl/logs?days=all')
+        assert refused.status_code == 400
+        assert 'error' in refused.get_json()
+        # 按「近 7 天」筛选命中刚种下的日志，删除之
+        r = client.delete('/api/crawl/logs?days=7').get_json()
         assert r['ok'] and r['deleted'] >= 1
-        assert client.get('/api/crawl/logs?days=all').get_json()['total'] == 0
+        assert client.get('/api/crawl/logs').get_json()['total'] == 0
 
     def test_error_types_dictionary(self, client):
         data = client.get('/api/error-types').get_json()

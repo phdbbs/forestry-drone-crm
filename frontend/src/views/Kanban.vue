@@ -1,23 +1,24 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      <div class="title-group">
-        <h2 class="page-title">{{ board?.name || '看板管理' }}</h2>
-        <el-select v-if="boards.length > 1" v-model="currentBoardId" class="board-select" @change="load">
+    <PageHeader :title="board?.name || '看板管理'" subtitle="拖拽卡片推进事项，列顺序即流程">
+      <template #title-extra>
+        <el-select v-if="boards.length > 1" v-model="currentBoardId" class="board-select" size="small" @change="load">
           <el-option v-for="b in boards" :key="b.id" :value="b.id" :label="b.name" />
         </el-select>
-      </div>
-      <div class="page-toolbar">
-        <el-button :icon="Plus" @click="openNameDialog('addColumn')">添加列表</el-button>
+      </template>
+      <template #actions>
+        <el-button :icon="Plus" plain @click="openNameDialog('addColumn')">添加列表</el-button>
         <el-button type="primary" :icon="Plus" @click="openNameDialog('createBoard')">新建看板</el-button>
         <el-button v-if="boards.length > 1" type="danger" plain :icon="Delete" @click="deleteBoard">删除看板</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <el-card v-loading="loading" shadow="never" class="board-card">
-      <el-empty v-if="!loading && !boards.length" description="暂无看板">
+    <div v-loading="loading" class="board-wrap">
+      <div v-if="!loading && !boards.length" class="board-empty">
+        <div class="be-icon"><el-icon :size="22"><Grid /></el-icon></div>
+        <div class="be-text">还没有看板，创建一个开始管理事项</div>
         <el-button type="primary" :icon="Plus" @click="openNameDialog('createBoard')">新建看板</el-button>
-      </el-empty>
+      </div>
 
       <draggable
         v-else-if="board"
@@ -35,6 +36,7 @@
             <!-- 列头：拖拽手柄 + 更多操作 -->
             <div class="col-header col-drag-handle">
               <span class="col-title">{{ col.name }}</span>
+              <span class="col-count mono">{{ col.cards.length }}</span>
               <el-dropdown trigger="click" @command="cmd => colMenu(cmd, col)">
                 <el-button text size="small" :icon="MoreFilled" class="col-more" @click.stop />
                 <template #dropdown>
@@ -68,19 +70,14 @@
                   <div class="card-title">{{ card.title }}</div>
                   <div v-if="card.description" class="card-desc">{{ card.description }}</div>
                   <div class="card-foot">
-                    <el-tag
-                      v-if="card.color && card.color !== 'blue'"
-                      size="small"
-                      :type="tagType(card.color)"
-                      effect="light"
-                    >
+                    <span v-if="card.color && card.color !== 'blue'" class="color-label" :class="`cl--${card.color}`">
                       {{ colorLabel(card.color) }}
-                    </el-tag>
-                    <span v-if="card.deadline" class="card-deadline" :class="{ overdue: isOverdue(card.deadline) }">
-                      <el-icon :size="12"><AlarmClock /></el-icon>{{ fmtDate(card.deadline) }}
+                    </span>
+                    <span v-if="card.deadline" class="card-deadline mono" :class="{ overdue: isOverdue(card.deadline) }">
+                      <el-icon :size="11"><AlarmClock /></el-icon>{{ fmtDate(card.deadline) }}
                     </span>
                     <span v-if="card.source_type" class="card-source">
-                      <el-icon :size="12"><Link /></el-icon>关联
+                      <el-icon :size="11"><Link /></el-icon>{{ sourceLabel(card.source_type) }}
                     </span>
                   </div>
                 </div>
@@ -111,7 +108,7 @@
           </div>
         </template>
       </draggable>
-    </el-card>
+    </div>
 
     <!-- 统一命名对话框：新建看板 / 添加列表 / 重命名列表 -->
     <el-dialog v-model="nameDialog.visible" :title="nameDialog.title" width="420px" destroy-on-close>
@@ -127,8 +124,8 @@
     </el-dialog>
 
     <!-- 卡片详情 / 编辑 -->
-    <el-dialog v-model="cardVisible" title="卡片详情" width="520px" destroy-on-close class="card-dialog">
-      <el-form ref="cardFormRef" :model="cardForm" :rules="cardRules" label-width="80px">
+    <el-dialog v-model="cardVisible" title="卡片详情" width="560px" destroy-on-close class="card-dialog">
+      <el-form ref="cardFormRef" :model="cardForm" :rules="cardRules" label-width="84px" label-position="right">
         <el-form-item label="标题" prop="title">
           <el-input v-model="cardForm.title" />
         </el-form-item>
@@ -138,7 +135,7 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="标签颜色">
-              <el-select v-model="cardForm.color" class="w-full">
+              <el-select v-model="cardForm.color" style="width:100%">
                 <el-option value="blue" label="蓝" />
                 <el-option value="green" label="绿" />
                 <el-option value="yellow" label="黄" />
@@ -148,13 +145,13 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="截止日期">
-              <el-date-picker v-model="cardForm.deadline" type="date" value-format="YYYY-MM-DD" class="w-full" />
+              <el-date-picker v-model="cardForm.deadline" type="date" value-format="YYYY-MM-DD" style="width:100%" />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-alert v-if="cardForm.source_type" type="info" :closable="false" show-icon>
-          来源：{{ sourceLabel(cardForm.source_type) }}（由业务自动生成，移动列不影响关联）
-        </el-alert>
+        <div v-if="cardForm.source_type" class="source-note">
+          来源：{{ sourceLabel(cardForm.source_type) }} · 由业务自动生成，移动列不影响关联
+        </div>
       </el-form>
       <template #footer>
         <el-button type="danger" plain :icon="Delete" class="footer-left" @click="deleteCurrentCard">删除</el-button>
@@ -168,8 +165,9 @@
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, MoreFilled, AlarmClock, Link } from '@element-plus/icons-vue'
+import { Plus, Delete, MoreFilled, AlarmClock, Link, Grid } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
+import PageHeader from '../components/PageHeader.vue'
 import { get, getList, post, put, del, fmtDate } from '../api'
 import { useCrawlStore } from '../stores/app'
 
@@ -179,7 +177,7 @@ const board = ref(null)
 const currentBoardId = ref(null)
 const loading = ref(false)
 
-// 颜色一律走 Element Plus 语义色，不再硬编码十六进制
+// 颜色一律走语义色，不再硬编码十六进制
 const tagType = (c) => ({ red: 'danger', yellow: 'warning', green: 'success' }[c] || 'info')
 const colorLabel = (c) => ({ red: '紧急', yellow: '关注', green: '顺利' }[c] || '')
 const sourceLabel = (t) => ({ activity: '日常联络', followup: '联络计划', stage: '商机阶段', opportunity: '商机' }[t] || t)
@@ -363,64 +361,104 @@ onMounted(async () => { await load(); crawl.checkRunning() })
 </script>
 
 <style scoped>
-.title-group { display: flex; align-items: center; gap: 10px; }
-.board-select { width: 160px; }
-.w-full { width: 100%; }
-.board-card { min-height: 240px; }
-.board-card :deep(.el-card__body) { padding: 12px; }
+.board-select { width: 150px; }
 
-.kanban-board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; align-items: flex-start; }
+.board-wrap { min-height: 280px; }
+.board-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 64px 0;
+  background: var(--crm-bg-card);
+  border: 1px dashed var(--crm-border-hairline);
+  border-radius: var(--crm-radius-lg);
+}
+.be-icon {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--crm-slate-100); color: var(--crm-fg-3);
+}
+.be-text { font-size: 13px; color: var(--crm-fg-3); }
+
+.kanban-board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: flex-start; }
 .kanban-col {
-  background: var(--el-fill-color-light);
-  border-radius: var(--el-border-radius-base);
+  background: var(--crm-slate-25);
+  border: 1px solid var(--crm-border-soft);
+  border-radius: var(--crm-radius-lg);
   width: 280px; flex: 0 0 280px;
-  padding: 10px; display: flex; flex-direction: column;
-  max-height: calc(100vh - 240px);
+  padding: 12px 10px 10px;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 230px);
 }
 .col-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 2px 2px 10px 6px; cursor: grab;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 2px 10px 6px; cursor: grab;
 }
 .col-header:active { cursor: grabbing; }
-.col-title { font-weight: 600; font-size: 13px; color: var(--el-text-color-primary); }
-.col-more { color: var(--el-text-color-secondary); }
+.col-title {
+  font-weight: 600; font-size: 13px; color: var(--crm-fg-1);
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.col-count {
+  font-size: 11px; padding: 1px 7px; border-radius: 8px;
+  background: var(--crm-slate-100); color: var(--crm-fg-3);
+}
+.col-more { color: var(--crm-fg-3); }
 
 .kanban-cards { flex: 1; overflow-y: auto; min-height: 30px; }
 .kanban-card {
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  border-left: 3px solid var(--el-color-primary);
-  border-radius: var(--el-border-radius-base);
+  background: var(--crm-bg-card);
+  border: 1px solid var(--crm-border-soft);
+  border-left: 3px solid var(--crm-sky-500);
+  border-radius: var(--crm-radius-md);
   padding: 10px 12px; margin-bottom: 8px;
   cursor: pointer;
-  transition: box-shadow .15s, border-color .15s;
+  box-shadow: var(--crm-shadow-xs);
+  transition: border-color var(--crm-dur-fast) var(--crm-ease-out),
+    box-shadow var(--crm-dur-fast) var(--crm-ease-out),
+    transform var(--crm-dur-fast) var(--crm-ease-out);
 }
-.kanban-card:hover { box-shadow: var(--el-box-shadow-light); }
-.card-accent--red { border-left-color: var(--el-color-danger); }
-.card-accent--yellow { border-left-color: var(--el-color-warning); }
-.card-accent--green { border-left-color: var(--el-color-success); }
-.card-accent--blue { border-left-color: var(--el-color-primary); }
+.kanban-card:hover { box-shadow: var(--crm-shadow-sm); transform: translateY(-1px); }
+.card-accent--red { border-left-color: var(--crm-rose-500); }
+.card-accent--yellow { border-left-color: var(--crm-amber-500); }
+.card-accent--green { border-left-color: var(--crm-pine-500); }
+.card-accent--blue { border-left-color: var(--crm-sky-500); }
 
-.card-title { font-weight: 600; font-size: 13px; color: var(--el-text-color-primary); line-height: 1.45; }
+.card-title { font-weight: 500; font-size: 13px; color: var(--crm-fg-1); line-height: 1.45; }
 .card-desc {
   margin-top: 6px; font-size: 12px; line-height: 1.55;
-  color: var(--el-text-color-secondary); background: var(--el-fill-color-lighter);
-  border-radius: 5px; padding: 5px 8px;
+  color: var(--crm-fg-3); background: var(--crm-slate-25);
+  border-radius: var(--crm-radius-sm); padding: 5px 8px;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 .card-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.color-label {
+  font-size: 10.5px; font-weight: 500;
+  padding: 1px 7px; border-radius: var(--crm-radius-full);
+}
+.cl--red { background: var(--crm-rose-50, #fef2f2); color: var(--crm-rose-500); }
+.cl--yellow { background: var(--crm-amber-50); color: var(--crm-amber-500); }
+.cl--green { background: var(--crm-pine-25); color: var(--crm-pine-600); }
 .card-deadline, .card-source {
   display: inline-flex; align-items: center; gap: 3px; font-size: 11px;
-  color: var(--el-text-color-secondary);
+  color: var(--crm-fg-3);
 }
-.card-deadline.overdue { color: var(--el-color-danger); }
+.card-deadline.overdue { color: var(--crm-rose-500); font-weight: 600; }
 
 .quick-add { margin-top: 8px; }
 .quick-actions { margin-top: 6px; }
-.quick-add-btn { width: 100%; justify-content: flex-start; color: var(--el-text-color-secondary); }
+.quick-add-btn { width: 100%; justify-content: flex-start; color: var(--crm-fg-3); }
+.quick-add-btn:hover { color: var(--crm-pine-600); }
 .col-ghost { opacity: .4; }
 .card-ghost { opacity: .4; }
 .card-dragging { transform: rotate(2deg); }
+
+.source-note {
+  font-size: 12px; color: var(--crm-fg-3);
+  background: var(--crm-slate-25);
+  border: 1px solid var(--crm-border-soft);
+  border-radius: var(--crm-radius-md);
+  padding: 8px 12px;
+}
 </style>
 
 <style>

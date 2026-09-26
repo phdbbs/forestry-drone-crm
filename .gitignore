@@ -36,3 +36,6 @@ Thumbs.db
 nohup.out
 CRM.app/
 .mimosa/
+
+# Local trash / backups (never commit)
+.trash/

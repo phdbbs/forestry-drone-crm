@@ -150,6 +150,7 @@ _TEXT_RULES = [
     ]),
     ('ai_bad_response', [
         r'ai 响应非 json', r'ai 响应格式异常', r'ai 输出无法解析', r'ai 输出为空',
+        r'无法解析为 json', r'不是有效的 json', r'jsondecodeerror',
         r'非 json 格式', r'unable to parse', r'json 解析',
     ]),
     # 网站限流要排在反爬之前：'访问过于频繁' 是限流而非硬封锁，

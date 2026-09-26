@@ -9,6 +9,7 @@ from app.models import (
 from app.services.matcher import match_lead
 from app.services.serial import gen_serial
 from app.services.skills import SkillRegistry
+from app.services.amountutil import normalize_amount_text, parse_amount_wan
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, timedelta
 import requests as http_requests
@@ -241,18 +242,57 @@ def list_leads():
     if date_to:
         d = _parse_date(date_to)
         if d: query = query.filter(Lead.created_at < d + timedelta(days=1))
-    leads = query.order_by(Lead.created_at.desc()).all()
+    # 可选分页（向后兼容）：不带 page/page_size 参数时仍返回全量数组，
+    # 现有 Vue 前端不受影响；带任一参数即切换为 {items,total,page,page_size,pages}
+    page_arg = request.args.get('page', type=int)
+    size_arg = request.args.get('page_size', type=int)
+    paginated = page_arg is not None or size_arg is not None
+    total = pages = None
+    if paginated:
+        page = max(page_arg or 1, 1)
+        page_size = min(max(size_arg or 50, 1), 500)
+        total = query.count()
+        pages = max((total + page_size - 1) // page_size, 1)
+        page = min(page, pages)
+        # created_at 秒级精度可能并列，追加 id 兜底保证分页结果稳定不重不漏
+        leads = query.order_by(Lead.created_at.desc(), Lead.id.desc()).limit(page_size).offset((page - 1) * page_size).all()
+    else:
+        page = page_size = None
+        leads = query.order_by(Lead.created_at.desc(), Lead.id.desc()).all()
     result = []
     for l in leads:
         days_left = (l.deadline.date() - datetime.now().date()).days if l.deadline else None
         result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "serial_no": l.serial_no or "", "reason": l.reason or "", "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
+    if paginated:
+        return jsonify({"items": result, "total": total, "page": page, "page_size": page_size, "pages": pages})
     return jsonify(result)
+
+@api.route('/leads/search', methods=['GET'])
+def search_leads():
+    """关键词全文检索：返回命中的线索 id 列表。
+    覆盖标题/编号 + 公告全文(full_text) + 摘要/服务内容/采购方/中标单位等富文本字段，
+    只回 id，避免把巨大的 full_text 塞进列表响应。"""
+    q = (request.args.get('q') or '').strip()
+    if not q:
+        return jsonify({"ids": []})
+    like = f"%{q}%"
+    rows = db.session.query(Lead.id).filter(
+        Lead.title.like(like)
+        | Lead.serial_no.like(like)
+        | Lead.bid_number.like(like)
+        | Lead.full_text.like(like)
+        | Lead.service_content.like(like)
+        | Lead.purchaser.like(like)
+        | Lead.winner.like(like)
+    ).all()
+    return jsonify({"ids": [r[0] for r in rows]})
+
 
 @api.route('/leads', methods=['POST'])
 def create_lead():
     d = request.get_json() or {}
     _require_fields(d, 'title')
-    l = Lead(bid_number=d.get('bid_number',''), title=str(d['title']).strip()[:500], budget=d.get('budget',''), deadline=_parse_date(d.get('deadline')), region=d.get('region',''), purchaser=d.get('purchaser',''), contact_name=(d.get('contact_name') or '')[:100], contact_phone=(d.get('contact_phone') or '')[:100], address=(d.get('address') or '')[:300], service_content=d.get('service_content',''), source_url=d.get('source_url',''), source_platform=d.get('source_platform',''), customer_id=d.get('customer_id'))
+    l = Lead(bid_number=d.get('bid_number',''), title=str(d['title']).strip()[:500], budget=normalize_amount_text(d.get('budget','')), deadline=_parse_date(d.get('deadline')), region=d.get('region',''), purchaser=d.get('purchaser',''), contact_name=(d.get('contact_name') or '')[:100], contact_phone=(d.get('contact_phone') or '')[:100], address=(d.get('address') or '')[:300], service_content=d.get('service_content',''), source_url=d.get('source_url',''), source_platform=d.get('source_platform',''), customer_id=d.get('customer_id'))
     match_lead(l)
     l.serial_no = gen_serial(l.created_at or datetime.now())
     db.session.add(l)
@@ -273,7 +313,7 @@ def update_lead(id):
     if 'status' in d and d['status'] not in ('active', 'abandoned'):
         return jsonify({"error": "状态无效"}), 400
     for key in ['title','bid_number','budget','region','purchaser','contact_name','contact_phone','address','service_content','match_keywords','match_level','match_score','match_reason','assignee','bid_type','winner','related_customer_ids','source_platform','source_url','status','customer_id']:
-        if key in d: setattr(l, key, d[key])
+        if key in d: setattr(l, key, normalize_amount_text(d[key]) if key == 'budget' else d[key])
     if 'deadline' in d: l.deadline = _parse_date(d.get('deadline'))
     db.session.commit()
     return jsonify({"id": l.id, "message": "更新成功"})
@@ -335,7 +375,7 @@ def convert_lead(id):
         db.session.flush()
         contact_id = contact.id
     o = Opportunity(lead_id=l.id, customer_id=customer_id, contact_id=contact_id,
-                    title=d.get('title', l.title), amount=d.get('amount', l.budget),
+                    title=d.get('title', l.title), amount=normalize_amount_text(d.get('amount', l.budget)),
                     current_stage=d.get('stage', '初步接触'),
                     source_url=l.source_url or '')
     db.session.add(o)
@@ -525,7 +565,7 @@ def create_activity():
         )
     db.session.commit()
     # Auto-create follow-up with source activity info
-    if d.get('next_time'):
+    if d.get('next_time') or _text(d.get('next_content')):
         act_content = _text(d.get('content'))
         fu_content = _text(d.get('next_content')) or f"跟进: {act_content[:80]}"
         ai_suggested = f"来源于活动记录 [{(_text(d.get('method')) or '活动')}] 客户: {a.customer.name if a.customer else '-'} | 内容: {act_content[:100]}"
@@ -561,25 +601,34 @@ def get_activity(id):
 def update_activity(id):
     a = Activity.query.get_or_404(id)
     d = request.get_json() or {}
-    for key in ['title', 'method', 'content', 'next_followup_content']:
+    for key in ['title', 'method', 'content']:
         if key in d: setattr(a, key, _text(d[key]))
+    # #7 前端「下次预计联系内容」在新增/编辑时都用 next_content 字段提交，
+    # 这里同时兼容旧字段名 next_followup_content，避免编辑时该字段被丢弃、
+    # 导致联络计划里的内容不更新。
+    if 'next_followup_content' in d:
+        a.next_followup_content = _text(d['next_followup_content'])
+    elif 'next_content' in d:
+        a.next_followup_content = _text(d['next_content'])
     for key in ['customer_id', 'contact_id', 'opportunity_id', 'lead_id']:
         if key in d: setattr(a, key, d[key])
     if 'time' in d: a.activity_time = _parse_datetime(d.get('time')) or a.activity_time
-    if 'next_time' in d:
-        a.next_followup_time = _parse_date(d.get('next_time'))
+    if 'next_time' in d or 'next_content' in d or 'next_followup_content' in d:
+        if 'next_time' in d:
+            a.next_followup_time = _parse_date(d.get('next_time'))
+        has_next = bool(a.next_followup_time) or bool(a.next_followup_content)
         fu = FollowUp.query.filter_by(source_activity_id=a.id).first()
         if fu and not fu.actual_date:
-            if a.next_followup_time:
+            if has_next:
                 # 已有联动计划：同步计划日期与内容
                 fu.plan_date = a.next_followup_time
                 if a.next_followup_content:
                     fu.content = a.next_followup_content
             else:
-                # 清空了下次跟进时间：删除未执行的联动计划，避免产生无来源的孤立计划
+                # 清空了下次跟进时间且无内容：删除未执行的联动计划，避免产生无来源的孤立计划
                 db.session.delete(fu)
-        elif not fu and a.next_followup_time:
-            # 原活动没有跟进时间、编辑时新增：补建联络计划，保持与新建活动一致
+        elif not fu and has_next:
+            # 原活动没有跟进计划、编辑时新增：补建联络计划，保持与新建活动一致
             db.session.add(FollowUp(
                 contact_id=a.contact_id, customer_id=a.customer_id,
                 opportunity_id=a.opportunity_id, lead_id=a.lead_id,
@@ -1220,24 +1269,32 @@ def crawl_log_detail(log_id):
 
 @api.route('/crawl/logs', methods=['DELETE'])
 def clear_crawl_logs():
-    """清理采集日志：?days=N 只清 N 天前，缺省全部清空。"""
-    q = CrawlLog.query
-    days = (request.args.get('days') or '').strip()
-    scope = '全部'
-    if days and days != 'all':
-        try:
-            cutoff = datetime.now() - timedelta(days=int(days))
-            q = q.filter(CrawlLog.started_at < cutoff)
-            scope = f'{int(days)} 天前'
-        except (TypeError, ValueError):
-            pass
+    """清理采集日志：仅删除当前筛选条件命中的日志，绝不默认全删。"""
+    args = request.args
+
+    def _active(key):
+        v = (args.get(key) or '').strip()
+        return bool(v) and v != 'all'
+
+    has_filter = any(_active(k) for k in ('task_type', 'status', 'error_code', 'days')) or _active('q')
+    if not has_filter:
+        return jsonify({"error": "请先设置筛选条件（任务 / 状态 / 报错类型 / 时间 / 关键词）后再清理，避免误删全部日志"}), 400
+
+    q = _crawl_log_query()
+    scope_parts = []
+    if _active('task_type'): scope_parts.append(f"任务[{args.get('task_type')}]")
+    if _active('status'): scope_parts.append(f"状态[{args.get('status')}]")
+    if _active('error_code'): scope_parts.append(f"报错[{args.get('error_code')}]")
+    if _active('days'): scope_parts.append(f"时间[{args.get('days')}]")
+    if _active('q'): scope_parts.append(f"关键词[{args.get('q')}]")
+    scope = '、'.join(scope_parts)
     try:
         n = q.delete(synchronize_session=False)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"清理失败: {str(e)[:120]}"}), 200
-    return jsonify({"ok": True, "deleted": n, "message": f"已清理{scope}的 {n} 条采集日志"})
+    return jsonify({"ok": True, "deleted": n, "message": f"已按条件清理 {n} 条采集日志（{scope}）"})
 
 
 @api.route('/error-types', methods=['GET'])
@@ -1310,7 +1367,7 @@ def delete_lead(id):
 def create_opportunity():
     d = request.get_json() or {}
     _require_fields(d, 'title')
-    o = Opportunity(title=str(d['title']).strip()[:500], customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), amount=d.get('amount',''), source_url=d.get('source_url','') or '', current_stage=d.get('current_stage','初步接触'), probability=d.get('probability', 20), expected_close=_parse_date(d.get('expected_close')))
+    o = Opportunity(title=str(d['title']).strip()[:500], customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), amount=normalize_amount_text(d.get('amount','')), source_url=d.get('source_url','') or '', current_stage=d.get('current_stage','初步接触'), probability=d.get('probability', 20), expected_close=_parse_date(d.get('expected_close')))
     db.session.add(o)
     db.session.commit()
     return jsonify({"id": o.id, "message": "创建成功"})
@@ -1321,7 +1378,7 @@ def update_opportunity(id):
     d = request.get_json() or {}
     old_stage = o.current_stage
     for key in ['title','amount','current_stage','customer_id','contact_id','probability','source_url']:
-        if key in d: setattr(o, key, d[key])
+        if key in d: setattr(o, key, normalize_amount_text(d[key]) if key == 'amount' else d[key])
     if 'expected_close' in d:
         o.expected_close = _parse_date(d.get('expected_close'))
     # 阶段变更自动写入阶段记录，保证商机流转时间轴完整可追溯
@@ -1448,39 +1505,171 @@ def _html_to_md(soup):
     return '\n'.join(fixed)[:60000]
 
 
-def _text_to_md(text):
-    """采集存储的纯文本 → 启发式 Markdown：章节号/短行作小标题，其余作段落。"""
+# 公告常见字段标签：扁平全文里这些词常紧贴在上一句尾部，是可靠的断行锚点
+# 注意：分组必须用 (?:...) 非捕获——捕获组会顶掉 kv_free_pat 里 group(2) 的编号，导致值丢失
+_KV_LABELS = '|'.join([
+    '采购项目名称', '采购品目', '品目名称', '品目号', '品目', '项目(?:基本)?情况', '行政区域', '公告时间',
+    '获取(?:招标|采购)文件的?地点', '获取(?:招标|采购)文件时间', '招标文件售价', '采购文件获取方式',
+    '开标时间', '开标地点', '递交(?:招标|采购|投标)文件(?:时间|地点|方式)', '投标截止(?:时间|地点)?',
+    '开标日期', '开启时间', '评审(?:地点|时间|专家)',
+    '响应文件(?:递交|开启|送达)(?:地点|时间|方式)?', '澄清与修改',
+    '项目联系人', '项目联系电话', '项目联系方式', '联系人及联系方式',
+    '采购单位地址', '采购单位联系方式', '代理机构(?:名称|地址|联系方式)',
+    '采购单位', '采购人', '代理机构',
+    '项目编号', '采购编号', '项目名称', '采购方式',
+    '合同履行期限', '履约期限', '服务期限', '工期', '交货(?:期|地点)',
+    '验收(?:方式|标准|时间)', '售后服务', '监督部门', '联系方式', '联系人', '联系电话',
+    '资金来源', '采购预算', '预算金额', '最高限价', '控制价',
+    '评标办法', '评标标准', '公示期', '发布日期', '发布时间',
+    '申请人的资格要求', '投标人的?资格要求', '特定资格要求', '基本资格要求',
+    '是否接受联合体投标', '本项目是否接受联合体投标', '联合体投标',
+    '采购需求', '采购清单', '标的?(?:内容|概况)', '项目概况', '项目预算',
+])
+
+# 章节序号（断行锚点）：一、 / （一） / 第X章
+_SUB_HEAD = r'(?:[一二三四五六七八九十]{1,3}、|（[一二三四五六七八九十]{1,3}）|第[一二三四五六七八九十百]+[章节部分条款])'
+
+
+def _reflow_flat(text):
+    """采集入库的全文常被压成一条长行；按章节序号、字段标签、句号+下一句开头
+    等锚点把长行切成"行"，供后续 Markdown 分类排版。已有换行结构的文本原样返回。"""
     import re as _re
+    if not text:
+        return ''
+    if text.count('\n') >= 5:
+        return text
+    t = _re.sub(r'\s+', ' ', text).strip()
+    if not t:
+        return t
+    # 站点导航/刊头杂讯：从"公告概要/项目概况"起才是正文（标题与时间抽屉头部已展示）
+    m = _re.search(r'(?:公告概要|公告信息|项目概况)', t)
+    if m and m.start() > 40 and len(t) - m.start() > 200:
+        t = t[m.start():]
+    # 章节号前断行（要求前面是空白/句末标点，避免切"第一、"这种行内文本）
+    t = _re.sub(r'(?<=[\s。；：:】）])\s*(?=' + _SUB_HEAD + r')', '\n', t)
+    # 字段标签（label + 至多30字的间隔 + 冒号，或直接 label+空白）前断行
+    t = _re.sub(r'(?<=[\s。；：:】）])\s*(?=(?:' + _KV_LABELS + r')(?:[^：:\n]{0,30}?[：:]|\s))', '\n', t)
+    # 句号后接"时间/日期/如/每/参/本/供/项/采/开/获/投/约/履/资/全/公/附/详"等正文开头词 → 断行
+    t = _re.sub(r'(?<=[。；;])\s*(?=(?:北京时间|20\d\d年|每日|详见|参与|本项目|采购|投标|开标|获取|合同|供应商|响应|报价|序号|附件))', '\n', t)
+    # 句中"；1.满足…… 2.具备……"式行内编号项 → 断行（(?!\d) 防误切小数如 15.8万元）
+    t = _re.sub(r'(?<=[。；;])\s*(?=\d{1,2}[、.．](?!\d))', '\n', t)
+    # 正文中途冒出的"附件：附件1 xxx.pdf"清单 → 断行，避免被并入上一字段值
+    t = _re.sub(r'(?<=[\s。；;])\s*(?=附件[：:])', '\n', t)
+    # 项目符号前断行
+    t = _re.sub(r'\s+([•●○■□◆‣])', r'\n\1', t)
+    return t
+
+
+def _text_to_md(text):
+    """采集存储的纯文本 → Markdown：先智能断行重排，再识别标题/字段清单/列表/段落。"""
+    import re as _re
+    text = _reflow_flat(text)
     heading_pat = _re.compile(r'^([一二三四五六七八九十]{1,3}、|（[一二三四五六七八九十]{1,3}）|\d{1,2}[、.．]\s*\S|第[一二三四五六七八九十\d]+[条章节部分])')
-    # 页面导航/样板行过滤
+    # 字段标签字符类刻意不含、——否则"二、申请人的资格要求：…"整行被当成 KV 清单吞掉
+    kv_pat = _re.compile(r'^([\u4e00-\u9fa5A-Za-z0-9（）()／/\-]{2,16})[：:]\s*(\S.*)$')
+    kv_free_pat = _re.compile(r'^(' + _KV_LABELS + r')\s+(\S.*)$')
+    num_pat = _re.compile(r'^(\d{1,2})[、.．](?!\d)\s*(\S.*)$')
+    # 章节序号+冒号+正文 → 拆成标题 + 剩余正文（"二、申请人的资格要求：1.满足……"）
+    sect_colon_pat = _re.compile(r'^(' + _SUB_HEAD + r'[^：:]{0,30})[：:]\s*(\S.*)$')
+    # 站点刊头杂讯："公告概要： 公告信息：" 这类裸标签黏成一行
+    bare_label_pat = _re.compile(r'^(?:(?:公告概要|公告信息|招标公告|采购公告|中标公示|公告)[：:]\s*)+$')
     boiler_pat = _re.compile(
-        r'^(首页|关闭|打印|分享|上一篇|下一篇|当前位置|»|【|】|服务热线|服务投诉|财政部唯一指定|'
-        r'E-?mail|邮件订阅|【打印】|【关闭】|中\s*小|大\s*中\s*小|扫一扫|微信|微博|二维码|'
-        r'版权所有|网站地图|主办单位|承办单位|技术支持|浏览次数|附件下载|相关附件|打印本页|关闭窗口|'
-        r'政采法规|购买服务|监督检查|信息公告|国际专栏|政采公告|地方公告|中央公告|地方动态|采购需求|'
-        r'政采知识|政策法规|互动交流|专题专栏|站内检索|无障碍|长者模式).*'
-    )
-    lines = [l.strip() for l in (text or '').split('\n') if l.strip()]
-    out = []
-    for i, line in enumerate(lines):
+        r'^(首页|关闭|打印|分享|上一篇|下一篇|当前位置|»|服务热线|服务投诉|财政部唯一指定|'
+        r'E-?mail|邮件订阅|扫一扫|微信|微博|二维码|版权所有|网站地图|主办单位|承办单位|技术支持|浏览次数|'
+        r'相关附件|附件下载|打印本页|关闭窗口|政采法规|购买服务|监督检查|信息公告|国际专栏|政采公告|地方公告|中央公告|地方动态|'
+        r'政采知识|政策法规|互动交流|专题专栏|站内检索|无障碍|长者模式|来源[：:]|【\s*打印\s*】|【\s*关闭\s*】).*$',
+        flags=_re.UNICODE)
+    date_line_pat = _re.compile(r'^\d{4}年\d{1,2}月\d{1,2}日(\s+\d{1,2}[:：]?\d*)?\s*(来源[：:]?.*)?$')
+
+    def _kv_pair(label, value):
+        """项目概况单独成节：标题 + 正文段；其余字段照常出清单行。"""
+        if label == '项目概况':
+            return [('h3', '## 项目概况'), ('p', _esc_md(value))]
+        return [('li', f'- **{label}**：{_esc_md(value)}')]
+
+    items = []  # (kind, text)  kind: h1/h3/bold/li/oli/p
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    for line in lines:
+        bare = line.rstrip('：:')
+        if bare in ('公告概要', '公告信息') or bare_label_pat.match(line):
+            continue
+        if line == '项目概况':
+            items.append(('h3', '## 项目概况'))
+            continue
+        if boiler_pat.match(line) or date_line_pat.match(line) or len(line) <= 3:
+            continue
         esc = _esc_md(line)
-        if i == 0 and len(line) > 8:
-            out.append('# ' + esc)  # 首行为公告标题
+        m_kv = kv_pat.match(line)
+        m_kf = kv_free_pat.match(line)
+        # 第一条留下来的行多半就是公告标题 → H1；像字段/列表/章节行的则不作标题
+        if not items and 8 < len(line) <= 80 \
+                and not (m_kv or m_kf or num_pat.match(line) or heading_pat.match(line)):
+            items.append(('h1', '# ' + esc))
             continue
-        if boiler_pat.match(line) or len(line) <= 3:
+        m = sect_colon_pat.match(line)
+        if m and len(m.group(1)) <= 40:
+            items.append(('h3', '### ' + _esc_md(m.group(1))))
+            mn = num_pat.match(m.group(2))
+            if mn:
+                items.append(('oli', f'{mn.group(1)}. {_esc_md(mn.group(2))}'))
+            else:
+                items.append(('p', _esc_md(m.group(2))))
             continue
-        if heading_pat.match(line) and len(line) <= 60:
-            out.append('### ' + esc)
-        elif (2 <= len(line) <= 6 and not line.endswith(('。', '；', '，', ',', '、'))
-              and '：' not in line and ':' not in line and not line.startswith(('http', 'www.'))):
-            out.append('**' + esc + '**')  # 字段标签行加粗（采购单位/开标时间等）
-        elif (6 < len(line) <= 30 and not line.endswith(('。', '；', '，', ',', '、'))
-              and '：' not in line and ':' not in line and not line.startswith(('http', 'www.'))):
-            out.append('### ' + esc)
-        elif line.endswith(('：', ':')) and len(line) <= 15:
-            out.append('**' + esc + '**')  # "公告概要："式标签
-        else:
-            out.append(esc + '  ')
+        m = num_pat.match(line)
+        if m and len(line) <= 500:
+            items.append(('oli', f'{m.group(1)}. {_esc_md(m.group(2))}'))
+            continue
+        m = heading_pat.match(line)
+        if m and len(line) <= 60:
+            items.append(('h3', '### ' + esc))
+            continue
+        if m_kv and len(line) <= 300:
+            items.extend(_kv_pair(m_kv.group(1), m_kv.group(2)))
+            continue
+        if m_kf and len(line) <= 300:
+            items.extend(_kv_pair(m_kf.group(1), m_kf.group(2)))
+            continue
+        if 2 <= len(bare) <= 15 and line.endswith(('：', ':')) \
+                and not line.startswith(('http', 'www.')):
+            items.append(('bold', '**' + _esc_md(bare) + '**'))  # "联系人及联系方式：" 小标题
+            continue
+        if 2 <= len(line) <= 6 and not line.endswith(('。', '；', '，', ',', '、', '：', ':')) \
+                and not line.startswith(('http', 'www.')):
+            items.append(('bold', '**' + esc + '**'))
+            continue
+        if 6 < len(line) <= 30 and not line.endswith(('。', '；', '，', ',', '、')) \
+                and '：' not in line and ':' not in line and not line.startswith(('http', 'www.')):
+            items.append(('h3', '### ' + esc))
+            continue
+        items.append(('p', esc))
+
+    # 采集文本以字段清单开头（站方"公告概要"块）且没识别出标题时，给个交代性的节标题
+    if items and items[0][0] == 'li' and not any(k == 'h1' for k, _ in items):
+        items.insert(0, ('h3', '### 公告概要'))
+
+    # 组块输出：标题/加粗独立成块；相邻清单行合成列表；正文行以软换行聚段
+    out, prev = [], None
+
+    def _sep():
+        if out and out[-1] != '':
+            out.append('')
+
+    for kind, content in items:
+        if kind in ('h1', 'h3', 'bold'):
+            _sep()
+            out.append(content)
+            _sep()
+            prev = 'block'
+        elif kind in ('li', 'oli'):
+            if prev and prev != 'list':
+                _sep()
+            out.append(content)
+            prev = 'list'
+        else:  # p
+            if prev and prev != 'para':
+                _sep()
+            out.append(content + '  ')
+            prev = 'para'
     return '\n'.join(out)[:60000]
 
 
@@ -1536,11 +1725,9 @@ def lead_fulltext(id):
 @api.route('/analytics', methods=['GET'])
 def analytics():
     from sqlalchemy import func as sa_func
-    import re as _re
     def safe_amount(val):
-        if not val: return 0.0
-        m = _re.search(r'[\d.]+', str(val))
-        return float(m.group()) if m else 0.0
+        # 统一按"万元"口径解析：兼容 "150万" / "1,500.50元" / "3亿" / 纯数字 等历史写法
+        return parse_amount_wan(val) or 0.0
     leads = Lead.query.all()
     opportunities = Opportunity.query.all()
     activities = Activity.query.all()

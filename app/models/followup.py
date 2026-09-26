@@ -5,11 +5,11 @@ class FollowUp(db.Model):
     __tablename__ = 'followups'
     
     id = db.Column(db.Integer, primary_key=True)
-    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'))
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
-    opportunity_id = db.Column(db.Integer, db.ForeignKey('opportunities.id'))
-    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'))
-    plan_date = db.Column(db.DateTime)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contacts.id'), index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
+    opportunity_id = db.Column(db.Integer, db.ForeignKey('opportunities.id'), index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'), index=True)
+    plan_date = db.Column(db.DateTime, index=True)
     content = db.Column(db.Text)
     ai_suggested_content = db.Column(db.Text)
     actual_date = db.Column(db.DateTime)
