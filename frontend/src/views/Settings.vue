@@ -8,24 +8,78 @@
         <el-tab-pane label="AI 配置" name="ai">
           <div class="tab-body">
             <div class="form-section">
-              <div class="section-title">模型服务</div>
-              <el-form ref="aiFormRef" :model="ai" :rules="aiRules" label-width="112px" class="form-narrow">
-                <el-form-item label="API Endpoint" prop="endpoint">
-                  <el-input v-model="ai.endpoint" class="mi" placeholder="https://api.openai.com/v1" />
-                </el-form-item>
-                <el-form-item label="API Key" prop="key">
-                  <el-input v-model="ai.key" type="password" show-password placeholder="留空表示不修改" />
-                </el-form-item>
-                <el-form-item label="模型" prop="model">
-                  <el-input v-model="ai.model" class="mi" placeholder="如 deepseek-v4-flash" />
-                </el-form-item>
-                <el-form-item>
-                  <el-button type="primary" :loading="aiSaving" @click="saveAI">保存配置</el-button>
-                  <el-button :loading="aiTesting" @click="testAI">测试连接</el-button>
-                </el-form-item>
-              </el-form>
-              <div class="note-box">
-                测试连接会真实调用一次模型接口；若失败，提示已按「额度不足 / 鉴权失败 / 网络超时」等类型归类，并附处理建议。
+              <div class="section-title-head">
+                <span class="section-title">模型服务（可配置多家）</span>
+                <div class="grow" />
+                <el-button size="small" :icon="Plus" @click="addProvider">添加一家</el-button>
+              </div>
+
+              <div class="note-box note-box--top">
+                列表顺序即「轮换 + 故障切换」次序：调用时轮流从不同服务起步，以分摊各家额度与并发；
+                某个服务出现<b>鉴权失败 / 额度不足 / 连不上 / 不可用</b>时，自动按顺序切换到下一家，全部失败才报错。
+                可点每行的「验证」先确认连通，再统一保存。
+              </div>
+
+              <div v-if="!providers.length" class="ai-empty">还没有配置模型服务，点上方「添加一家」开始。</div>
+
+              <div v-else class="ai-list">
+                <div
+                  v-for="(p, i) in providers"
+                  :key="p.id || ('tmp' + i)"
+                  class="ai-row"
+                  :class="{ 'is-disabled': !p.enabled }"
+                >
+                  <div class="ai-row-head">
+                    <span class="ai-idx mono">#{{ i + 1 }}</span>
+                    <el-input v-model="p.name" size="small" class="ai-name" placeholder="服务名称（如 深度求索 / 本地 Qwen）" />
+                    <el-switch v-model="p.enabled" size="small" active-text="启用" />
+                    <div class="grow" />
+                    <el-button-group class="ai-order">
+                      <el-button size="small" :icon="Top" :disabled="i === 0" title="上移" @click="moveProvider(i, -1)" />
+                      <el-button size="small" :icon="Bottom" :disabled="i === providers.length - 1" title="下移" @click="moveProvider(i, 1)" />
+                    </el-button-group>
+                    <el-button size="small" type="danger" plain :icon="Delete" @click="removeProvider(i)">删除</el-button>
+                  </div>
+
+                  <div class="ai-fields">
+                    <div class="field field--endpoint">
+                      <label>API Endpoint</label>
+                      <el-input v-model="p.endpoint" class="mi" placeholder="https://api.openai.com/v1" />
+                    </div>
+                    <div class="field field--model">
+                      <label>模型名称</label>
+                      <el-input v-model="p.model" class="mi" placeholder="如 deepseek-chat" />
+                    </div>
+                    <div class="field field--key">
+                      <label>API Key</label>
+                      <el-input
+                        v-model="p.api_key"
+                        type="password"
+                        show-password
+                        class="mi"
+                        :placeholder="p.has_key ? ('已保存 ' + p.key_masked + '（留空则不修改）') : '填入该服务的 API Key'"
+                      />
+                    </div>
+                    <div class="field field--verify">
+                      <label>&nbsp;</label>
+                      <div class="verify-cell">
+                        <el-button size="default" :loading="p.verifying" @click="verifyProvider(i)">验证</el-button>
+                        <span v-if="p.verify" :class="['verify-result', p.verify.ok ? 'is-ok' : 'is-bad']">
+                          <i class="st-dot" />{{ p.verify.ok ? '连接正常' : (p.verify.label || '失败') }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="p.verify && !p.verify.ok && (p.verify.hint || p.verify.error)" class="verify-err">
+                    {{ p.verify.label }}：{{ p.verify.hint || p.verify.error }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="ai-actions">
+                <el-button type="primary" :loading="aiSaving" @click="saveProviders">保存配置</el-button>
+                <span v-if="providers.length" class="muted">共 {{ providers.length }} 家，已启用 {{ enabledCount }} 家</span>
               </div>
             </div>
           </div>
@@ -373,7 +427,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lightning, Tools, Document, Refresh, Search, Delete } from '@element-plus/icons-vue'
+import { Lightning, Tools, Document, Refresh, Search, Delete, Plus, Top, Bottom } from '@element-plus/icons-vue'
 import { get, getList, post, put, del } from '../api'
 import { useCrawlStore } from '../stores/app'
 import PageHeader from '../components/PageHeader.vue'
@@ -390,14 +444,9 @@ const STATUS_LIST = [
   { value: 'interrupted', label: '已中断', tag: 'info' },
 ]
 
-const ai = reactive({ endpoint: '', key: '', model: '' })
-const aiFormRef = ref(null)
+const providers = ref([])
 const aiSaving = ref(false)
-const aiTesting = ref(false)
-const aiRules = {
-  endpoint: [{ required: true, message: '请输入 API Endpoint', trigger: 'blur' }],
-  model: [{ required: true, message: '请输入模型名称', trigger: 'blur' }],
-}
+const enabledCount = computed(() => providers.value.filter((p) => p.enabled).length)
 
 const crawlForm = reactive({ sources: '', limit: 5, lastAt: '', kwFilter: true, keywords: '' })
 const crawlFormRef = ref(null)
@@ -488,29 +537,86 @@ const sourcesToText = (cfg, key) => {
   return ''
 }
 
-async function saveAI() {
-  if (!aiFormRef.value) return
-  const valid = await aiFormRef.value.validate().catch(() => false)
-  if (!valid) return
-  aiSaving.value = true
+async function loadProviders() {
+  const list = await getList('/config/ai-providers')
+  providers.value = list.map((p) => ({
+    id: p.id || '',
+    name: p.name || '',
+    endpoint: p.endpoint || '',
+    model: p.model || '',
+    api_key: '',                 // 空 = 不修改，沿用后端已存的 key
+    has_key: !!p.has_key,
+    key_masked: p.key_masked || '',
+    enabled: p.enabled !== false,
+    verifying: false,
+    verify: null,
+  }))
+}
+
+function addProvider() {
+  providers.value.push({
+    id: '', name: '', endpoint: '', model: '',
+    api_key: '', has_key: false, key_masked: '',
+    enabled: true, verifying: false, verify: null,
+  })
+}
+
+function removeProvider(i) {
+  providers.value.splice(i, 1)
+}
+
+function moveProvider(i, delta) {
+  const j = i + delta
+  if (j < 0 || j >= providers.value.length) return
+  const arr = providers.value
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+}
+
+async function verifyProvider(i) {
+  const p = providers.value[i]
+  if (!p.endpoint || !p.model) {
+    p.verify = { ok: false, label: '配置不完整', hint: 'Endpoint 与模型名称均为必填' }
+    return ElMessage.warning('请先填写 Endpoint 与模型名称')
+  }
+  p.verifying = true
+  p.verify = null
   try {
-    const r = await put('/config', { ai_api_endpoint: ai.endpoint, ai_api_key: ai.key, ai_model: ai.model })
-    if (r.error) return ElMessage.error(r.error)
-    ElMessage.success('AI 配置已保存')
+    const r = await post('/config/verify-ai', {
+      id: p.id, name: p.name, endpoint: p.endpoint, model: p.model, api_key: p.api_key,
+    })
+    if (r.ok) {
+      p.verify = { ok: true }
+      ElMessage.success(r.message || '连接正常')
+    } else {
+      p.verify = { ok: false, label: r.label, hint: r.hint, error: r.error }
+      ElMessage.error(r.label ? `${r.label}：${r.hint || r.error}` : (r.error || '连接失败'))
+    }
   } finally {
-    aiSaving.value = false
+    p.verifying = false
   }
 }
 
-async function testAI() {
-  aiTesting.value = true
+async function saveProviders() {
+  for (const [idx, p] of providers.value.entries()) {
+    if (!p.endpoint || !p.model) {
+      return ElMessage.warning(`第 ${idx + 1} 家：Endpoint 与模型名称为必填`)
+    }
+    if (!p.has_key && !p.api_key) {
+      return ElMessage.warning(`第 ${idx + 1} 家：请填写 API Key`)
+    }
+  }
+  aiSaving.value = true
   try {
-    const r = await post('/config/test-ai')
-    if (r.ok) return ElMessage.success(r.message || '连接正常')
-    // 报错已按类型归类：直接展示「模型额度不足 / 鉴权失败…」及处理建议
-    ElMessage.error(r.label ? `${r.label}：${r.hint || r.error}` : (r.error || '连接失败'))
+    const body = providers.value.map((p) => ({
+      id: p.id, name: p.name, endpoint: p.endpoint, model: p.model,
+      api_key: p.api_key, enabled: p.enabled,
+    }))
+    const r = await put('/config/ai-providers', body)
+    if (r.error) return ElMessage.error(r.error)
+    ElMessage.success(r.message || 'AI 配置已保存')
+    await loadProviders()  // 重新拉取脱敏展示
   } finally {
-    aiTesting.value = false
+    aiSaving.value = false
   }
 }
 
@@ -651,9 +757,7 @@ async function deleteSkill(id) {
 onMounted(async () => {
   const config = await get('/config')
   const getV = (k, d = '') => config[k]?.value || d
-  ai.endpoint = getV('ai_api_endpoint', 'https://api.openai.com/v1')
-  ai.key = getV('ai_api_key', '')
-  ai.model = getV('ai_model', 'gpt-4o')
+  loadProviders()
   crawlForm.sources = sourcesToText(config, 'crawl_sources')
   crawlForm.lastAt = config.last_crawl_at?.value || '首次采集（自动回溯最近 7 天）'
   crawlForm.limit = Number(config.crawl_limit?.value || 5) || 5
@@ -661,7 +765,6 @@ onMounted(async () => {
   crawlForm.keywords = getV('keywords', '无人机,林业,病虫害,巡检')
   newsSources.value = sourcesToText(config, 'news_sources')
   await nextTick()
-  aiFormRef.value?.clearValidate()
   crawlFormRef.value?.clearValidate()
   loadSkills()
   loadErrorTypes()
@@ -710,6 +813,51 @@ watch(() => crawl.finishedAt, () => {
   font-size: 12.5px; color: var(--crm-pine-600); font-weight: 500;
 }
 .link-like:hover { text-decoration: underline; }
+
+/* 多家 AI 配置列表 */
+.section-title-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.section-title-head .section-title { margin: 0; }
+.note-box--top { margin-top: 0; margin-bottom: 14px; }
+.ai-empty {
+  padding: 22px; text-align: center; color: var(--crm-fg-3); font-size: 13px;
+  border: 1px dashed var(--crm-border-hairline); border-radius: var(--crm-radius-md);
+  background: var(--crm-slate-25);
+}
+.ai-list { display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
+.ai-row {
+  border: 1px solid var(--crm-border-soft);
+  border-radius: var(--crm-radius-md);
+  padding: 12px 14px;
+  background: var(--el-bg-color);
+  transition: opacity var(--crm-dur-fast) var(--crm-ease-out),
+              border-color var(--crm-dur-fast) var(--crm-ease-out);
+}
+.ai-row.is-disabled { opacity: .58; background: var(--crm-slate-25); }
+.ai-row-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ai-idx {
+  font-size: 12px; font-weight: 650; color: var(--crm-pine-600);
+  background: var(--crm-pine-25); border-radius: var(--crm-radius-sm);
+  padding: 2px 8px; flex-shrink: 0;
+}
+.ai-name { max-width: 260px; }
+.ai-order :deep(.el-button) { padding: 6px 8px; }
+.ai-fields { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field > label { font-size: 12px; color: var(--crm-fg-3); }
+.field--key, .field--verify { grid-column: span 1; }
+.verify-cell { display: flex; align-items: center; gap: 10px; height: 32px; }
+.verify-result { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
+.verify-result.is-ok { color: var(--crm-pine-600); }
+.verify-result.is-bad { color: var(--crm-rose-500); }
+.verify-err {
+  margin-top: 8px; font-size: 12.5px; line-height: 1.6;
+  color: var(--crm-rose-500);
+  background: var(--crm-rose-50);
+  border: 1px solid var(--crm-border-hairline);
+  border-radius: var(--crm-radius-sm);
+  padding: 6px 10px;
+}
+.ai-actions { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
 
 /* 采集运行状态 */
 .run-state {

@@ -1073,10 +1073,7 @@ def update_config():
 @api.route('/config/test-ai', methods=['POST'])
 def test_ai_connection():
     from app.services.error_classifier import classify_error
-    configs = {c.key: c.value for c in SystemConfig.query.all()}
-    api_key = configs.get('ai_api_key', '')
-    endpoint = configs.get('ai_api_endpoint', 'https://api.openai.com/v1')
-    model = configs.get('ai_model', 'gpt-4o')
+    from app.services.ai_client import usable_providers, _chat_once, ProviderError
 
     def _fail(raw):
         """把原始报错翻译成可直接识别的类型（模型额度不足 / 鉴权失败 / 服务不可用…）。"""
@@ -1084,20 +1081,109 @@ def test_ai_connection():
         return jsonify({"ok": False, "error": raw, "code": v['code'],
                         "label": v['label'], "hint": v['hint']}), 200
 
-    if not api_key:
-        return _fail('模型鉴权失败: 未配置 API Key')
+    providers = usable_providers()
+    if not providers:
+        return _fail('未配置可用的 AI 服务：请在「AI 配置」中添加并启用至少一家模型')
+    prov = providers[0]
     try:
-        resp = http_requests.post(
-            endpoint.rstrip('/') + '/chat/completions',
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": model, "messages": [{"role": "user", "content": "hello"}], "max_tokens": 10},
-            timeout=180
-        )
-        if resp.status_code == 200:
-            return jsonify({"ok": True, "message": f"连接成功！模型 {model} 响应正常", "model": model})
-        return _fail(f"AI 接口返回 HTTP {resp.status_code}: {(resp.text or '')[:500]}")
+        _chat_once(prov, [{"role": "user", "content": "hello"}],
+                   max_tokens=10, temperature=0, timeout=180, retries=1, json_mode=False)
+        return jsonify({"ok": True,
+                        "message": f"连接成功！首选服务 [{prov['name'] or prov['model']}] 响应正常",
+                        "model": prov['model']})
+    except ProviderError as e:
+        return _fail(str(e))
     except Exception as e:
         return _fail(f"AI 请求异常: {type(e).__name__}: {e}")
+
+@api.route('/config/ai-providers', methods=['GET'])
+def get_ai_providers_view():
+    """返回有序的多家 AI 配置；api_key 一律脱敏，仅给出末 4 位与是否有 key。"""
+    from app.services.ai_client import get_ai_providers, mask_key
+    out = []
+    for p in get_ai_providers():
+        out.append({
+            "id": p["id"],
+            "name": p["name"],
+            "endpoint": p["endpoint"],
+            "model": p["model"],
+            "enabled": p["enabled"],
+            "has_key": bool(p["api_key"]),
+            "key_masked": mask_key(p["api_key"]),
+        })
+    return jsonify(out)
+
+
+@api.route('/config/ai-providers', methods=['PUT'])
+def put_ai_providers():
+    """保存多家配置（顺序即优先级/轮换次序）。
+
+    Key 规则：某家的 api_key 传空、或仍是脱敏占位（以 '••••' 开头）时，
+    沿用其 id 在库中已存的真实 key——避免前端展示脱敏值后回写把真 key 冲掉。
+    新家（无匹配 id）必须带真实 key。
+    """
+    import uuid
+    from app.services.ai_client import get_ai_providers, _clean_provider
+    data = request.get_json()
+    if not isinstance(data, list):
+        return jsonify({"error": "格式错误：应提交 provider 列表"}), 400
+
+    stored_by_id = {p["id"]: p["api_key"] for p in get_ai_providers() if p["id"]}
+    cleaned = []
+    for raw in data:
+        prov = _clean_provider(raw)
+        key = prov["api_key"]
+        # 空或脱敏占位 → 复用已存 key
+        if (not key or key.startswith("••••")) and prov["id"] in stored_by_id:
+            prov["api_key"] = stored_by_id[prov["id"]]
+        if not prov["id"]:
+            prov["id"] = uuid.uuid4().hex[:8]
+        cleaned.append(prov)
+
+    val = json.dumps(cleaned, ensure_ascii=False)
+    config = SystemConfig.query.filter_by(key='ai_providers').first()
+    if config:
+        config.value = val
+    else:
+        config = SystemConfig(key='ai_providers', value=val, description='多家 AI 服务配置(顺序即优先级/轮换)')
+        db.session.add(config)
+    db.session.commit()
+    return jsonify({"message": f"已保存 {len(cleaned)} 家 AI 服务"})
+
+
+@api.route('/config/verify-ai', methods=['POST'])
+def verify_ai_provider():
+    """验证单家 provider 是否可用——用于「输入即验证」，通过后再保存。
+
+    入参：{id?, name?, endpoint, model, api_key}。api_key 为空/脱敏占位且带 id 时，
+    取库中该 id 已存的 key 来验证（便于只改了 endpoint/模型、没重填 key 的场景）。
+    只打这一家，不做跨家切换，结果如实反映该 provider 自身状态。
+    """
+    from app.services.error_classifier import classify_error
+    from app.services.ai_client import _chat_once, _clean_provider, ProviderError, get_ai_providers
+    d = request.get_json() or {}
+    prov = _clean_provider(d)
+    if (not prov["api_key"] or prov["api_key"].startswith("••••")) and prov["id"]:
+        stored = {p["id"]: p["api_key"] for p in get_ai_providers()}
+        prov["api_key"] = stored.get(prov["id"], "")
+
+    def _fail(raw):
+        v = classify_error(raw, 'ai')
+        return jsonify({"ok": False, "error": raw, "code": v['code'],
+                        "label": v['label'], "hint": v['hint']}), 200
+
+    if not prov["endpoint"] or not prov["model"]:
+        return _fail('配置不完整：Endpoint 与模型名称均为必填')
+    try:
+        _chat_once(prov, [{"role": "user", "content": "hello"}],
+                   max_tokens=10, temperature=0, timeout=120, retries=1, json_mode=False)
+        label = prov["name"] or prov["model"]
+        return jsonify({"ok": True, "message": f"连接成功！[{label}] 响应正常", "model": prov["model"]})
+    except ProviderError as e:
+        return _fail(str(e))
+    except Exception as e:
+        return _fail(f"AI 请求异常: {type(e).__name__}: {e}")
+
 
 @api.route('/config/crawl-targets', methods=['GET'])
 def get_crawl_targets():
