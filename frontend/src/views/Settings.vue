@@ -7,81 +7,99 @@
         <!-- ------------------------------ AI 配置 ------------------------------ -->
         <el-tab-pane label="AI 配置" name="ai">
           <div class="tab-body">
-            <div class="form-section">
-              <div class="section-title-head">
-                <span class="section-title">模型服务（可配置多家）</span>
-                <div class="grow" />
-                <el-button size="small" :icon="Plus" @click="addProvider">添加一家</el-button>
+            <div class="ai-toolbar">
+              <div class="note-box note-box--inline">
+                列表顺序即「轮换 + 故障切换」次序：调用时轮流从不同服务起步以分摊各家额度；某家<b>鉴权失败 / 额度不足 / 连不上 / 不可用</b>时自动切到下一家，全部失败才报错。增删改后需点「保存配置」写入后端。
               </div>
-
-              <div class="note-box note-box--top">
-                列表顺序即「轮换 + 故障切换」次序：调用时轮流从不同服务起步，以分摊各家额度与并发；
-                某个服务出现<b>鉴权失败 / 额度不足 / 连不上 / 不可用</b>时，自动按顺序切换到下一家，全部失败才报错。
-                可点每行的「验证」先确认连通，再统一保存。
-              </div>
-
-              <div v-if="!providers.length" class="ai-empty">还没有配置模型服务，点上方「添加一家」开始。</div>
-
-              <div v-else class="ai-list">
-                <div
-                  v-for="(p, i) in providers"
-                  :key="p.id || ('tmp' + i)"
-                  class="ai-row"
-                  :class="{ 'is-disabled': !p.enabled }"
-                >
-                  <div class="ai-row-head">
-                    <span class="ai-idx mono">#{{ i + 1 }}</span>
-                    <el-input v-model="p.name" size="small" class="ai-name" placeholder="服务名称（如 深度求索 / 本地 Qwen）" />
-                    <el-switch v-model="p.enabled" size="small" active-text="启用" />
-                    <div class="grow" />
-                    <el-button-group class="ai-order">
-                      <el-button size="small" :icon="Top" :disabled="i === 0" title="上移" @click="moveProvider(i, -1)" />
-                      <el-button size="small" :icon="Bottom" :disabled="i === providers.length - 1" title="下移" @click="moveProvider(i, 1)" />
-                    </el-button-group>
-                    <el-button size="small" type="danger" plain :icon="Delete" @click="removeProvider(i)">删除</el-button>
-                  </div>
-
-                  <div class="ai-fields">
-                    <div class="field field--endpoint">
-                      <label>API Endpoint</label>
-                      <el-input v-model="p.endpoint" class="mi" placeholder="https://api.openai.com/v1" />
-                    </div>
-                    <div class="field field--model">
-                      <label>模型名称</label>
-                      <el-input v-model="p.model" class="mi" placeholder="如 deepseek-chat" />
-                    </div>
-                    <div class="field field--key">
-                      <label>API Key</label>
-                      <el-input
-                        v-model="p.api_key"
-                        type="password"
-                        show-password
-                        class="mi"
-                        :placeholder="p.has_key ? ('已保存 ' + p.key_masked + '（留空则不修改）') : '填入该服务的 API Key'"
-                      />
-                    </div>
-                    <div class="field field--verify">
-                      <label>&nbsp;</label>
-                      <div class="verify-cell">
-                        <el-button size="default" :loading="p.verifying" @click="verifyProvider(i)">验证</el-button>
-                        <span v-if="p.verify" :class="['verify-result', p.verify.ok ? 'is-ok' : 'is-bad']">
-                          <i class="st-dot" />{{ p.verify.ok ? '连接正常' : (p.verify.label || '失败') }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div v-if="p.verify && !p.verify.ok && (p.verify.hint || p.verify.error)" class="verify-err">
-                    {{ p.verify.label }}：{{ p.verify.hint || p.verify.error }}
-                  </div>
-                </div>
-              </div>
-
-              <div class="ai-actions">
+              <div class="ai-toolbar-actions">
+                <el-button :icon="Plus" @click="openProviderForm()">添加一家</el-button>
                 <el-button type="primary" :loading="aiSaving" @click="saveProviders">保存配置</el-button>
-                <span v-if="providers.length" class="muted">共 {{ providers.length }} 家，已启用 {{ enabledCount }} 家</span>
               </div>
             </div>
+
+            <div class="table-wrap">
+              <PageTable
+                storage-key="ai_providers" :data="providers" :reorderable="false" :show-footer="false"
+                empty-text="还没有配置模型服务" empty-hint="点「添加一家」接入第一个模型，可再加多家做轮换容错"
+              >
+                <template #empty-action>
+                  <el-button type="primary" plain size="small" :icon="Plus" @click="openProviderForm()" style="margin-top:12px">添加一家</el-button>
+                </template>
+
+                <el-table-column label="编号" width="76" align="center">
+                  <template #default="{ $index }"><span class="mono serial">{{ String($index + 1).padStart(2, '0') }}</span></template>
+                </el-table-column>
+                <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span v-if="row.name">{{ row.name }}</span>
+                    <span v-else class="dim">未命名</span>
+                    <span v-if="row.enabled === false" class="dim"> · 已停用</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="endpoint" label="Endpoint" min-width="250" show-overflow-tooltip>
+                  <template #default="{ row }"><span class="mono dim">{{ row.endpoint || '—' }}</span></template>
+                </el-table-column>
+                <el-table-column label="API Key" min-width="130">
+                  <template #default="{ row }">
+                    <span v-if="row.has_key" class="mono">{{ row.key_masked }}</span>
+                    <span v-else class="is-bad">未配置</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="model" label="模型名称" min-width="150" show-overflow-tooltip>
+                  <template #default="{ row }"><span class="mono">{{ row.model || '—' }}</span></template>
+                </el-table-column>
+                <el-table-column label="操作" width="168" fixed="right" align="right">
+                  <template #default="{ row, $index }">
+                    <div class="row-actions">
+                      <el-button link size="small" :loading="row.verifying" @click="verifyRow($index)">验证</el-button>
+                      <el-button link size="small" @click="openProviderForm($index)">修改</el-button>
+                      <el-button link type="danger" size="small" @click="removeProvider($index)">删除</el-button>
+                    </div>
+                  </template>
+                </el-table-column>
+              </PageTable>
+            </div>
+
+            <div class="ai-count muted">共 {{ providers.length }} 家，已启用 {{ enabledCount }} 家</div>
+
+            <!-- 添加 / 修改 模型服务 -->
+            <el-dialog v-model="providerFormVisible" :title="providerEditIndex === null ? '添加模型服务' : '修改模型服务'" width="580px" destroy-on-close>
+              <el-form label-width="104px">
+                <el-form-item label="服务名称">
+                  <el-input v-model="pform.name" placeholder="如 深度求索 / 本地 Qwen" />
+                </el-form-item>
+                <el-form-item label="API Endpoint" required>
+                  <el-input v-model="pform.endpoint" class="mi" placeholder="https://api.openai.com/v1" />
+                </el-form-item>
+                <el-form-item label="模型名称" required>
+                  <el-input v-model="pform.model" class="mi" placeholder="如 deepseek-chat" />
+                </el-form-item>
+                <el-form-item label="API Key">
+                  <el-input
+                    v-model="pform.api_key" type="password" show-password class="mi"
+                    :placeholder="pform.has_key ? ('已保存 ' + pform.key_masked + '（留空则不变）') : '填入该服务的 API Key'"
+                  />
+                </el-form-item>
+                <el-form-item label="启用">
+                  <el-switch v-model="pform.enabled" active-text="参与轮换 / 故障切换" />
+                </el-form-item>
+                <el-form-item label-width="0">
+                  <div class="verify-cell">
+                    <el-button :loading="pform.verifying" @click="verifyForm">验证连通</el-button>
+                    <span v-if="pform.verify" :class="['verify-result', pform.verify.ok ? 'is-ok' : 'is-bad']">
+                      <i class="st-dot" />{{ pform.verify.ok ? '连接正常' : (pform.verify.label || '失败') }}
+                    </span>
+                  </div>
+                </el-form-item>
+                <div v-if="pform.verify && !pform.verify.ok && (pform.verify.hint || pform.verify.error)" class="verify-err">
+                  {{ pform.verify.label }}：{{ pform.verify.hint || pform.verify.error }}
+                </div>
+              </el-form>
+              <template #footer>
+                <el-button @click="providerFormVisible = false">取消</el-button>
+                <el-button type="primary" @click="commitProviderForm">保存条目</el-button>
+              </template>
+            </el-dialog>
           </div>
         </el-tab-pane>
 
@@ -427,11 +445,12 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lightning, Tools, Document, Refresh, Search, Delete, Plus, Top, Bottom } from '@element-plus/icons-vue'
+import { Lightning, Tools, Document, Refresh, Search, Delete, Plus } from '@element-plus/icons-vue'
 import { get, getList, post, put, del } from '../api'
 import { useCrawlStore } from '../stores/app'
 import PageHeader from '../components/PageHeader.vue'
 import DetailGrid from '../components/DetailGrid.vue'
+import PageTable from '../components/PageTable.vue'
 
 const crawl = useCrawlStore()
 const tab = ref('ai')
@@ -447,6 +466,15 @@ const STATUS_LIST = [
 const providers = ref([])
 const aiSaving = ref(false)
 const enabledCount = computed(() => providers.value.filter((p) => p.enabled).length)
+
+// 添加 / 修改 弹窗
+const providerFormVisible = ref(false)
+const providerEditIndex = ref(null)
+const pform = reactive({
+  id: '', name: '', endpoint: '', model: '', api_key: '',
+  has_key: false, key_masked: '', enabled: true, verifying: false, verify: null,
+})
+const maskLocal = (k) => '••••' + (k.length >= 4 ? k.slice(-4) : k)
 
 const crawlForm = reactive({ sources: '', limit: 5, lastAt: '', kwFilter: true, keywords: '' })
 const crawlFormRef = ref(null)
@@ -553,47 +581,90 @@ async function loadProviders() {
   }))
 }
 
-function addProvider() {
-  providers.value.push({
-    id: '', name: '', endpoint: '', model: '',
-    api_key: '', has_key: false, key_masked: '',
-    enabled: true, verifying: false, verify: null,
+function openProviderForm(index = null) {
+  providerEditIndex.value = index
+  if (index === null) {
+    Object.assign(pform, {
+      id: '', name: '', endpoint: '', model: '', api_key: '',
+      has_key: false, key_masked: '', enabled: true, verifying: false, verify: null,
+    })
+  } else {
+    const p = providers.value[index]
+    // 编辑：Key 输入框留空即"不改动"，沿用该行已存的 key
+    Object.assign(pform, {
+      id: p.id, name: p.name, endpoint: p.endpoint, model: p.model, api_key: '',
+      has_key: p.has_key, key_masked: p.key_masked, enabled: p.enabled, verifying: false, verify: null,
+    })
+  }
+  providerFormVisible.value = true
+}
+
+async function verifyPayload(obj) {
+  return post('/config/verify-ai', {
+    id: obj.id, name: obj.name, endpoint: obj.endpoint, model: obj.model, api_key: obj.api_key,
   })
 }
 
-function removeProvider(i) {
-  providers.value.splice(i, 1)
-}
-
-function moveProvider(i, delta) {
-  const j = i + delta
-  if (j < 0 || j >= providers.value.length) return
-  const arr = providers.value
-  ;[arr[i], arr[j]] = [arr[j], arr[i]]
-}
-
-async function verifyProvider(i) {
-  const p = providers.value[i]
-  if (!p.endpoint || !p.model) {
-    p.verify = { ok: false, label: '配置不完整', hint: 'Endpoint 与模型名称均为必填' }
-    return ElMessage.warning('请先填写 Endpoint 与模型名称')
-  }
-  p.verifying = true
-  p.verify = null
+async function verifyForm() {
+  if (!pform.endpoint || !pform.model) return ElMessage.warning('请先填写 Endpoint 与模型名称')
+  pform.verifying = true
+  pform.verify = null
   try {
-    const r = await post('/config/verify-ai', {
-      id: p.id, name: p.name, endpoint: p.endpoint, model: p.model, api_key: p.api_key,
-    })
+    const r = await verifyPayload(pform)
     if (r.ok) {
-      p.verify = { ok: true }
+      pform.verify = { ok: true }
       ElMessage.success(r.message || '连接正常')
     } else {
-      p.verify = { ok: false, label: r.label, hint: r.hint, error: r.error }
+      pform.verify = { ok: false, label: r.label, hint: r.hint, error: r.error }
       ElMessage.error(r.label ? `${r.label}：${r.hint || r.error}` : (r.error || '连接失败'))
     }
   } finally {
+    pform.verifying = false
+  }
+}
+
+function commitProviderForm() {
+  if (!pform.endpoint || !pform.model) return ElMessage.warning('Endpoint 与模型名称为必填')
+  const typed = pform.api_key && !pform.api_key.startsWith('••••') ? pform.api_key : ''
+  if (providerEditIndex.value === null && !typed) return ElMessage.warning('请填写 API Key')
+  if (providerEditIndex.value === null) {
+    providers.value.push({
+      id: pform.id, name: pform.name, endpoint: pform.endpoint, model: pform.model,
+      api_key: typed, has_key: !!typed, key_masked: typed ? maskLocal(typed) : '',
+      enabled: pform.enabled, verifying: false, verify: null,
+    })
+  } else {
+    const p = providers.value[providerEditIndex.value]
+    p.name = pform.name
+    p.endpoint = pform.endpoint
+    p.model = pform.model
+    p.enabled = pform.enabled
+    if (typed) { p.api_key = typed; p.has_key = true; p.key_masked = maskLocal(typed) }
+    // 未填新 key：保留该行原有的 api_key / has_key / key_masked 不变
+  }
+  providerFormVisible.value = false
+}
+
+async function verifyRow(index) {
+  const p = providers.value[index]
+  if (!p.endpoint || !p.model) return ElMessage.warning('该行 Endpoint 或模型名称缺失')
+  p.verifying = true
+  try {
+    const r = await verifyPayload(p)
+    const label = p.name || p.model
+    if (r.ok) ElMessage.success(`[${label}] ` + (r.message || '连接正常'))
+    else ElMessage.error(r.label ? `[${label}] ${r.label}：${r.hint || r.error}` : (r.error || '连接失败'))
+  } finally {
     p.verifying = false
   }
+}
+
+function removeProvider(i) {
+  const p = providers.value[i]
+  const label = p.name || p.model || '该服务'
+  ElMessageBox.confirm(`确认删除模型服务「${label}」？点「保存配置」后生效。`, '删除确认', {
+    type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
+  }).then(() => providers.value.splice(i, 1)).catch(() => {})
 }
 
 async function saveProviders() {
@@ -814,50 +885,28 @@ watch(() => crawl.finishedAt, () => {
 }
 .link-like:hover { text-decoration: underline; }
 
-/* 多家 AI 配置列表 */
-.section-title-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.section-title-head .section-title { margin: 0; }
-.note-box--top { margin-top: 0; margin-bottom: 14px; }
-.ai-empty {
-  padding: 22px; text-align: center; color: var(--crm-fg-3); font-size: 13px;
-  border: 1px dashed var(--crm-border-hairline); border-radius: var(--crm-radius-md);
-  background: var(--crm-slate-25);
-}
-.ai-list { display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
-.ai-row {
-  border: 1px solid var(--crm-border-soft);
-  border-radius: var(--crm-radius-md);
-  padding: 12px 14px;
-  background: var(--el-bg-color);
-  transition: opacity var(--crm-dur-fast) var(--crm-ease-out),
-              border-color var(--crm-dur-fast) var(--crm-ease-out);
-}
-.ai-row.is-disabled { opacity: .58; background: var(--crm-slate-25); }
-.ai-row-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.ai-idx {
-  font-size: 12px; font-weight: 650; color: var(--crm-pine-600);
-  background: var(--crm-pine-25); border-radius: var(--crm-radius-sm);
-  padding: 2px 8px; flex-shrink: 0;
-}
-.ai-name { max-width: 260px; }
-.ai-order :deep(.el-button) { padding: 6px 8px; }
-.ai-fields { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px 14px; }
-.field { display: flex; flex-direction: column; gap: 4px; }
-.field > label { font-size: 12px; color: var(--crm-fg-3); }
-.field--key, .field--verify { grid-column: span 1; }
-.verify-cell { display: flex; align-items: center; gap: 10px; height: 32px; }
+/* 多家 AI 配置（标准列表） */
+.ai-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.ai-toolbar .note-box--inline { margin: 0; max-width: 620px; }
+.ai-toolbar-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.table-wrap { border: 1px solid var(--crm-border-soft); border-radius: var(--crm-radius-lg); overflow: hidden; }
+.row-actions { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.serial { font-size: 12.5px; color: var(--crm-fg-3); }
+.dim { color: var(--crm-fg-3); }
+.is-bad { color: var(--crm-rose-500); }
+.ai-count { margin-top: 10px; font-size: 12.5px; }
+.verify-cell { display: flex; align-items: center; gap: 10px; min-height: 24px; }
 .verify-result { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
 .verify-result.is-ok { color: var(--crm-pine-600); }
 .verify-result.is-bad { color: var(--crm-rose-500); }
 .verify-err {
-  margin-top: 8px; font-size: 12.5px; line-height: 1.6;
+  margin: 0 0 4px 104px; font-size: 12.5px; line-height: 1.6;
   color: var(--crm-rose-500);
   background: var(--crm-rose-50);
   border: 1px solid var(--crm-border-hairline);
   border-radius: var(--crm-radius-sm);
   padding: 6px 10px;
 }
-.ai-actions { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
 
 /* 采集运行状态 */
 .run-state {
