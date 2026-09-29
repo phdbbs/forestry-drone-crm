@@ -9,7 +9,7 @@
           <div class="tab-body">
             <div class="ai-toolbar">
               <div class="note-box note-box--inline">
-                列表顺序即「轮换 + 故障切换」次序：调用时轮流从不同服务起步以分摊各家额度；某家<b>鉴权失败 / 额度不足 / 连不上 / 不可用</b>时自动切到下一家，全部失败才报错。增删改后需点「保存配置」写入后端。
+                列表顺序即「轮换 + 故障切换」次序：调用时轮流从不同服务起步以分摊各家额度；某家<b>鉴权失败 / 额度不足 / 连不上 / 不可用</b>时自动切到下一家，全部失败才报错。增删改会自动保存。
               </div>
               <div class="ai-toolbar-actions">
                 <el-button :icon="Plus" @click="openProviderForm()">添加一家</el-button>
@@ -97,7 +97,7 @@
               </el-form>
               <template #footer>
                 <el-button @click="providerFormVisible = false">取消</el-button>
-                <el-button type="primary" @click="commitProviderForm">保存条目</el-button>
+                <el-button type="primary" @click="commitProviderForm">保存</el-button>
               </template>
             </el-dialog>
           </div>
@@ -106,6 +106,41 @@
         <!-- ------------------------------ 采集配置 ------------------------------ -->
         <el-tab-pane label="采集配置" name="crawl">
           <div class="tab-body">
+            <div class="form-section sched-card">
+              <div class="section-title">定时任务</div>
+              <el-row :gutter="14">
+                <el-col :span="12">
+                  <div class="sched-item">
+                    <div class="sched-line">
+                      <span class="sched-name">定时采集</span>
+                      <el-tag size="small" :type="sched.crawl.enabled ? 'success' : 'info'">{{ sched.crawl.enabled ? '已启用' : '未启用' }}</el-tag>
+                    </div>
+                    <div class="sched-meta muted">每日 {{ sched.crawl.time }} 执行 · 下次：{{ sched.crawl.next_run || '—' }}</div>
+                  </div>
+                </el-col>
+                <el-col :span="12">
+                  <div class="sched-item">
+                    <div class="sched-line">
+                      <span class="sched-name">自动备份</span>
+                      <el-tag size="small" type="success">每日 {{ sched.backup.schedule.replace('每日 ', '') }}</el-tag>
+                    </div>
+                    <div class="sched-meta muted">下次：{{ sched.backup.next_run || '—' }} · 保留 {{ sched.backup.keep }} 份</div>
+                  </div>
+                </el-col>
+              </el-row>
+              <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+                <el-button size="small" :loading="backuping" @click="backupNow">
+                  <el-icon><Download /></el-icon>&nbsp;立即备份
+                </el-button>
+                <span v-if="backupMsg" class="muted">{{ backupMsg }}</span>
+              </div>
+              <div v-if="sched.backup.list.length" class="backup-list">
+                <div v-for="b in sched.backup.list.slice(0, 5)" :key="b.name" class="backup-row">
+                  <span class="mono">{{ b.name }}</span>
+                  <span class="muted">{{ b.size_kb }} KB · {{ b.mtime }}</span>
+                </div>
+              </div>
+            </div>
             <el-form ref="crawlFormRef" :model="crawlForm" :rules="crawlRules" label-width="112px" class="form-narrow">
               <div class="form-section">
                 <div class="section-title">采集来源</div>
@@ -445,7 +480,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lightning, Tools, Document, Refresh, Search, Delete, Plus } from '@element-plus/icons-vue'
+import { Lightning, Tools, Document, Refresh, Search, Delete, Plus, Download } from '@element-plus/icons-vue'
 import { get, getList, post, put, del } from '../api'
 import { useCrawlStore } from '../stores/app'
 import PageHeader from '../components/PageHeader.vue'
@@ -454,6 +489,23 @@ import PageTable from '../components/PageTable.vue'
 
 const crawl = useCrawlStore()
 const tab = ref('ai')
+const sched = ref({ crawl: { enabled: false, time: '08:00', next_run: '' }, backup: { schedule: '每日 02:30', next_run: '', keep: 14, list: [] } })
+const backuping = ref(false)
+const backupMsg = ref('')
+async function loadSched() {
+  const r = await get('/config/scheduler')
+  if (r && !r.error) sched.value = r
+}
+async function backupNow() {
+  backuping.value = true
+  backupMsg.value = ''
+  const r = await post('/config/backup-now')
+  backuping.value = false
+  if (r.error) return ElMessage.error(r.error)
+  ElMessage.success(r.message || '备份完成')
+  backupMsg.value = '已完成 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  loadSched()
+}
 
 const STATUS_LIST = [
   { value: 'running', label: '进行中', tag: 'info' },
@@ -623,7 +675,7 @@ async function verifyForm() {
   }
 }
 
-function commitProviderForm() {
+async function commitProviderForm() {
   if (!pform.endpoint || !pform.model) return ElMessage.warning('Endpoint 与模型名称为必填')
   const typed = pform.api_key && !pform.api_key.startsWith('••••') ? pform.api_key : ''
   if (providerEditIndex.value === null && !typed) return ElMessage.warning('请填写 API Key')
@@ -643,6 +695,8 @@ function commitProviderForm() {
     // 未填新 key：保留该行原有的 api_key / has_key / key_masked 不变
   }
   providerFormVisible.value = false
+  // 立即自动落库：添加/修改即保存，避免"只点了弹窗确定、忘点外层保存配置"导致刷新丢失
+  await saveProviders()
 }
 
 async function verifyRow(index) {
@@ -662,9 +716,12 @@ async function verifyRow(index) {
 function removeProvider(i) {
   const p = providers.value[i]
   const label = p.name || p.model || '该服务'
-  ElMessageBox.confirm(`确认删除模型服务「${label}」？点「保存配置」后生效。`, '删除确认', {
+  ElMessageBox.confirm(`确认删除模型服务「${label}」？删除后立即生效。`, '删除确认', {
     type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
-  }).then(() => providers.value.splice(i, 1)).catch(() => {})
+  }).then(async () => {
+    providers.value.splice(i, 1)
+    await saveProviders()
+  }).catch(() => {})
 }
 
 async function saveProviders() {
@@ -826,6 +883,7 @@ async function deleteSkill(id) {
 }
 
 onMounted(async () => {
+  loadSched()
   const config = await get('/config')
   const getV = (k, d = '') => config[k]?.value || d
   loadProviders()
@@ -1017,4 +1075,14 @@ watch(() => crawl.finishedAt, () => {
   .mini-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-card { padding: 2px 14px 16px; }
 }
+</style>
+
+<style scoped>
+.sched-card { background: var(--crm-slate-25, #fbfcfd); border: 1px solid var(--crm-border-soft, #e1e6ec); border-radius: 10px; padding: 14px 16px; }
+.sched-item { padding: 4px 0; }
+.sched-line { display: flex; align-items: center; gap: 8px; }
+.sched-name { font-weight: 600; font-size: 13.5px; }
+.sched-meta { margin-top: 4px; font-size: 12.5px; }
+.backup-list { margin-top: 10px; border-top: 1px solid var(--crm-border-soft, #e1e6ec); padding-top: 8px; }
+.backup-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
 </style>

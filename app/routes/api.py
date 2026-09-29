@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import requests as http_requests
 import json
 import csv
+import os
 import io
 from urllib.parse import quote
 
@@ -193,7 +194,16 @@ def list_customers():
         selectinload(Customer.contacts), selectinload(Customer.news_items)
     ).filter_by(is_archived=False)
     if q: customers = customers.filter(Customer.name.contains(q))
-    return jsonify([{"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "source": c.source, "contact_count": len(c.contacts), "news_count": len(c.news_items)} for c in customers.all()])
+    rows = customers.all()
+    # 冷藏提醒：一次性聚合每个客户最近联络时间（避免逐行子查询 N+1）
+    from sqlalchemy import func as _f
+    cust_ids = [c.id for c in rows]
+    last_act = {}
+    if cust_ids:
+        la = (db.session.query(Activity.customer_id, _f.max(Activity.activity_time))
+              .filter(Activity.customer_id.in_(cust_ids)).group_by(Activity.customer_id).all())
+        last_act = {cid: t for cid, t in la}
+    return jsonify([{"id": c.id, "name": c.name, "short_name": c.short_name, "type": c.customer_type, "level": c.level, "region": c.region, "source": c.source, "contact_count": len(c.contacts), "news_count": len(c.news_items), "last_activity_at": str(last_act[c.id]) if last_act.get(c.id) else ""} for c in rows])
 
 @api.route('/customers', methods=['POST'])
 def create_customer():
@@ -395,6 +405,40 @@ def convert_lead(id):
     db.session.commit()
     return jsonify({"id": o.id, "message": "已转为商机"})
 
+@api.route('/leads/batch', methods=['POST'])
+def batch_leads():
+    """线索批量操作：release(释放到公海)/abandon(删除)，统一填写原因。"""
+    d = request.get_json() or {}
+    action = d.get('action')
+    ids = d.get('ids') or []
+    reason = (d.get('reason') or '')[:300]
+    if action not in ('release', 'abandon'):
+        return jsonify({"error": "不支持的操作"}), 400
+    if not ids:
+        return jsonify({"error": "未选择线索"}), 400
+    leads = Lead.query.filter(Lead.id.in_([int(i) for i in ids])).all()
+    done, skipped = 0, []
+    for l in leads:
+        if action == 'release':
+            if l.status != 'active':
+                skipped.append(f"{l.serial_no or l.id}(非待转化)")
+                continue
+            l.status = 'pool'
+            l.assignee = ''
+            l.reason = reason
+        else:
+            if l.status == 'converted':
+                skipped.append(f"{l.serial_no or l.id}(已转化)")
+                continue
+            l.status = 'abandoned'
+            l.reason = reason
+        done += 1
+    db.session.commit()
+    msg = f"已{('释放' if action == 'release' else '删除')} {done} 条"
+    if skipped:
+        msg += f"，跳过 {len(skipped)} 条（{'; '.join(skipped[:3])}{'…' if len(skipped) > 3 else ''}）"
+    return jsonify({"message": msg, "done": done, "skipped": len(skipped)})
+
 @api.route('/leads/<int:id>/abandon', methods=['POST'])
 def abandon_lead(id):
     l = Lead.query.get_or_404(id)
@@ -485,7 +529,16 @@ def list_contacts():
     query = Contact.query.options(joinedload(Contact.customer))
     if q: query = query.filter(Contact.name.contains(q))
     if customer_id: query = query.filter_by(customer_id=customer_id)
-    return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or c.name[0] if c.name else '', "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes} for c in query.all()])
+    rows = query.all()
+    # 冷藏提醒：一次性聚合每个联系人最近联络时间
+    from sqlalchemy import func as _f
+    ids = [c.id for c in rows]
+    last_act = {}
+    if ids:
+        la = (db.session.query(Activity.contact_id, _f.max(Activity.activity_time))
+              .filter(Activity.contact_id.in_(ids)).group_by(Activity.contact_id).all())
+        last_act = {cid: t for cid, t in la}
+    return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or c.name[0] if c.name else '', "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes, "last_activity_at": str(last_act[c.id]) if last_act.get(c.id) else ""} for c in rows])
 
 @api.route('/contacts', methods=['POST'])
 def create_contact():
@@ -1810,6 +1863,38 @@ def global_search():
     for r in db.session.query(Customer.id, Customer.name, Customer.region).filter(Customer.name.like(like)).limit(4):
         out.append({"type": "customer", "id": r[0], "title": r[1], "sub": r[2] or ''})
     return jsonify({"results": out})
+
+@api.route('/config/scheduler', methods=['GET'])
+def scheduler_status():
+    """定时任务可视化：采集计划 + 备份列表 + 下次执行时间。"""
+    from app.services.scheduler import get_scheduler, _crawl_config
+    enabled, hh, mm = _crawl_config()
+    sched = get_scheduler()
+    next_runs = {}
+    if sched:
+        for job in sched.get_jobs():
+            if job.next_run_time:
+                next_runs[job.id] = str(job.next_run_time)[:19]
+    backup_dir = os.path.join(current_app.instance_path, 'backups')
+    backups = []
+    if os.path.isdir(backup_dir):
+        for f in sorted(os.listdir(backup_dir), reverse=True):
+            if f.startswith('crm_auto_') and f.endswith('.db'):
+                fp = os.path.join(backup_dir, f)
+                backups.append({"name": f, "size_kb": round(os.path.getsize(fp) / 1024), "mtime": datetime.fromtimestamp(os.path.getmtime(fp)).strftime('%Y-%m-%d %H:%M')})
+    return jsonify({
+        "crawl": {"enabled": enabled, "time": f"{hh:02d}:{mm:02d}", "next_run": next_runs.get('scheduled_crawl', '')},
+        "backup": {"schedule": "每日 02:30", "next_run": next_runs.get('scheduled_backup', ''), "keep": 14, "list": backups[:14]},
+    })
+
+
+@api.route('/config/backup-now', methods=['POST'])
+def backup_now():
+    """手动触发一次备份。"""
+    from app.services.scheduler import scheduled_backup_job
+    scheduled_backup_job()
+    return jsonify({"message": "备份完成"})
+
 
 @api.route('/analytics', methods=['GET'])
 def analytics():

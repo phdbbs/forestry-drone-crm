@@ -11,8 +11,21 @@
    动效：140ms ease-out 主导；弹窗 240ms
    ========================================================================== */
 
-/* -------- 字体加载：Google Fonts CDN（沙箱内可访问；离线自动降级到系统字体） -------- */
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* -------- 字体：本地自托管（内网部署不依赖 Google CDN；可变字重，中文回退系统字体） -------- */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/manrope.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('/fonts/jetbrainsmono.ttf') format('truetype');
+}
 
 :root {
   /* -------- 字体族 -------- */

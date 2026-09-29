@@ -46,6 +46,7 @@
             <div class="name-body">
               <div class="cell-title-text is-link" :title="row.name" @click="viewDetail(row.id)">{{ row.name }}</div>
               <div v-if="row.website" class="cell-meta">{{ shortUrl(row.website) }}</div>
+              <div v-if="staleDays(row.last_activity_at) !== null" class="cell-meta stale-tag" :class="{ 'is-hot': staleDays(row.last_activity_at) >= 30 }">已 {{ staleDays(row.last_activity_at) }} 天未联络</div>
             </div>
           </template>
         </el-table-column>
@@ -449,6 +450,11 @@ function addActivityFromCustomer() {
   router.push({ path: '/contactlog', query: { customerId: detail.value.id } })
 }
 
+function staleDays(lastAt) {
+  if (!lastAt) return null  // 从未联络的不提示
+  const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
+  return days >= 14 ? days : null
+}
 function quickNewContact() {
   detailVisible.value = false
   router.push({ path: '/contacts', query: { new: 1, customerId: detail.value.id } })
@@ -580,4 +586,9 @@ onMounted(async () => {
   .detail-body { padding: 4px 18px 0; }
   .detail-hero-side { display: none; }
 }
+</style>
+
+<style scoped>
+.stale-tag { color: var(--crm-amber-500, #b45309); }
+.stale-tag.is-hot { color: var(--crm-rose-500, #b91c1c); }
 </style>

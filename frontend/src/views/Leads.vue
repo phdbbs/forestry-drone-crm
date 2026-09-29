@@ -62,7 +62,9 @@
     <!-- 表格 -->
     <div class="table-wrap">
       <PageTable
+        ref="leadsTable"
         storage-key="leads"
+        @selection-change="sel = $event"
         :data="filteredList"
         :loading="loading"
         :default-sort="{ prop: 'created_at', order: 'descending' }"
@@ -76,6 +78,7 @@
           >立即采集公告</el-button>
         </template>
 
+        <el-table-column v-if="tab !== 'converted'" type="selection" width="42" />
         <el-table-column prop="serial_no" label="编号" width="94" sortable="custom">
           <template #default="{ row }">
             <span class="mono serial">{{ row.serial_no || '—' }}</span>
@@ -160,6 +163,16 @@
     <span class="muted mono">筛选预算合计 <strong style="color:var(--crm-fg-1)">{{ budgetSum }}</strong> 万</span>
   </template>
 </PageTable>
+
+    <!-- 批量操作条 -->
+    <transition name="fade-slow">
+      <div v-if="sel.length" class="batch-bar">
+        <span>已选 <strong>{{ sel.length }}</strong> 条</span>
+        <el-button v-if="tab === 'active'" size="small" type="warning" plain @click="batchOp('release')">批量释放</el-button>
+        <el-button v-if="tab === 'active' || tab === 'abandoned'" size="small" type="danger" plain @click="batchOp('abandon')">批量删除</el-button>
+        <el-button size="small" @click="clearSel">取消选择</el-button>
+      </div>
+    </transition>
     </div>
 
     <!-- 新建/编辑线索 -->
@@ -429,6 +442,8 @@ import { useIsMobile } from '../composables/useIsMobile'
 
 const dict = useDictStore()
 const route = useRoute()
+const sel = ref([])
+const leadsTable = ref(null)
 const qcCustomer = ref(null)
 const qcContact = ref(null)
 const customerNameOf = (id) => (dict.customers.find((c) => c.id === id) || {}).name || ''
@@ -676,6 +691,24 @@ async function saveConvert() {
 }
 
 // ---- 导出 ----
+function clearSel() {
+  sel.value = []
+  leadsTable.value?.tableRef?.clearSelection?.()
+}
+async function batchOp(action) {
+  const ids = sel.value.map((r) => r.id)
+  if (!ids.length) return
+  const label = action === 'release' ? '批量释放至公海' : '批量删除'
+  const { value: reason } = await ElMessageBox.prompt(`原因（将应用到所选 ${ids.length} 条线索）:`, label, {
+    inputPlaceholder: '如：地区不符 / 重复线索 / 与业务无关',
+    inputValidator: (v) => !!v?.trim() || '请填写原因',
+  })
+  const r = await post('/leads/batch', { action, ids, reason: reason.trim() })
+  if (r.error) return ElMessage.error(r.error)
+  ElMessage.success(r.message || '已完成')
+  clearSel()
+  load()
+}
 async function doExport() {
   const err = await exportCsv('leads', filteredList.value)
   err ? ElMessage.error(err) : ElMessage.success(`已导出 ${filteredList.value.length} 条`)
@@ -945,4 +978,15 @@ onMounted(async () => {
   .detail-hero-side { display: none; }
   .detail-body { padding: 16px 18px 0; }
 }
+</style>
+
+<style scoped>
+.batch-bar {
+  position: sticky; bottom: 12px; z-index: 50;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--crm-slate-800, #232935); color: #fff;
+  border-radius: 10px; padding: 10px 16px; margin-top: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .25);
+}
+.batch-bar strong { color: #7fbc9b; }
 </style>

@@ -40,6 +40,10 @@
         </el-table-column>
         <el-table-column prop="name" label="姓名" min-width="150" sortable="custom">
           <template #default="{ row }">
+            <div>
+              <div class="cell-title-text" :title="row.name">{{ row.name }}</div>
+              <div v-if="staleDays(row.last_activity_at) !== null" class="stale-tag" :class="{ 'is-hot': staleDays(row.last_activity_at) >= 30 }">已 {{ staleDays(row.last_activity_at) }} 天未联络</div>
+            </div>
             <div class="p-body">
               <div class="cell-title-text is-link" @click="viewDetail(row.id)">{{ row.name }}</div>
               <div v-if="row.title" class="cell-meta">{{ row.title }}</div>
@@ -366,6 +370,11 @@ function quickLog() {
   detailVisible.value = false
   router.push({ path: '/contactlog', query: { new: 1, customerId: detail.value.customer_id, contactId: detail.value.id } })
 }
+function staleDays(lastAt) {
+  if (!lastAt) return null
+  const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
+  return days >= 14 ? days : null
+}
 async function doExport() {
   const err = await exportCsv('contacts', filteredList.value)
   err ? ElMessage.error(err) : ElMessage.success(`已导出 ${filteredList.value.length} 条`)
@@ -488,4 +497,9 @@ onMounted(async () => {
   .detail-hero { padding: 16px 18px; }
   .detail-body { padding: 16px 18px 0; }
 }
+</style>
+
+<style scoped>
+.stale-tag { font-size: 11.5px; color: var(--crm-amber-500, #b45309); margin-top: 2px; }
+.stale-tag.is-hot { color: var(--crm-rose-500, #b91c1c); }
 </style>

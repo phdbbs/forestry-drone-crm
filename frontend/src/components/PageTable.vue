@@ -7,6 +7,7 @@
       :default-sort="defaultSort"
       @sort-change="onSortChange"
       @header-dragend="onDragend"
+      @selection-change="emit('selection-change', $event)"
       :row-class-name="rowClassName || ''"
       :size="size"
       border
@@ -55,6 +56,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import Sortable from 'sortablejs'
 
+const emit = defineEmits(['selection-change'])
 const props = defineProps({
   data: { type: Array, default: () => [] },
   storageKey: { type: String, required: true },
@@ -438,6 +440,11 @@ onBeforeUnmount(() => {
   destroySortable()
   teardownAutoFit()
   teardownResize()
+})
+
+defineExpose({
+  tableRef,
+  clearSelection: () => tableRef.value?.clearSelection?.(),
 })
 </script>
 
