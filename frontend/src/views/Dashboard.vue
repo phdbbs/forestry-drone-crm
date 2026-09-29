@@ -23,7 +23,7 @@
           </div>
           <div class="panel-body">
             <div v-if="urgentLeads.length" class="list-rows">
-              <div v-for="(row, i) in urgentLeads" :key="i" class="list-row">
+              <div v-for="(row, i) in urgentLeads" :key="i" class="list-row row-link" @click="goLead(row)">
                 <div class="lr-main">
                   <div class="lr-title">{{ row.title }}</div>
                   <div class="lr-sub muted">{{ row.customer_name || '—' }} · 截止 {{ row.deadline || '—' }}</div>
@@ -72,7 +72,7 @@
           </div>
           <div class="panel-body">
             <div v-if="todayFollowups.length" class="list-rows">
-              <div v-for="(row, i) in todayFollowups" :key="i" class="list-row">
+              <div v-for="(row, i) in todayFollowups" :key="i" class="list-row row-link" @click="goExecute(row)">
                 <span class="fu-dot"></span>
                 <div class="lr-main">
                   <span class="fu-name">{{ row.contact_name || '—' }}</span>
@@ -109,7 +109,7 @@
           </div>
           <div class="panel-body">
             <div v-if="opportunities.length" class="list-rows">
-              <div v-for="(row, i) in opportunities" :key="i" class="list-row">
+              <div v-for="(row, i) in opportunities" :key="i" class="list-row row-link" @click="goOpp(row)">
                 <div class="lr-main lr-title-1line">{{ row.title }}</div>
                 <span class="stage-chip">{{ row.stage || '—' }}</span>
               </div>
@@ -124,6 +124,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { Lightning, Warning, AlarmClock, MagicStick, TrendCharts, Refresh } from '@element-plus/icons-vue'
 import PageHeader from '../components/PageHeader.vue'
 import StatCard from '../components/StatCard.vue'
@@ -133,6 +134,11 @@ import { useDictStore, useCrawlStore } from '../stores/app'
 const dict = useDictStore()
 const crawl = useCrawlStore()
 const data = ref({})
+
+const router = useRouter()
+const goLead = (row) => row?.id && router.push({ path: '/leads', query: { detail: row.id } })
+const goOpp = (row) => row?.id && router.push({ path: '/opportunities', query: { detail: row.id } })
+const goExecute = (row) => row?.id && router.push({ path: '/followups', query: { execute: row.id } })
 const suggestions = ref([])
 const loading = ref(true)
 
@@ -294,4 +300,9 @@ watch(() => crawl.finishedAt, async () => {
   font-size: 11.5px; border-radius: var(--crm-radius-full);
   background: var(--crm-slate-100); color: var(--crm-fg-2);
 }
+</style>
+
+<style scoped>
+.row-link { cursor: pointer; transition: background 120ms ease-out; }
+.row-link:hover { background: var(--crm-pine-25, #eef7f2); }
 </style>

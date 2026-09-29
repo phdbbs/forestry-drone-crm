@@ -843,3 +843,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* 下拉/浮层统一圆角与阴影 */
 .el-select__popper, .el-popper.is-light { border-radius: 10px; }
+
+/* 表单内 下拉+快捷按钮 行 */
+.inline-select { display: flex; gap: 6px; width: 100%; align-items: center; }
+.inline-select .el-button { flex-shrink: 0; }

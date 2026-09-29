@@ -98,16 +98,26 @@
           <el-row :gutter="12">
             <el-col :span="12">
               <el-form-item label="客户" prop="customer_id">
-                <el-select v-model="form.customer_id" clearable filterable placeholder="从客户库选择" style="width:100%" @change="form.contact_id = null">
-                  <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
-                </el-select>
+                <div class="inline-select">
+                  <el-select v-model="form.customer_id" clearable filterable placeholder="从客户库选择" style="flex:1" @change="form.contact_id = null">
+                    <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
+                  </el-select>
+                  <el-button title="快速新增客户" @click="qcCustomer.open()">
+                    <el-icon><Plus /></el-icon>
+                  </el-button>
+                </div>
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="联系人">
-                <el-select v-model="form.contact_id" clearable filterable placeholder="先选客户再选联系人" style="width:100%">
-                  <el-option v-for="c in dict.contactsOf(form.customer_id)" :key="c.id" :value="c.id" :label="c.name" />
-                </el-select>
+                <div class="inline-select">
+                  <el-select v-model="form.contact_id" clearable filterable placeholder="先选客户再选联系人" style="flex:1">
+                    <el-option v-for="c in dict.contactsOf(form.customer_id)" :key="c.id" :value="c.id" :label="c.name" />
+                  </el-select>
+                  <el-button title="快速新增联系人" @click="qcContact.open()">
+                    <el-icon><Plus /></el-icon>
+                  </el-button>
+                </div>
               </el-form-item>
             </el-col>
           </el-row>
@@ -144,7 +154,7 @@
           <div class="section-title">下次跟进</div>
           <el-row :gutter="12">
             <el-col :span="12">
-              <el-form-item label="下次日期">
+              <el-form-item label="下次日期" prop="next_time">
                 <el-date-picker v-model="form.next_time" type="date" value-format="YYYY-MM-DD" style="width:100%" />
               </el-form-item>
             </el-col>
@@ -198,6 +208,9 @@
         <el-button v-if="detail" @click="openForm(detail.id)">编辑</el-button>
       </template>
     </el-dialog>
+
+    <QuickCreateCustomer ref="qcCustomer" :customer-name="customerNameOf(form.customer_id)" @created="c => form.customer_id = c.id" />
+    <QuickCreateContact ref="qcContact" :customer-id="form.customer_id" :customer-name="customerNameOf(form.customer_id)" @created="c => form.contact_id = c.id" />
   </div>
 </template>
 
@@ -209,16 +222,22 @@ import { Plus, Download } from '@element-plus/icons-vue'
 import PageHeader from '../components/PageHeader.vue'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
+import QuickCreateCustomer from '../components/QuickCreateCustomer.vue'
+import QuickCreateContact from '../components/QuickCreateContact.vue'
 import DetailGrid from '../components/DetailGrid.vue'
 import { get, getList, post, put, del, fmtDate, fmtDateMDY, exportCsv, METHOD_OPTIONS } from '../api'
+import { useFilterMemory } from '../composables/useFilterMemory'
 import { useDictStore } from '../stores/app'
 
 const route = useRoute()
 const dict = useDictStore()
+const qcCustomer = ref(null)
+const qcContact = ref(null)
+const customerNameOf = (id) => (dict.customers.find((c) => c.id === id) || {}).name || ''
 const activities = ref([])
 const loading = ref(false)
 const actNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
-const filter = reactive({ date_from: '', date_to: '', customer: '', opp: '', q: '' })
+const filter = useFilterMemory('log', { date_from: '', date_to: '', customer: '', opp: '', q: '' })
 const draft = reactive({ date_from: '', date_to: '', customer: '', opp: '', q: '' })
 
 const filteredList = computed(() => activities.value.filter((a) => {
@@ -254,6 +273,8 @@ const formRules = {
   method: [{ required: true, message: '请选择联络方式', trigger: 'change' }],
   time: [{ required: true, message: '请选择联络时间', trigger: 'change' }],
   content: [{ required: true, message: '请输入联络内容', trigger: 'blur' }],
+  // 下次跟进日期必填：保证每条联络都有闭环计划（自动生成 FollowUp）
+  next_time: [{ required: true, message: '请选择下次跟进日期（形成跟进闭环）', trigger: 'change' }],
 }
 
 function openForm(id, presets) {
@@ -262,7 +283,7 @@ function openForm(id, presets) {
   Object.keys(form).forEach((k) => delete form[k])
   Object.assign(form, {
     customer_id: presets.customer_id || null,
-    contact_id: null,
+    contact_id: presets.contact_id || null,
     opportunity_id: presets.opportunity_id || null,
     method: '电话', time: '', content: '', next_time: '', next_content: '',
   })
@@ -329,12 +350,19 @@ async function doExport() {
 
 onMounted(async () => {
   await Promise.all([load(), dict.loadCustomers(), dict.loadContacts(), dict.loadOpportunities()])
-  // 从商机/客户页跳来时通过路由 query 预填（原先靠 window._presetActivity 全局变量，刷新即丢）
-  const { opportunityId, customerId } = route.query
-  if (opportunityId || customerId) {
+  // 从商机/客户/联系人页跳来时通过路由 query 预填（原先靠 window._presetActivity 全局变量，刷新即丢）
+  const { opportunityId, customerId, contactId } = route.query
+  if (opportunityId || customerId || contactId) {
+    // 联系人「记一笔联络」可能只带 contactId，回填其所属客户，保证客户下拉也正确显示
+    let cid = customerId ? Number(customerId) : null
+    if (!cid && contactId) {
+      const ct = (dict.contacts || []).find((c) => c.id === Number(contactId))
+      cid = ct ? ct.customer_id : null
+    }
     openForm(null, {
       opportunity_id: opportunityId ? Number(opportunityId) : null,
-      customer_id: customerId ? Number(customerId) : null,
+      customer_id: cid,
+      contact_id: contactId ? Number(contactId) : null,
     })
   }
 })

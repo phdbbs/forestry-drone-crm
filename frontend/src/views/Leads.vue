@@ -156,7 +156,10 @@
             </div>
           </template>
         </el-table-column>
-      </PageTable>
+        <template #footer-extra="{ count }">
+    <span class="muted mono">筛选预算合计 <strong style="color:var(--crm-fg-1)">{{ budgetSum }}</strong> 万</span>
+  </template>
+</PageTable>
     </div>
 
     <!-- 新建/编辑线索 -->
@@ -250,16 +253,26 @@
             <el-row :gutter="12">
               <el-col :span="12">
                 <el-form-item label="选择客户">
-                  <el-select v-model="cv.customerId" filterable clearable style="width:100%" placeholder="从客户库选择">
-                    <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
-                  </el-select>
+                  <div class="inline-select">
+                    <el-select v-model="cv.customerId" filterable clearable style="flex:1" placeholder="从客户库选择" @change="cv.contactId = null">
+                      <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
+                    </el-select>
+                    <el-button title="快速新增客户" @click="qcCustomer.open()">
+                      <el-icon><Plus /></el-icon>
+                    </el-button>
+                  </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item label="选择联系人">
-                  <el-select v-model="cv.contactId" filterable clearable style="width:100%" placeholder="从联系人库选择">
-                    <el-option v-for="c in dict.contacts" :key="c.id" :value="c.id" :label="c.name" />
-                  </el-select>
+                  <div class="inline-select">
+                    <el-select v-model="cv.contactId" filterable clearable style="flex:1" placeholder="先选客户再选联系人">
+                      <el-option v-for="c in dict.contactsOf(cv.customerId)" :key="c.id" :value="c.id" :label="c.name" />
+                    </el-select>
+                    <el-button title="快速新增联系人" @click="qcContact.open()">
+                      <el-icon><Plus /></el-icon>
+                    </el-button>
+                  </div>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -295,7 +308,7 @@
           <div class="detail-hero-body">
             <div class="detail-hero-title">{{ detail.title }}</div>
             <div class="detail-hero-meta">
-              <span class="mono serial">{{ detail.serial_no || '—' }}</span>
+              <span class="mono serial" v-if="detail.serial_no"><CopyText :value="detail.serial_no" :label="detail.serial_no" /></span><span v-else class="mono serial">—</span>
               <el-tag size="small" :type="bidTagType(detail.bid_type)" effect="plain" round>{{ bidShort(detail.bid_type) }}</el-tag>
               <el-tag size="small" :type="isCrawled(detail) ? 'primary' : 'info'" effect="plain" round>
                 {{ isCrawled(detail) ? (detail.source_platform || '采集') : '手工录入' }}
@@ -317,10 +330,17 @@
             { label: '采购方', value: detail.purchaser },
             { label: '中标单位', value: detail.winner },
             { label: '联系人', value: detail.contact_name },
-            { label: '联系方式', value: detail.contact_phone, mono: true, full: true },
-            { label: '地址', value: detail.address, full: true },
+            { label: '联系方式', value: detail.contact_phone, mono: true, full: true, slot: 'phone' },
+            { label: '地址', value: detail.address, full: true, slot: 'address' },
             { label: '服务内容', value: detail.service_content, full: true },
-          ]" />
+          ]">
+            <template #phone="{ item }">
+              <CopyText :value="item.value" tel />
+            </template>
+            <template #address="{ item }">
+              <CopyText :value="item.value" />
+            </template>
+          </DetailGrid>
 
           <div class="section-title section-title--muted">原文信息</div>
           <div class="source-row" v-if="detail.source_url">
@@ -382,11 +402,15 @@
         </el-link>
       </div>
     </el-drawer>
+
+    <QuickCreateCustomer ref="qcCustomer" :customer-name="customerNameOf(cv.customerId)" @created="c => cv.customerId = c.id" />
+    <QuickCreateContact ref="qcContact" :customer-id="cv.customerId" :customer-name="customerNameOf(cv.customerId)" @created="c => cv.contactId = c.id" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Download, Loading, Document, Close, TopRight } from '@element-plus/icons-vue'
 import { marked } from 'marked'
@@ -395,11 +419,19 @@ import PageHeader from '../components/PageHeader.vue'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
 import DetailGrid from '../components/DetailGrid.vue'
+import QuickCreateCustomer from '../components/QuickCreateCustomer.vue'
+import QuickCreateContact from '../components/QuickCreateContact.vue'
+import CopyText from '../components/CopyText.vue'
 import { get, getList, post, put, fmtDate, fmtDateMDY, fmtNum, exportCsv } from '../api'
+import { useFilterMemory } from '../composables/useFilterMemory'
 import { useDictStore, useCrawlStore } from '../stores/app'
 import { useIsMobile } from '../composables/useIsMobile'
 
 const dict = useDictStore()
+const route = useRoute()
+const qcCustomer = ref(null)
+const qcContact = ref(null)
+const customerNameOf = (id) => (dict.customers.find((c) => c.id === id) || {}).name || ''
 const crawl = useCrawlStore()
 const isMobile = useIsMobile()
 
@@ -414,11 +446,15 @@ const TABS = [
 const leads = ref([])
 const loading = ref(false)
 const tab = ref('all')
-const filter = reactive({ q: '', region: '', from: '', to: '', status: '' })
+const filter = useFilterMemory('leads', { q: '', region: '', from: '', to: '', status: '' })
 const draft = reactive({ q: '', region: '', from: '', to: '', status: '' })
 // 关键词全文检索命中的 id 集合；null 表示当前无关键词，不参与过滤
 const matchedIds = ref(null)
 
+const budgetSum = computed(() => {
+  const t = filteredList.value.reduce((a, l) => a + (parseFloat(l.budget) || 0), 0)
+  return t ? (Math.round(t * 100) / 100).toLocaleString('zh-CN') : '0'
+})
 const counts = computed(() => ({
   all: leads.value.length,
   active: leads.value.filter((l) => l.status === 'active').length,
@@ -648,6 +684,8 @@ async function doExport() {
 onMounted(async () => {
   await Promise.all([load(), dict.loadCustomers()])
   crawl.checkRunning()
+  // 工作台/外部入口直达：?detail=<id> 打开线索详情
+  if (route.query.detail) viewDetail(Number(route.query.detail))
 })
 </script>
 

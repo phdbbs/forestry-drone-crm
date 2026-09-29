@@ -54,7 +54,7 @@
         </el-table-column>
         <el-table-column prop="phone" label="电话" width="140" sortable="custom">
           <template #default="{ row }">
-            <span v-if="row.phone" class="mono">{{ row.phone }}</span>
+            <CopyText v-if="row.phone" :value="row.phone" tel class="mono" />
             <span v-else class="dim">—</span>
           </template>
         </el-table-column>
@@ -178,14 +178,16 @@
           <div class="detail-body">
             <div class="section-title">联系方式与画像</div>
             <DetailGrid :items="[
-              { label: '电话', value: detail.phone, mono: true },
+              { label: '电话', value: detail.phone, mono: true, slot: 'phone' },
               { label: '邮箱', value: detail.email, mono: true },
               { label: '微信', value: detail.wechat },
               { label: '重要性', value: detail.importance },
               { label: '分管业务', value: detail.business_scope, full: true },
               { label: '标签', value: detail.tags, full: true },
               { label: '备注', value: detail.notes, full: true },
-            ]" />
+            ]" >
+  <template #phone="{ item }"><CopyText :value="item.value" tel /></template>
+</DetailGrid>
 
             <div class="section-title">动态信息<i class="sec-count">{{ (detail.contact_news || []).length }}</i></div>
             <div class="tab-toolbar">
@@ -217,7 +219,10 @@
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button v-if="detail" @click="openForm(detail.id)">编辑联系人</el-button>
+        <el-button v-if="detail" @click="quickLog">
+          <el-icon><Phone /></el-icon>&nbsp;记一笔联络
+        </el-button>
+        <el-button v-if="detail" type="primary" @click="openForm(detail.id)">编辑联系人</el-button>
       </template>
     </el-dialog>
   </div>
@@ -225,20 +230,25 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Download, Lightning, StarFilled } from '@element-plus/icons-vue'
+import { Plus, Download, Lightning, StarFilled, Phone } from '@element-plus/icons-vue'
 import PageHeader from '../components/PageHeader.vue'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
+import CopyText from '../components/CopyText.vue'
 import DetailGrid from '../components/DetailGrid.vue'
 import { get, getList, post, put, del, fmtDate, exportCsv, ROLE_OPTIONS } from '../api'
+import { useFilterMemory } from '../composables/useFilterMemory'
 import { useDictStore } from '../stores/app'
 
 const dict = useDictStore()
+const route = useRoute()
+const router = useRouter()
 const contacts = ref([])
 const loading = ref(false)
 const ctNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
-const filter = reactive({ q: '', customer: '', role: '' })
+const filter = useFilterMemory('contacts', { q: '', customer: '', role: '' })
 const draft = reactive({ q: '', customer: '', role: '' })
 
 // 稳定色相：同名联系人头像底色一致
@@ -352,6 +362,10 @@ async function deleteNews(id) {
   detail.value = await get(`/contacts/${detail.value.id}`)
 }
 
+function quickLog() {
+  detailVisible.value = false
+  router.push({ path: '/contactlog', query: { new: 1, customerId: detail.value.customer_id, contactId: detail.value.id } })
+}
 async function doExport() {
   const err = await exportCsv('contacts', filteredList.value)
   err ? ElMessage.error(err) : ElMessage.success(`已导出 ${filteredList.value.length} 条`)
@@ -359,6 +373,13 @@ async function doExport() {
 
 onMounted(async () => {
   await Promise.all([load(), dict.loadCustomers()])
+  // 客户详情"新增联系人"直达：预选客户
+  if (route.query.new && route.query.customerId) {
+    openForm()
+    form.customer_id = Number(route.query.customerId)
+  }
+  // 全局搜索直达：?detail=<id> 打开联系人详情
+  if (route.query.detail) viewDetail(Number(route.query.detail))
 })
 </script>
 

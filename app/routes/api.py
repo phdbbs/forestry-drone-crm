@@ -1791,6 +1791,26 @@ def lead_fulltext(id):
     db.session.commit()
     return jsonify({"source": "fetched", "text": md})
 
+@api.route('/search', methods=['GET'])
+def global_search():
+    """全局搜索：线索(标题/流水号)/商机/联系人/客户 一次查，返回分组结果供顶栏下拉直达。"""
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 1:
+        return jsonify({"results": []})
+    like = f"%{q}%"
+    out = []
+    for r in (db.session.query(Lead.id, Lead.title, Lead.serial_no)
+              .filter(Lead.title.like(like) | Lead.serial_no.like(like))
+              .order_by(Lead.created_at.desc()).limit(5)):
+        out.append({"type": "lead", "id": r[0], "title": _text(r[1])[:50], "sub": r[2] or ''})
+    for r in db.session.query(Opportunity.id, Opportunity.title, Opportunity.current_stage).filter(Opportunity.title.like(like)).limit(4):
+        out.append({"type": "opportunity", "id": r[0], "title": _text(r[1])[:50], "sub": r[2] or ''})
+    for r in db.session.query(Contact.id, Contact.name, Contact.title).filter(Contact.name.like(like)).limit(4):
+        out.append({"type": "contact", "id": r[0], "title": r[1], "sub": r[2] or ''})
+    for r in db.session.query(Customer.id, Customer.name, Customer.region).filter(Customer.name.like(like)).limit(4):
+        out.append({"type": "customer", "id": r[0], "title": r[1], "sub": r[2] or ''})
+    return jsonify({"results": out})
+
 @api.route('/analytics', methods=['GET'])
 def analytics():
     from sqlalchemy import func as sa_func

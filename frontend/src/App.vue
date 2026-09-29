@@ -86,6 +86,29 @@
           <el-breadcrumb-item>{{ $route.meta.title }}</el-breadcrumb-item>
         </el-breadcrumb>
         <span class="topbar-spacer"></span>
+        <div class="global-search" v-if="!isMobile">
+          <el-icon class="gs-icon" :size="14"><Search /></el-icon>
+          <input
+            ref="gsInput"
+            v-model="gsQuery"
+            class="gs-input"
+            :placeholder="gsHint"
+            @input="onGsInput"
+            @focus="gsFocused = true"
+            @blur="onGsBlur"
+            @keydown.esc="gsFocused = false; gsQuery = ''"
+            @keydown.enter="goFirst"
+          />
+          <div v-if="gsFocused && gsResults.length" class="gs-panel">
+            <template v-for="g in gsGrouped" :key="g.label">
+              <div class="gs-group">{{ g.label }}</div>
+              <div v-for="r in g.items" :key="g.label + r.id" class="gs-item" @mousedown.prevent="goResult(r)">
+                <span class="gs-title">{{ r.title }}</span>
+                <span class="gs-sub muted">{{ r.sub }}</span>
+              </div>
+            </template>
+          </div>
+        </div>
         <div class="topbar-actions">
           <el-tooltip content="待办提醒" placement="bottom">
             <el-badge :value="notifCount" :hidden="!notifCount" :offset="[-2, 4]" class="bell">
@@ -125,8 +148,53 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { Aim, Expand, Fold, Bell, ArrowDown, Setting } from '@element-plus/icons-vue'
+
+// ---- 全局搜索：一次查线索/商机/联系人/客户，点击直达详情 ----
+const gsQuery = ref('')
+const gsResults = ref([])
+const gsFocused = ref(false)
+const gsInput = ref(null)
+let gsTimer = null
+const gsHint = '全局搜索：线索 / 商机 / 联系人 / 客户（按 / 聚焦）'
+const gsGrouped = computed(() => {
+  const names = { lead: '线索', opportunity: '商机', contact: '联系人', customer: '客户' }
+  const order = ['lead', 'opportunity', 'contact', 'customer']
+  return order.map((t) => ({ label: names[t], items: gsResults.value.filter((r) => r.type === t) }))
+    .filter((g) => g.items.length)
+})
+function onGsInput() {
+  clearTimeout(gsTimer)
+  const q = gsQuery.value.trim()
+  if (!q) { gsResults.value = []; return }
+  gsTimer = setTimeout(async () => {
+    const r = await get('/search?q=' + encodeURIComponent(q))
+    gsResults.value = (r && !r.error && r.results) || []
+  }, 250)
+}
+function onGsBlur() { setTimeout(() => { gsFocused.value = false }, 150) }
+function goFirst() {
+  if (gsResults.value.length) goResult(gsResults.value[0])
+}
+function goResult(r) {
+  const pathMap = { lead: '/leads', opportunity: '/opportunities', contact: '/contacts', customer: '/customers' }
+  gsFocused.value = false
+  gsQuery.value = ''
+  gsResults.value = []
+  router.push({ path: pathMap[r.type], query: { detail: r.id } })
+}
+// 快捷键 "/" 聚焦全局搜索
+function onGlobalKey(e) {
+  if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+    e.preventDefault()
+    gsInput.value?.focus?.()
+  }
+}
+window.addEventListener('keydown', onGlobalKey)
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { get } from './api'
+import { Aim, Expand, Fold, Bell, ArrowDown, Setting, Search } from '@element-plus/icons-vue'
+const router = useRouter()
 
 const NAV_GROUPS = [
   { group: '工作台', items: [{ path: '/dashboard', label: '智能工作台', icon: 'Odometer' }] },
@@ -295,4 +363,27 @@ onUnmounted(() => {
 /* ---------------- 路由过渡 ---------------- */
 .fade-slow-enter-active, .fade-slow-leave-active { transition: opacity 180ms var(--crm-ease-out); }
 .fade-slow-enter-from, .fade-slow-leave-to { opacity: 0; }
+</style>
+
+<style>
+/* 全局搜索（顶栏） */
+.global-search { position: relative; width: 300px; }
+.global-search .gs-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--crm-fg-4, #a3adba); }
+.global-search .gs-input {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--crm-border-soft, #e1e6ec);
+  border-radius: 8px; background: var(--crm-slate-50, #f6f8fa);
+  padding: 6px 10px 6px 30px; font-size: 13px; outline: none; color: var(--crm-fg-1);
+  transition: border-color 140ms, background 140ms;
+}
+.global-search .gs-input:focus { border-color: var(--crm-pine-300, #4f9f76); background: #fff; }
+.gs-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 3000;
+  background: #fff; border: 1px solid var(--crm-border-soft, #e1e6ec); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .12); max-height: 380px; overflow-y: auto; padding: 6px;
+}
+.gs-group { font-size: 11px; color: var(--crm-fg-4, #a3adba); padding: 6px 8px 2px; }
+.gs-item { display: flex; justify-content: space-between; gap: 8px; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.gs-item:hover { background: var(--crm-pine-25, #eef7f2); }
+.gs-title { font-size: 13px; color: var(--crm-fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-sub { flex-shrink: 0; }
 </style>

@@ -36,6 +36,7 @@
           · 当前 {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, sorted.length) }}
         </span>
       </div>
+      <slot name="footer-extra" :count="sorted.length" />
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
@@ -74,6 +75,22 @@ const sortProp = ref(props.defaultSort.prop || '')
 const sortOrder = ref(props.defaultSort.order === 'ascending' ? 1 : -1)
 
 const WKEY = 'crm_v2_widths_' + props.storageKey
+// 排序/页码记忆：刷新或下次进入保持原样
+const SKEY = 'crm_v2_state_' + props.storageKey
+try {
+  const savedState = JSON.parse(localStorage.getItem(SKEY) || 'null')
+  if (savedState) {
+    if (savedState.page) page.value = savedState.page
+    if (savedState.pageSize) pageSize.value = savedState.pageSize
+    if (savedState.sortProp) {
+      sortProp.value = savedState.sortProp
+      sortOrder.value = savedState.sortOrder === 1 ? 1 : -1
+    }
+  }
+} catch (e) { /* 忽略损坏的记忆 */ }
+watch([sortProp, sortOrder, page, pageSize], ([sp, so, pg, ps]) => {
+  try { localStorage.setItem(SKEY, JSON.stringify({ sortProp: sp, sortOrder: so, page: pg, pageSize: ps })) } catch (e) {}
+})
 
 const sorted = computed(() => {
   if (!sortProp.value) return props.data

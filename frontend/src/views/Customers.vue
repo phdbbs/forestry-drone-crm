@@ -266,7 +266,15 @@
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button v-if="detail" @click="openForm(detail.id)">编辑客户</el-button>
+        <template v-if="detail">
+          <el-button @click="quickNewContact">
+            <el-icon><Plus /></el-icon>&nbsp;新增联系人
+          </el-button>
+          <el-button @click="quickNewOpp">
+            <el-icon><Plus /></el-icon>&nbsp;新建商机
+          </el-button>
+        </template>
+        <el-button v-if="detail" type="primary" @click="openForm(detail.id)">编辑客户</el-button>
       </template>
     </el-dialog>
   </div>
@@ -274,6 +282,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Download, Lightning, TopRight } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -281,9 +290,11 @@ import PageHeader from '../components/PageHeader.vue'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
 import { get, getList, post, put, del, fmtDate, fmtNum, exportCsv } from '../api'
+import { useFilterMemory } from '../composables/useFilterMemory'
 import { useDictStore } from '../stores/app'
 
 const dict = useDictStore()
+const route = useRoute()
 const router = useRouter()
 const custNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
 const TYPE_OPTIONS = ['政府部门', '事业单位', '国有企业', '民营企业', '科研院所', '运营商', '科技公司']
@@ -302,7 +313,7 @@ const shortUrl = (u) => (u || '').replace(/^https?:\/\//, '').replace(/\/$/, '')
 
 const customers = ref([])
 const loading = ref(false)
-const filter = reactive({ q: '', type: '', level: '', region: '' })
+const filter = useFilterMemory('customers', { q: '', type: '', level: '', region: '' })
 const draft = reactive({ q: '', type: '', level: '', region: '' })
 
 const filteredList = computed(() => customers.value.filter((cu) => {
@@ -438,6 +449,14 @@ function addActivityFromCustomer() {
   router.push({ path: '/contactlog', query: { customerId: detail.value.id } })
 }
 
+function quickNewContact() {
+  detailVisible.value = false
+  router.push({ path: '/contacts', query: { new: 1, customerId: detail.value.id } })
+}
+function quickNewOpp() {
+  detailVisible.value = false
+  router.push({ path: '/opportunities', query: { new: 1, customerId: detail.value.id } })
+}
 async function doExport() {
   const err = await exportCsv('customers', filteredList.value)
   err ? ElMessage.error(err) : ElMessage.success(`已导出 ${filteredList.value.length} 条`)
@@ -445,6 +464,8 @@ async function doExport() {
 
 onMounted(async () => {
   await Promise.all([load(), dict.loadOptions()])
+  // 全局搜索直达：?detail=<id> 打开客户详情
+  if (route.query.detail) viewDetail(Number(route.query.detail))
 })
 </script>
 

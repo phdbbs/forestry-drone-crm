@@ -129,18 +129,28 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="客户">
-                <el-select v-model="form.customer_id" clearable filterable placeholder="从客户库选择" style="width:100%" @change="form.contact_id = null">
-                  <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
-                </el-select>
+                <div class="inline-select">
+                  <el-select v-model="form.customer_id" clearable filterable placeholder="从客户库选择" style="flex:1" @change="form.contact_id = null">
+                    <el-option v-for="c in dict.customers" :key="c.id" :value="c.id" :label="c.name" />
+                  </el-select>
+                  <el-button title="快速新增客户" @click="qcCustomer.open()">
+                    <el-icon><Plus /></el-icon>
+                  </el-button>
+                </div>
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="12">
             <el-col :span="12">
               <el-form-item label="联系人">
-                <el-select v-model="form.contact_id" clearable filterable placeholder="先选客户再选联系人" style="width:100%">
-                  <el-option v-for="c in dict.contactsOf(form.customer_id)" :key="c.id" :value="c.id" :label="c.name" />
-                </el-select>
+                <div class="inline-select">
+                  <el-select v-model="form.contact_id" clearable filterable placeholder="先选客户再选联系人" style="flex:1">
+                    <el-option v-for="c in dict.contactsOf(form.customer_id)" :key="c.id" :value="c.id" :label="c.name" />
+                  </el-select>
+                  <el-button title="快速新增联系人" @click="qcContact.open()">
+                    <el-icon><Plus /></el-icon>
+                  </el-button>
+                </div>
               </el-form-item>
             </el-col>
             <el-col :span="12">
@@ -264,25 +274,36 @@
         <el-button type="primary" :loading="execSaving" @click="submitExecute">提交联络</el-button>
       </template>
     </el-dialog>
+
+    <QuickCreateCustomer ref="qcCustomer" :customer-name="customerNameOf(form.customer_id)" @created="c => form.customer_id = c.id" />
+    <QuickCreateContact ref="qcContact" :customer-id="form.customer_id" :customer-name="customerNameOf(form.customer_id)" @created="c => form.contact_id = c.id" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Download, MoreFilled } from '@element-plus/icons-vue'
 import PageHeader from '../components/PageHeader.vue'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
+import QuickCreateCustomer from '../components/QuickCreateCustomer.vue'
+import QuickCreateContact from '../components/QuickCreateContact.vue'
 import DetailGrid from '../components/DetailGrid.vue'
 import { get, getList, post, put, del, fmtDate, fmtDateMDY, exportCsv, METHOD_OPTIONS } from '../api'
+import { useFilterMemory } from '../composables/useFilterMemory'
 import { useDictStore } from '../stores/app'
 
 const dict = useDictStore()
+const route = useRoute()
+const qcCustomer = ref(null)
+const qcContact = ref(null)
+const customerNameOf = (id) => (dict.customers.find((c) => c.id === id) || {}).name || ''
 const followups = ref([])
 const loading = ref(false)
 const fuNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
-const filter = reactive({ q: '', customer: '', contact: '', status: '', from: '', to: '' })
+const filter = useFilterMemory('followups', { q: '', customer: '', contact: '', status: '', from: '', to: '' })
 const draft = reactive({ q: '', customer: '', contact: '', status: '', from: '', to: '' })
 
 const todayStr = () => {
@@ -461,6 +482,8 @@ async function doExport() {
 
 onMounted(async () => {
   await Promise.all([load(), dict.loadCustomers(), dict.loadContacts(), dict.loadOpportunities()])
+  // 工作台"今日联络计划"直达：?execute=<id> 直接打开执行联络弹窗
+  if (route.query.execute) openExecute(Number(route.query.execute))
 })
 </script>
 
