@@ -643,7 +643,7 @@ onMounted(async () => {
 .exec-plan {
   padding: 12px 14px; margin-bottom: 16px;
   background: var(--crm-sky-50);
-  border: 1px solid #d3e7f6;
+  border: 1px solid var(--crm-sky-50, #eaf4fb);
   border-radius: var(--crm-radius-md);
 }
 .exec-plan-label { font-size: 11px; font-weight: 600; color: var(--crm-sky-500); letter-spacing: 0.04em; margin-bottom: 4px; }

@@ -53,7 +53,13 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import * as echarts from 'echarts'
+// 按需引入 echarts：全量包约 1MB，按需后只带用到的图表与组件
+import * as echarts from 'echarts/core'
+import { LineChart, BarChart, PieChart as EChartsPie, FunnelChart } from 'echarts/charts'
+import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([LineChart, BarChart, EChartsPie, FunnelChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 import { Refresh, TrendCharts, Histogram, PieChart, DataAnalysis } from '@element-plus/icons-vue'
 import PageHeader from '../components/PageHeader.vue'
 import StatCard from '../components/StatCard.vue'
@@ -125,6 +131,16 @@ function render() {
     charts.push(chart)
   }
 
+  // 主题色 → rgba 渐变（避免把品牌 RGB 写死在代码里）
+  const hexToRgb = (hex) => {
+    const h = hex.replace('#', '')
+    const n = parseInt(h.length === 3 ? h.split('').map((x) => x + x).join('') : h, 16)
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  }
+  const [pr, pg, pb] = hexToRgb(c.primary || '#136a47')
+  const areaColor0 = `rgba(${pr},${pg},${pb},0.16)`
+  const areaColor1 = `rgba(${pr},${pg},${pb},0)`
+
   // 月度趋势：双 smooth 面积线
   mk(monthlyRef, {
     color: [c.primary, c.warning],
@@ -138,8 +154,8 @@ function render() {
         name: '新增线索', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5,
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(19,106,71,0.16)' },
-            { offset: 1, color: 'rgba(19,106,71,0)' },
+            { offset: 0, color: areaColor0 },
+            { offset: 1, color: areaColor1 },
           ]),
         },
         lineStyle: { width: 2 },

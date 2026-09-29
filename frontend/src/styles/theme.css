@@ -809,3 +809,37 @@ h1, h2, h3, h4, h5, h6 {
    滚动条在暗色 drawer / dialog 里的表现
    ========================================================================== */
 .el-drawer__body::-webkit-scrollbar-track { background: transparent; }
+
+/* ==========================================================================
+   全局精致化补丁（v4.7）
+   ========================================================================== */
+
+/* 细滚动条：macOS 质感，避免默认粗灰条破坏工具感 */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--crm-slate-300, #cbd3dc);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--crm-slate-400, #a3adba); }
+* { scrollbar-width: thin; scrollbar-color: var(--crm-slate-300, #cbd3dc) transparent; }
+
+/* 页面切换淡入：router-view 渲染完成后 140ms ease-out */
+.el-main > .page { animation: crm-page-in 140ms ease-out; }
+@keyframes crm-page-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 弹窗/抽屉与卡片圆角统一 12px、阴影收敛 */
+.el-dialog, .el-drawer { border-radius: 12px; }
+.el-dialog { box-shadow: 0 12px 48px rgba(15, 23, 42, .18); }
+.el-card { transition: box-shadow 140ms ease-out; }
+
+/* 表格 hover 行柔和提升（比 EP 默认底色更克制） */
+.el-table tbody tr:hover > td.el-table__cell {
+  background: var(--crm-pine-25, #eef7f2) !important;
+}
+
+/* 下拉/浮层统一圆角与阴影 */
+.el-select__popper, .el-popper.is-light { border-radius: 10px; }

@@ -7,6 +7,7 @@
 import json
 import re
 import requests
+from app.services.netutil import safe_get, SafeFetchError
 from bs4 import BeautifulSoup
 from datetime import datetime
 from urllib.parse import urljoin
@@ -52,8 +53,7 @@ def get_news_sources():
 
 
 def _fetch(url, session, timeout=20):
-    resp = session.get(url, timeout=timeout)
-    resp.encoding = resp.apparent_encoding or 'utf-8'
+    resp = safe_get(url, timeout=timeout, session=session)
     return resp
 
 

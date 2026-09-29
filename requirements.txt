@@ -1,5 +1,7 @@
-flask>=3.0
-flask-sqlalchemy>=3.1
-requests>=2.34
-beautifulsoup4>=4.15
-apscheduler>=3.11
+# 运行环境：Python 3.11+（版本锁定自当前验证通过的运行环境）
+flask==3.1.3
+flask-sqlalchemy==3.1.1
+sqlalchemy==2.0.51
+requests==2.34.2
+beautifulsoup4==4.15.0
+apscheduler==3.11.2

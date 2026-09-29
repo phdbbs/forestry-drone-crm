@@ -259,6 +259,10 @@ def create_app(config=None):
             logger.warning('清理残留采集日志失败（不影响服务）: %s', e)
         from app.services.seed import seed_if_empty
         seed_if_empty()
+
+    # 定时任务（采集/备份）在生产启动时开启；测试环境由 CRM_DISABLE_SCHEDULER=1 关闭
+    from app.services.scheduler import init_scheduler
+    init_scheduler(app)
     return app
 
 
@@ -343,6 +347,7 @@ def _migrate_db():
             "CREATE INDEX IF NOT EXISTS ix_leads_customer_id ON leads (customer_id)",
             "CREATE INDEX IF NOT EXISTS ix_leads_created_at ON leads (created_at)",
             "CREATE INDEX IF NOT EXISTS ix_leads_status_created_at ON leads (status, created_at)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_serial_no ON leads (serial_no) WHERE serial_no != ''",
             "CREATE INDEX IF NOT EXISTS ix_opportunities_lead_id ON opportunities (lead_id)",
             "CREATE INDEX IF NOT EXISTS ix_opportunities_customer_id ON opportunities (customer_id)",
             "CREATE INDEX IF NOT EXISTS ix_opportunities_contact_id ON opportunities (contact_id)",

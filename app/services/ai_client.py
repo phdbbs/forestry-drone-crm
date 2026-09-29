@@ -8,7 +8,19 @@ from app import db
 from app.models import SystemConfig
 from app.services.textutil import clean_text
 
-_ai_lock = threading.Lock()
+_ai_lock = threading.Lock()  # 兼容保留：尚未使用
+# 同一 endpoint 串行（本地模型并发会崩），不同 endpoint 可并行，避免一家慢拖死全部 AI 调用
+_provider_sems = {}
+_provider_sems_guard = threading.Lock()
+_rr_lock = threading.Lock()
+
+
+def _sem_for(prov):
+    key = prov.get("endpoint") or "?"
+    with _provider_sems_guard:
+        if key not in _provider_sems:
+            _provider_sems[key] = threading.Semaphore(1)
+        return _provider_sems[key]
 
 # 这些状态码重试没有意义：请求体/密钥/额度的问题，重试只会白等，
 # 还会把「模型额度不足」这类本可立刻识别的故障拖到超时。
@@ -194,28 +206,28 @@ def chat(messages, max_tokens=1200, temperature=0.2, timeout=240, retries=2, jso
          既分摊额度/并发，又把『出问题就换』变成日常行为而非纯灾备；
       3. 从起始家开始按顺序依次尝试，任一家抛 ProviderError 就切到下一家；
       4. 全部失败才抛 RuntimeError（聚合各家报错，供分类器识别）。
-    串行执行（_ai_lock）避免本地模型并发崩溃。
+    同一 endpoint 串行（避免本地模型并发崩溃），不同 endpoint 并行（一家慢不拖死其它）。
     """
-    global _rr_counter
     providers = usable_providers()
     if not providers:
         raise RuntimeError("未配置可用的 AI 服务：请在「系统设置 → AI 配置」中添加并启用至少一家模型")
 
-    n = len(providers)
-    start = _rr_counter % n
-    _rr_counter += 1
+    with _rr_lock:
+        global _rr_counter
+        start = _rr_counter % len(providers)
+        _rr_counter += 1
     # 从起始家开始的环形顺序
     order = providers[start:] + providers[:start]
 
     errors = []
-    with _ai_lock:
-        for prov in order:
-            label = prov.get("name") or prov.get("model") or prov.get("endpoint")
-            try:
+    for prov in order:
+        label = prov.get("name") or prov.get("model") or prov.get("endpoint")
+        try:
+            with _sem_for(prov):
                 return _chat_once(prov, messages, max_tokens, temperature, timeout, retries, json_mode)
-            except ProviderError as e:
-                errors.append(f"[{label}] {e}")
-                continue
+        except ProviderError as e:
+            errors.append(f"[{label}] {e}")
+            continue
     # 所有可用家都失败
     raise RuntimeError("所有 AI 服务均调用失败：" + " | ".join(errors))
 

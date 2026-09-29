@@ -82,11 +82,29 @@ const sorted = computed(() => {
     let va = a[key], vb = b[key]
     if (va == null) va = ''
     if (vb == null) vb = ''
+    // 日期统一归一化比较：ISO(2026-09-25 / 带时间) 与 MM-DD-YY(09-28-26) 两种展示格式，
+    // 避免 parseFloat 把 "2026-09-25" 截成 2026、把 "09-28-26" 截成 9 导致同年/同月排序失效
+    const isoPat = /^(\d{4})-(\d{2})-(\d{2})([ T](\d{2}):(\d{2}))?$/
+    const mdyPat = /^(\d{2})-(\d{2})-(\d{2})$/
+    const norm = (x) => {
+      const s = String(x).trim()
+      let m = isoPat.exec(s)
+      if (m) return `${m[1]}${m[2]}${m[3]}${m[5] || '00'}${m[6] || '00'}`
+      m = mdyPat.exec(s)
+      if (m) return `20${m[3]}${m[1]}${m[2]}`
+      return null
+    }
+    const sa0 = String(va).trim(), sb0 = String(vb).trim()
+    const na0 = norm(sa0), nb0 = norm(sb0)
+    if (na0 !== null && nb0 !== null) {
+      return (na0 < nb0 ? -1 : na0 > nb0 ? 1 : 0) * dir
+    }
+    const sa = sa0, sb = sb0
     const na = parseFloat(va), nb = parseFloat(vb)
-    if (!isNaN(na) && !isNaN(nb) && String(va).trim() !== '' && String(vb).trim() !== '' && /^[\d.\-+]/.test(String(va)) && /^[\d.\-+]/.test(String(vb))) {
+    if (!isNaN(na) && !isNaN(nb) && sa !== '' && sb !== '' && /^[\d.\-+]/.test(sa) && /^[\d.\-+]/.test(sb) && !/^\d{1,2}-\d{1,2}/.test(sa)) {
       return (na - nb) * dir
     }
-    return String(va).localeCompare(String(vb), 'zh') * dir
+    return sa.localeCompare(sb, 'zh') * dir
   })
 })
 const paged = computed(() => sorted.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
@@ -418,7 +436,7 @@ onBeforeUnmount(() => {
 .pt-table :deep(.el-table__header th.is-resize-hot .cell) { cursor: col-resize; }
 .pt-table :deep(.el-table__header th.is-resize-hot)::after {
   content: ''; position: absolute; top: 6px; bottom: 6px; right: 0; width: 2px;
-  background: var(--crm-brand-500, #2563eb); border-radius: 2px; pointer-events: none;
+  background: var(--crm-pine-500, var(--crm-primary, #136a47)); border-radius: 2px; pointer-events: none;
 }
 
 /* 内容不足列宽时不折行：超出隐藏、能显示多少显示多少；含表头。

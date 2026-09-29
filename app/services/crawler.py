@@ -7,6 +7,7 @@ from app.services.matcher import match_lead
 from app.services.ai_client import extract_lead
 from app.services.regions import resolve_region
 from app.services.serial import gen_serial
+from app.services.netutil import safe_get, SafeFetchError
 from app.services.textutil import clean_text
 from app.services.amountutil import normalize_amount_text
 from app.services.crawl_log import start_log, finish_log
@@ -592,11 +593,11 @@ def fetch_search_results(kw, start_date, end_date, session, max_pages=2):
 
 
 def fetch_detail_text(url, session):
-    """抓取公告详情页并清洗为纯文本。"""
-    resp = session.get(url, timeout=20)
-    resp.encoding = resp.apparent_encoding or "utf-8"
-    if resp.status_code != 200:
-        raise RuntimeError(f"详情页 HTTP {resp.status_code}")
+    """抓取公告详情页并清洗为纯文本（SSRF 防护）。"""
+    try:
+        resp = safe_get(url, timeout=20, session=session)
+    except SafeFetchError as e:
+        raise RuntimeError(f"详情页抓取被拦截: {e}")
     soup = BeautifulSoup(resp.text, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()

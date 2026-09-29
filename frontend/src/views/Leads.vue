@@ -390,6 +390,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Download, Loading, Document, Close, TopRight } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import PageHeader from '../components/PageHeader.vue'
 import PageTable from '../components/PageTable.vue'
 import FilterBar from '../components/FilterBar.vue'
@@ -562,7 +563,7 @@ const fulltextVisible = ref(false)
 const fulltextLoading = ref(false)
 const fulltext = ref('')
 const fulltextError = ref('')
-const fulltextHtml = computed(() => marked.parse(fulltext.value || ''))
+const fulltextHtml = computed(() => DOMPurify.sanitize(marked.parse(fulltext.value || '')))
 async function openFulltext() {
   fulltextVisible.value = true
   fulltextLoading.value = true

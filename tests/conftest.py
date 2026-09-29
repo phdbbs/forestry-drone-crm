@@ -16,6 +16,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 os.environ.setdefault('CRM_SECRET_KEY', 'crm-test-secret')
+os.environ.setdefault('CRM_DISABLE_SCHEDULER', '1')  # 测试不起定时任务线程
 # 测试必须走 seed 分支，保证基线数据可预期
 os.environ.pop('CRM_SKIP_SEED', None)
 

@@ -161,12 +161,15 @@ def dashboard():
     leads.sort(key=lambda l: -(level_score.get(l.match_level, 0)))
     now = datetime.now()
     today = now.strftime('%Y-%m-%d')
+    # 范围条件代替 func.date()：后者对列套函数导致索引失效全表扫描
+    _day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    _day1 = _day0 + timedelta(days=1)
     today_activities = Activity.query.options(
         joinedload(Activity.contact), joinedload(Activity.customer)
-    ).filter(db.func.date(Activity.activity_time) == today).all()
+    ).filter(Activity.activity_time >= _day0, Activity.activity_time < _day1).all()
     today_followups = FollowUp.query.options(
         joinedload(FollowUp.contact)
-    ).filter(db.func.date(FollowUp.plan_date) == today).all()
+    ).filter(FollowUp.plan_date >= _day0, FollowUp.plan_date < _day1).all()
     # 用日期差计算剩余天数：当天截止（0 天）也算紧急；datetime 直接相减会把当天误判为 -1 天
     urgent_leads = [l for l in leads if l.deadline and 0 <= (l.deadline.date() - now.date()).days <= 3]
     opportunities = Opportunity.query.options(
@@ -270,7 +273,7 @@ def list_leads():
 @api.route('/leads/search', methods=['GET'])
 def search_leads():
     """关键词全文检索：返回命中的线索 id 列表。
-    覆盖标题/编号 + 公告全文(full_text) + 摘要/服务内容/采购方/中标单位等富文本字段，
+    覆盖标题/编号 + 摘要/服务内容/采购方/中标单位等富文本字段（不含全文大字段，避免全表扫描），
     只回 id，避免把巨大的 full_text 塞进列表响应。"""
     q = (request.args.get('q') or '').strip()
     if not q:
@@ -280,7 +283,6 @@ def search_leads():
         Lead.title.like(like)
         | Lead.serial_no.like(like)
         | Lead.bid_number.like(like)
-        | Lead.full_text.like(like)
         | Lead.service_content.like(like)
         | Lead.purchaser.like(like)
         | Lead.winner.like(like)
@@ -872,8 +874,10 @@ def delete_contact_news(id):
 @api.route('/daily-brief', methods=['GET'])
 def daily_brief():
     today = datetime.now().strftime('%Y-%m-%d')
-    today_acts = Activity.query.filter(db.func.date(Activity.activity_time) == today).all()
-    today_followups = FollowUp.query.filter(db.func.date(FollowUp.plan_date) == today).all()
+    _d0 = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    _d1 = _d0 + timedelta(days=1)
+    today_acts = Activity.query.filter(Activity.activity_time >= _d0, Activity.activity_time < _d1).all()
+    today_followups = FollowUp.query.filter(FollowUp.plan_date >= _d0, FollowUp.plan_date < _d1).all()
     pending_followups = FollowUp.query.filter(FollowUp.actual_date.is_(None), FollowUp.plan_date <= datetime.now()).all()
     week_from_now = datetime.now() + timedelta(days=7)
     # 截止时间为当天 00:00，需从今天 0 点起算，避免漏掉"今天截止"的线索
@@ -1769,33 +1773,12 @@ def lead_fulltext(id):
         return jsonify({"source": "stored", "text": _text_to_md(l.full_text)})
     if not l.source_url:
         return jsonify({"error": "该线索无原文链接，无法获取全文"}), 400
-    # SSRF 防护：仅 http/https，且目标主机不得为内网/环回/保留地址
-    from urllib.parse import urlparse
-    import ipaddress
-    import socket
-    u = urlparse(l.source_url)
-    if u.scheme not in ('http', 'https') or not u.hostname:
-        return jsonify({"error": "原文链接不合法"}), 400
+    from app.services.netutil import safe_get, SafeFetchError
     try:
-        infos = socket.getaddrinfo(u.hostname, None)
-    except OSError:
-        return jsonify({"error": "原文链接域名无法解析"}), 400
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (ip.is_private or ip.is_loopback or ip.is_reserved
-                or ip.is_link_local or ip.is_multicast or ip.is_unspecified):
-            return jsonify({"error": "原文链接指向受限地址，已拦截"}), 400
-    import requests as _requests
-    try:
-        resp = _requests.get(l.source_url, timeout=15,
-                             headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/126.0.0.0 Safari/537.36"},
-                             allow_redirects=False)
-    except Exception as e:
-        return jsonify({"error": f"抓取失败: {e}"}), 502
-    if resp.status_code != 200:
-        return jsonify({"error": f"原文站点返回 HTTP {resp.status_code}"}), 502
-    if not resp.encoding or resp.encoding.lower() == 'iso-8859-1':
-        resp.encoding = resp.apparent_encoding or 'utf-8'
+        resp = safe_get(l.source_url, timeout=15)
+    except SafeFetchError as e:
+        # 安全校验未过（内网/非法URL）回 400；网络/远端故障回 502
+        return jsonify({"error": f"抓取失败: {e}"}), 400 if e.security else 502
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(resp.text, 'html.parser')
     for tag in soup(['script', 'style', 'noscript', 'iframe', 'form', 'button']):
@@ -1814,40 +1797,59 @@ def analytics():
     def safe_amount(val):
         # 统一按"万元"口径解析：兼容 "150万" / "1,500.50元" / "3亿" / 纯数字 等历史写法
         return parse_amount_wan(val) or 0.0
-    leads = Lead.query.all()
-    opportunities = Opportunity.query.all()
-    activities = Activity.query.all()
-    # Monthly leads trend (last 6 months)
+
+    # SQL 聚合：count 类统计不拉全表；金额需按"万元"口径解析，仅加载轻量列
+    total_leads = db.session.query(sa_func.count(Lead.id)).scalar() or 0
+    converted_leads = db.session.query(sa_func.count(Lead.id)).filter(Lead.status == 'converted').scalar() or 0
+    total_activities = db.session.query(sa_func.count(Activity.id)).scalar() or 0
+
+    # 月度趋势：GROUP BY 月份，近6个月
+    month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    for _ in range(5):
+        month_start = (month_start - timedelta(days=1)).replace(day=1)
+    rows = (db.session.query(sa_func.strftime('%Y-%m', Lead.created_at), Lead.status,
+                             sa_func.count(Lead.id))
+            .filter(Lead.created_at >= month_start)
+            .group_by(sa_func.strftime('%Y-%m', Lead.created_at), Lead.status).all())
+    by_month = {}
+    for ym, status, cnt in rows:
+        by_month.setdefault(ym, {})[status] = cnt
     monthly = []
-    now = datetime.now()
-    for i in range(5, -1, -1):
-        d = now - timedelta(days=30*i)
-        month_str = d.strftime('%Y-%m')
-        month_leads = [l for l in leads if l.created_at and l.created_at.strftime('%Y-%m') == month_str]
-        converted = [l for l in month_leads if l.status == 'converted']
-        monthly.append({"month": d.strftime('%m月'), "leads": len(month_leads), "converted": len(converted)})
-    # Funnel by stage: 优先使用配置阶段，并补充数据中出现的其他阶段
-    configured = [s.name for s in OpportunityStage.query.order_by(OpportunityStage.sort_order).all()]
-    # 配置表可能为空（真实库 opportunity_stages 无数据），此时阶段完全来自商机数据，
-    # 必须去重：否则同一阶段会按商机条数重复出现（14 条商机 → 14 个同名"初步接触"）
-    seen = list(dict.fromkeys(o.current_stage for o in opportunities if o.current_stage))
-    stages_list = list(dict.fromkeys(configured)) + [s for s in seen if s not in configured]
-    funnel = []
-    for s in stages_list:
-        stage_opps = [o for o in opportunities if o.current_stage == s]
-        total_amount = sum(safe_amount(o.amount) for o in stage_opps)
-        funnel.append({"stage": s, "count": len(stage_opps), "amount": total_amount})
-    # Win/loss
-    won = len([o for o in opportunities if o.current_stage in ('合同签订', '合同签约')])
-    lost = len([o for o in opportunities if o.current_stage == '已丢单'])
-    active = len(opportunities) - won - lost
+    cur = month_start
+    for _ in range(6):
+        ym = cur.strftime('%Y-%m')
+        m = by_month.get(ym, {})
+        monthly.append({"month": cur.strftime('%m月'),
+                        "leads": sum(m.values()),
+                        "converted": m.get('converted', 0)})
+        cur = (cur + timedelta(days=32)).replace(day=1)
+
+    # 漏斗/金额：仅加载 current_stage 与 amount 两列（amount 需 Python 解析口径）
+    opp_rows = (db.session.query(Opportunity.current_stage, Opportunity.amount)
+                .all())
+    stage_count, stage_amount, total_amount, won_amount = {}, {}, 0.0, 0.0
+    won = lost = 0
+    for st, amt in opp_rows:
+        st = st or ''
+        a = safe_amount(amt)
+        stage_count[st] = stage_count.get(st, 0) + 1
+        stage_amount[st] = stage_amount.get(st, 0.0) + a
+        total_amount += a
+        if st in ('合同签订', '合同签约'):
+            won += 1
+            won_amount += a
+        elif st == '已丢单':
+            lost += 1
+    configured = [s2.name for s2 in OpportunityStage.query.order_by(OpportunityStage.sort_order).all()]
+    seen = list(dict.fromkeys(st for st in stage_count if st))
+    stages_list = list(dict.fromkeys(configured)) + [st for st in seen if st not in configured]
+    funnel = [{"stage": st, "count": stage_count.get(st, 0), "amount": stage_amount.get(st, 0.0)}
+              for st in stages_list]
+    active = len(opp_rows) - won - lost
     win_loss = [{"name": "赢单", "value": won}, {"name": "进行中", "value": active}, {"name": "丢单", "value": lost}]
-    # Summary stats
-    total_amount = sum(safe_amount(o.amount) for o in opportunities)
-    won_amount = sum(safe_amount(o.amount) for o in opportunities if o.current_stage == '合同签订')
-    conversion_rate = round(len([l for l in leads if l.status == 'converted']) / max(len(leads), 1) * 100, 1)
+    conversion_rate = round(converted_leads / max(total_leads, 1) * 100, 1)
     return jsonify({
-        "summary": {"total_leads": len(leads), "total_opportunities": len(opportunities), "total_amount": total_amount, "won_amount": won_amount, "conversion_rate": conversion_rate, "total_activities": len(activities)},
+        "summary": {"total_leads": total_leads, "total_opportunities": len(opp_rows), "total_amount": total_amount, "won_amount": won_amount, "conversion_rate": conversion_rate, "total_activities": total_activities},
         "monthly_leads": monthly,
         "funnel": funnel,
         "win_loss": win_loss

@@ -4,6 +4,7 @@
 月：1-9=1-9月, 0=10月, N=11月, D=12月
 示例：691301 = 2026年9月13日第01号
 """
+import sqlalchemy.exc
 from app.models import Lead, db
 
 _MONTH_CHARS = {1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6',
@@ -18,11 +19,26 @@ def _year_char(year):
     return chr(ord('a') + year - 2031)
 
 
-def gen_serial(created_at):
-    """按创建日期生成流水号：当年当日已有 N 条则流水为 N+1（超过99则继续用3位以保唯一）。"""
+def _next_serial(created_at):
+    """按当日已有编号的最大序号 +1 生成（MAX 而非 count，避免删除后编号复用）。"""
     y = _year_char(created_at.year)
     m = _MONTH_CHARS[created_at.month]
     prefix = f"{y}{m}{created_at.day:02d}"
-    count = db.session.query(Lead).filter(Lead.serial_no.like(prefix + '%')).count()
-    seq = count + 1
+    rows = (db.session.query(Lead.serial_no)
+            .filter(Lead.serial_no.like(prefix + '%')).all())
+    max_seq = 0
+    for (sn,) in rows:
+        tail = sn[len(prefix):]
+        if tail.isdigit():
+            max_seq = max(max_seq, int(tail))
+    seq = max_seq + 1
     return prefix + (f"{seq:02d}" if seq <= 99 else str(seq))
+
+
+def gen_serial(created_at):
+    """生成唯一流水号：与库中已有编号冲突时（并发）自动重试。"""
+    for _ in range(50):
+        sn = _next_serial(created_at)
+        if not db.session.query(Lead.id).filter(Lead.serial_no == sn).first():
+            return sn
+    raise RuntimeError("流水号生成失败：当日序号异常拥挤")
