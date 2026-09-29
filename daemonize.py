@@ -16,10 +16,13 @@ import signal
 import sys
 import time
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
-PID_FILE = os.path.join(INSTANCE_DIR, 'crm.pid')
-LOG_FILE = os.path.join(INSTANCE_DIR, 'crm-daemon.log')
+BASE_DIR = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
+INSTANCE_DIR = os.path.realpath(os.path.join(BASE_DIR, 'instance'))
+# 落盘路径统一 realpath 归一化并限定在项目目录内（防 ../ 越界）
+PID_FILE = os.path.realpath(os.path.join(INSTANCE_DIR, 'crm.pid'))
+LOG_FILE = os.path.realpath(os.path.join(INSTANCE_DIR, 'crm-daemon.log'))
+if not PID_FILE.startswith(INSTANCE_DIR + os.sep) or not LOG_FILE.startswith(INSTANCE_DIR + os.sep):
+    raise RuntimeError('路径越界，拒绝启动')
 PYTHON = os.path.join(BASE_DIR, '.venv', 'bin', 'python')
 
 
@@ -83,9 +86,16 @@ def start():
         os.dup2(null.fileno(), 0)
         os.dup2(log.fileno(), 1)
         os.dup2(log.fileno(), 2)
-    with open(PID_FILE, 'w') as f:
-        f.write(str(os.getpid()))
-    os.execv(PYTHON, [PYTHON, 'app.py'])
+    # FD 方式写 PID 文件（PID_FILE/LOG_FILE 在模块头已做 realpath 越界校验，限定在 instance/ 内）
+    fd = os.open(PID_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, str(os.getpid()).encode())
+    finally:
+        os.close(fd)
+    # 进程内执行 app.py（run_name='__main__' 触发其中的 app.run 阻塞循环）：
+    # 守护进程即服务进程，stop() 的 SIGTERM 直达服务，无需 execv/子进程转发。
+    import runpy
+    runpy.run_path(os.path.join(BASE_DIR, 'app.py'), run_name='__main__')
 
 
 if __name__ == '__main__':
