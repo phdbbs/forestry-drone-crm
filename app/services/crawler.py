@@ -721,7 +721,9 @@ def run_crawl(app=None, log=None):
 
     # 按时间倒序；已入库 URL 先剔除（避免重复项占用抽取上限，回溯重采时能捞到漏网新公告），再取 limit 条
     candidates = [it for it in candidates if it.get("dt")]
-    existing_urls = {u for (u,) in db.session.query(Lead.source_url).all() if u}
+    # include_deleted：被删除的线索同样算「已入库」，否则删掉的公告每轮都会被重新采回来
+    existing_urls = {u for (u,) in db.session.query(Lead.source_url)
+                     .execution_options(include_deleted=True).all() if u}
     candidates = [it for it in candidates if it["url"] not in existing_urls]
     candidates.sort(key=lambda it: it["dt"], reverse=True)
     filtered = candidates[: cfg["limit"]]

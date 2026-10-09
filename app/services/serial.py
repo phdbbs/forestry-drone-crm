@@ -20,12 +20,17 @@ def _year_char(year):
 
 
 def _next_serial(created_at):
-    """按当日已有编号的最大序号 +1 生成（MAX 而非 count，避免删除后编号复用）。"""
+    """按当日已有编号的最大序号 +1 生成（MAX 而非 count，避免删除后编号复用）。
+
+    include_deleted：逻辑删除的线索也必须参与取号，否则已删行的编号会重新分配
+    给新线索，撞上 leads.serial_no 的唯一索引。
+    """
     y = _year_char(created_at.year)
     m = _MONTH_CHARS[created_at.month]
     prefix = f"{y}{m}{created_at.day:02d}"
     rows = (db.session.query(Lead.serial_no)
-            .filter(Lead.serial_no.like(prefix + '%')).all())
+            .filter(Lead.serial_no.like(prefix + '%'))
+            .execution_options(include_deleted=True).all())
     max_seq = 0
     for (sn,) in rows:
         tail = sn[len(prefix):]
@@ -39,6 +44,7 @@ def gen_serial(created_at):
     """生成唯一流水号：与库中已有编号冲突时（并发）自动重试。"""
     for _ in range(50):
         sn = _next_serial(created_at)
-        if not db.session.query(Lead.id).filter(Lead.serial_no == sn).first():
+        if not db.session.query(Lead.id).filter(Lead.serial_no == sn) \
+                .execution_options(include_deleted=True).first():
             return sn
     raise RuntimeError("流水号生成失败：当日序号异常拥挤")

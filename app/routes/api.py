@@ -9,6 +9,7 @@ from app.models import (
 from app.services.matcher import match_lead
 from app.services.serial import gen_serial
 from app.services.skills import SkillRegistry
+from app.services.softdelete import alive
 from app.services.amountutil import normalize_amount_text, parse_amount_wan
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, timedelta
@@ -111,9 +112,18 @@ def list_skills():
 @api.route('/skills', methods=['POST'])
 def create_skill():
     d = request.get_json()
-    if Skill.query.filter_by(name=d['name']).first():
+    # skills.name 是硬 UNIQUE，逻辑删除的墓碑行仍会占住这个名字：
+    # 命中墓碑就复用那一行（恢复 + 覆盖内容），否则同名重建只会报「数据已存在」。
+    existing = Skill.query.filter_by(name=d['name']).execution_options(include_deleted=True).first()
+    if existing is not None and not existing.is_deleted:
         return jsonify({"error": "技能名称已存在"}), 400
-    s = Skill(name=d['name'], description=d.get('description',''), icon=d.get('icon','🔧'), is_builtin=False, is_active=True, config_json=d.get('config_json'))
+    s = existing or Skill(name=d['name'], is_builtin=False)
+    if existing is not None:
+        s.is_deleted = False
+        s.is_active = True
+    s.description = d.get('description', '')
+    s.icon = d.get('icon', '🔧')
+    s.config_json = d.get('config_json')
     db.session.add(s)
     db.session.commit()
     return jsonify({"id": s.id, "name": s.name, "message": "创建成功"})
@@ -145,7 +155,7 @@ def delete_skill(id):
     s = Skill.query.get_or_404(id)
     if s.is_builtin:
         return jsonify({"error": "内置技能不可删除"}), 400
-    db.session.delete(s)
+    s.is_deleted = True
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -518,7 +528,7 @@ def update_stage(id):
 @api.route('/stages/<int:id>', methods=['DELETE'])
 def delete_stage(id):
     s = OpportunityStage.query.get_or_404(id)
-    db.session.delete(s)
+    s.is_deleted = True
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -570,12 +580,17 @@ def update_contact(id):
 @api.route('/contacts/<int:id>', methods=['DELETE'])
 def delete_contact(id):
     c = Contact.query.get_or_404(id)
-    # 清理关联引用：动态新闻随联系人删除，活动/联络计划/商机保留但解除关联
-    ContactNews.query.filter_by(contact_id=id).delete()
-    Activity.query.filter_by(contact_id=id).update({'contact_id': None})
-    FollowUp.query.filter_by(contact_id=id).update({'contact_id': None})
-    Opportunity.query.filter_by(contact_id=id).update({'contact_id': None})
-    db.session.delete(c)
+    # 逻辑删除：动态新闻跟着标记删除，活动/联络计划/商机保留但解除关联。
+    # 批量 UPDATE 走不到全局软删钩子，必须自己加 alive()，否则会改到已删行。
+    ContactNews.query.filter_by(contact_id=id).filter(alive(ContactNews)) \
+        .update({'is_deleted': True}, synchronize_session=False)
+    Activity.query.filter_by(contact_id=id).filter(alive(Activity)) \
+        .update({'contact_id': None}, synchronize_session=False)
+    FollowUp.query.filter_by(contact_id=id).filter(alive(FollowUp)) \
+        .update({'contact_id': None}, synchronize_session=False)
+    Opportunity.query.filter_by(contact_id=id).filter(alive(Opportunity)) \
+        .update({'contact_id': None}, synchronize_session=False)
+    c.is_deleted = True
     db.session.commit()
     return jsonify({"message": "已删除"})
 
@@ -637,13 +652,16 @@ def create_activity():
         db.session.add(fu)
         if fu.add_to_kanban:
             db.session.flush()
-            _add_kanban_card(
+            card = _add_kanban_card(
                 title=fu_content[:60],
                 description=ai_suggested[:100],
                 deadline=fu.plan_date,
                 source_type='followup',
                 source_id=fu.id,
             )
+            if card is not None:
+                db.session.flush()
+                fu.kanban_card_id = card.id
         db.session.commit()
     return jsonify({"id": a.id, "message": "创建成功"})
 
@@ -680,8 +698,8 @@ def update_activity(id):
                 if a.next_followup_content:
                     fu.content = a.next_followup_content
             else:
-                # 清空了下次跟进时间且无内容：删除未执行的联动计划，避免产生无来源的孤立计划
-                db.session.delete(fu)
+                # 清空了下次跟进时间且无内容：标记删除未执行的联动计划，避免产生无来源的孤立计划
+                fu.is_deleted = True
         elif not fu and has_next:
             # 原活动没有跟进计划、编辑时新增：补建联络计划，保持与新建活动一致
             db.session.add(FollowUp(
@@ -698,7 +716,11 @@ def update_activity(id):
 @api.route('/activities/<int:id>', methods=['DELETE'])
 def delete_activity(id):
     a = Activity.query.get_or_404(id)
-    db.session.delete(a)
+    # 活动删除后，由它生成的未执行联络计划就没了来源；与编辑时「清空下次跟进」的处理保持一致，一并标记删除
+    for fu in FollowUp.query.filter_by(source_activity_id=a.id).filter(alive(FollowUp)).all():
+        if not fu.actual_date:
+            fu.is_deleted = True
+    a.is_deleted = True
     db.session.commit()
     return jsonify({"message": "已删除"})
 
@@ -757,13 +779,17 @@ def create_followup():
     db.session.add(f)
     if f.add_to_kanban:
         db.session.flush()
-        _add_kanban_card(
+        card = _add_kanban_card(
             title=f.content[:60] or '跟进计划',
             description=f.ai_suggested_content[:100] if f.ai_suggested_content else '',
             deadline=f.plan_date,
             source_type='followup',
             source_id=f.id,
         )
+        if card is not None:
+            # 记下卡片归属：删除计划时据此把衍生的看板卡片一并标记隐藏
+            db.session.flush()
+            f.kanban_card_id = card.id
     db.session.commit()
     return jsonify({"id": f.id, "message": "创建成功"})
 
@@ -849,7 +875,12 @@ def update_followup(id):
 @api.route('/followups/<int:id>', methods=['DELETE'])
 def delete_followup(id):
     f = FollowUp.query.get_or_404(id)
-    db.session.delete(f)
+    f.is_deleted = True
+    # 计划生成的看板卡片跟着一起消失，否则计划没了、卡片还挂在板上
+    if f.kanban_card_id:
+        card = KanbanCard.query.get(f.kanban_card_id)
+        if card:
+            card.is_deleted = True
     db.session.commit()
     return jsonify({"message": "已删除"})
 
@@ -913,14 +944,14 @@ def news_logs():
 @api.route('/news/customer/<int:id>', methods=['DELETE'])
 def delete_customer_news(id):
     n = CustomerNews.query.get_or_404(id)
-    db.session.delete(n)
+    n.is_deleted = True
     db.session.commit()
     return jsonify({"message": "已删除"})
 
 @api.route('/news/contact/<int:id>', methods=['DELETE'])
 def delete_contact_news(id):
     n = ContactNews.query.get_or_404(id)
-    db.session.delete(n)
+    n.is_deleted = True
     db.session.commit()
     return jsonify({"message": "已删除"})
 
@@ -973,7 +1004,12 @@ def create_board():
 @api.route('/kanban/boards/<int:id>', methods=['DELETE'])
 def delete_board(id):
     b = KanbanBoard.query.get_or_404(id)
-    db.session.delete(b)
+    # 模型层已取消 delete-orphan 级联：删除逐层打标记，列与卡片行都留在库里
+    for col in b.columns:
+        for card in col.cards:
+            card.is_deleted = True
+        col.is_deleted = True
+    b.is_deleted = True
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -1057,7 +1093,9 @@ def update_column(col_id):
 @api.route('/kanban/columns/<int:col_id>', methods=['DELETE'])
 def delete_column(col_id):
     col = KanbanColumn.query.get_or_404(col_id)
-    db.session.delete(col)
+    for card in col.cards:
+        card.is_deleted = True
+    col.is_deleted = True
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -1083,7 +1121,7 @@ def reorder_columns(board_id):
 @api.route('/kanban/cards/<int:card_id>', methods=['DELETE'])
 def delete_card(card_id):
     card = KanbanCard.query.get_or_404(card_id)
-    db.session.delete(card)
+    card.is_deleted = True
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -1110,14 +1148,31 @@ def import_to_kanban():
     db.session.commit()
     return jsonify({"message": f"已导入 {len(items)} 张卡片"})
 
+# 这些键的值是凭据，绝不能整份下发给前端：
+# ai_providers 的 JSON 里内嵌各家 api_key，auth_password_hash 是访问口令散列。
+# 页面需要展示时走各自的脱敏视图（/config/ai-providers 只给末 4 位）。
+_SECRET_CONFIG_KEYS = {'ai_api_key', 'ai_providers', 'auth_password_hash'}
+
+
 @api.route('/config', methods=['GET'])
 def get_config():
     configs = SystemConfig.query.all()
-    return jsonify({c.key: {"value": c.value, "description": c.description} for c in configs})
+    return jsonify({
+        c.key: {
+            "value": '[已隐藏]' if c.key in _SECRET_CONFIG_KEYS else c.value,
+            "description": c.description,
+        }
+        for c in configs
+    })
 
 @api.route('/config', methods=['PUT'])
 def update_config():
     d = request.get_json()
+    # 凭据类键只经由各自的专用端点写入（口令走 /auth/change，
+    # AI 各家配置走 /config/ai-providers），否则这里就是「匿名改写口令散列」的后门。
+    blocked = [k for k in d if k in _SECRET_CONFIG_KEYS]
+    if blocked:
+        abort(400, description=f"以下配置项不能通过通用接口修改: {', '.join(blocked)}")
     for key, value in d.items():
         config = SystemConfig.query.filter_by(key=key).first()
         if config: config.value = str(value)
@@ -1432,7 +1487,7 @@ def clear_crawl_logs():
     if _active('q'): scope_parts.append(f"关键词[{args.get('q')}]")
     scope = '、'.join(scope_parts)
     try:
-        n = q.delete(synchronize_session=False)
+        n = q.filter(alive(CrawlLog)).update({'is_deleted': True}, synchronize_session=False)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -1489,20 +1544,32 @@ def get_urgent_tasks():
 
 @api.route('/ai/urgent-tasks/refresh', methods=['POST'])
 def refresh_urgent_tasks():
-    SystemConfig.query.filter_by(key='ai_urgent_tasks_at').delete()
-    db.session.commit()
+    """刷新 = 把缓存时间戳清空，下次读取即判定过期重算。
+
+    这里原先是删掉 ai_urgent_tasks_at 配置行。配置行不属于业务数据，
+    但既然全库统一「只打标记不物理删除」，用清空值来表达失效就够了。
+    """
+    cached_at = SystemConfig.query.filter_by(key='ai_urgent_tasks_at').first()
+    if cached_at:
+        cached_at.value = ''
+        db.session.commit()
     return get_urgent_tasks()
 
 @api.route('/leads/<int:id>', methods=['DELETE'])
 def delete_lead(id):
+    """彻底删除线索。区别于 /leads/<id>/abandon：abandoned 是可恢复的「已删除」页签，
+    这里打 is_deleted 标记，线索从所有列表与统计中消失。"""
     l = Lead.query.get_or_404(id)
     if l.status == 'converted':
         return jsonify({"error": "已转化线索不可删除"}), 400
-    # 清理关联引用，避免孤儿数据（商机/活动/联络计划的 lead_id 悬空）
-    Opportunity.query.filter_by(lead_id=id).update({'lead_id': None})
-    Activity.query.filter_by(lead_id=id).update({'lead_id': None})
-    FollowUp.query.filter_by(lead_id=id).update({'lead_id': None})
-    db.session.delete(l)
+    # 解除关联引用，避免孤儿数据（商机/活动/联络计划的 lead_id 悬空）
+    Opportunity.query.filter_by(lead_id=id).filter(alive(Opportunity)) \
+        .update({'lead_id': None}, synchronize_session=False)
+    Activity.query.filter_by(lead_id=id).filter(alive(Activity)) \
+        .update({'lead_id': None}, synchronize_session=False)
+    FollowUp.query.filter_by(lead_id=id).filter(alive(FollowUp)) \
+        .update({'lead_id': None}, synchronize_session=False)
+    l.is_deleted = True
     db.session.commit()
     return jsonify({"message": "已删除"})
 
@@ -1537,11 +1604,14 @@ def update_opportunity(id):
 @api.route('/opportunities/<int:id>', methods=['DELETE'])
 def delete_opportunity(id):
     o = Opportunity.query.get_or_404(id)
-    # 清理关联引用：阶段记录随商机删除，活动/联络计划保留但解除关联
-    StageRecord.query.filter_by(opportunity_id=id).delete()
-    Activity.query.filter_by(opportunity_id=id).update({'opportunity_id': None})
-    FollowUp.query.filter_by(opportunity_id=id).update({'opportunity_id': None})
-    db.session.delete(o)
+    # 阶段记录跟着标记删除，活动/联络计划保留但解除关联
+    StageRecord.query.filter_by(opportunity_id=id).filter(alive(StageRecord)) \
+        .update({'is_deleted': True}, synchronize_session=False)
+    Activity.query.filter_by(opportunity_id=id).filter(alive(Activity)) \
+        .update({'opportunity_id': None}, synchronize_session=False)
+    FollowUp.query.filter_by(opportunity_id=id).filter(alive(FollowUp)) \
+        .update({'opportunity_id': None}, synchronize_session=False)
+    o.is_deleted = True
     db.session.commit()
     return jsonify({"message": "已删除"})
 

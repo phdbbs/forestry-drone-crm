@@ -1,7 +1,10 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
 // meta.group 用于面包屑与侧边栏分区；meta.title 同时作为文档标题与面包屑末级
+// meta.public：不套应用外壳、登录前即可访问
 const routes = [
+  { path: '/login', component: () => import('../views/Login.vue'), meta: { title: '登录', public: true } },
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', component: () => import('../views/Dashboard.vue'), meta: { title: '智能工作台', group: '工作台' } },
   { path: '/leads', component: () => import('../views/Leads.vue'), meta: { title: '线索管理', group: '客户中心' } },
@@ -37,6 +40,17 @@ router.onError((error) => {
     return
   }
   console.error('[router] 路由组件加载失败:', msg)
+})
+
+// 鉴权守卫：未登录只允许停在登录页。
+// 状态由后端 /auth/status 决定，前端不自持任何口令，避免"本地以为已登录"的错判。
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.ready) await auth.fetchStatus()
+  const needsLogin = auth.authEnabled && !auth.authenticated
+  if (to.meta.public) return needsLogin ? true : { path: '/dashboard' }
+  if (needsLogin) return { path: '/login' }
+  return true
 })
 
 router.afterEach((to) => {

@@ -43,6 +43,8 @@ def app(tmp_path):
         'SQLALCHEMY_DATABASE_URI': 'sqlite:///' + str(tmp_path / 'crm_test.db'),
         'TESTING': True,
         'WTF_CSRF_ENABLED': False,
+        # 绝大多数用例测的是业务接口本身；鉴权单独用 auth_client 覆盖
+        'AUTH_DISABLED': True,
     })
     yield application
     with application.app_context():
@@ -62,6 +64,56 @@ def dbsession(app):
     with app.app_context():
         yield db.session
         db.session.remove()
+
+
+@pytest.fixture()
+def fresh_session(dbsession):
+    """清掉身份映射，让下一次请求重新发 SQL。
+
+    生产环境每个请求一个 session，逻辑删除的行在下一个请求里必然查不到。
+    测试里 dbsession 与应用上下文是常驻的，同一会话已经持有该对象时
+    get_or_404 不发 SQL、会直接把墓碑行交出去。断言「删后不可见」前调一次。
+    """
+    def _clear():
+        dbsession.expunge_all()
+        return dbsession
+    return _clear
+
+
+@pytest.fixture()
+def auth_app(tmp_path):
+    """开启鉴权的独立应用实例。
+
+    conftest 的公共夹具为了「绝大多数用例只测业务接口」而关掉了鉴权，
+    覆盖不到闸门本身，所以鉴权用例用它自己的库和会话计数。
+    """
+    from app import create_app, db
+    from app.services import auth as auth_svc
+
+    auth_svc._attempts.clear()
+    application = create_app(config={
+        'SQLALCHEMY_DATABASE_URI': 'sqlite:///' + str(tmp_path / 'crm_auth.db'),
+        'TESTING': True,
+        'AUTH_DISABLED': False,
+    })
+    yield application
+    with application.app_context():
+        db.session.remove()
+        db.engine.dispose()
+    auth_svc._attempts.clear()
+
+
+@pytest.fixture()
+def auth_client(auth_app):
+    return auth_app.test_client()
+
+
+@pytest.fixture()
+def admin_client(auth_client):
+    """已完成首次初始化、并以管理员身份登录的客户端。"""
+    from crm_test_utils import auth_setup
+    assert auth_setup(auth_client).status_code == 200
+    yield auth_client
 
 
 @pytest.fixture()

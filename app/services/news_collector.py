@@ -168,7 +168,8 @@ def collect_customer_news(customer_id):
                 items = _ccgp_items(html, source['url']) if 'ccgp.gov.cn' in source['url'] else _generic_items(html, source['url'])
                 for item in items:
                     if any(n and n in item['title'] for n in names):
-                        if CustomerNews.query.filter_by(url=item['url']).first():
+                        if CustomerNews.query.filter_by(url=item['url']).execution_options(include_deleted=True).first():
+                            # 已删新闻同样不再采回，所以查询要忽略软删过滤
                             continue
                         try:
                             detail = _fetch(item['url'], session)
@@ -206,7 +207,9 @@ def _sync_contact_news_from_text(customer, text, title, url, source_name, publis
         if not contact.name or contact.name in ('暂无', '未知'):
             continue
         if contact.name in text:
-            if ContactNews.query.filter_by(contact_id=contact.id, url=url).first():
+            if ContactNews.query.filter_by(contact_id=contact.id, url=url) \
+                    .execution_options(include_deleted=True).first():
+                # 去重查询要看见已删记录，否则删掉的动态每轮都会被重新采回
                 continue
             cn = ContactNews(
                 contact_id=contact.id, customer_id=customer.id, title=title[:500],
@@ -251,7 +254,8 @@ def collect_contact_news(contact_id):
                         text = _page_text(detail.text)
                         if contact.name not in text:
                             continue
-                        if ContactNews.query.filter_by(contact_id=contact.id, url=item['url']).first():
+                        if ContactNews.query.filter_by(contact_id=contact.id, url=item['url']) \
+                                .execution_options(include_deleted=True).first():
                             continue
                         publish = _parse_date(text) or (datetime.strptime(item['date'], '%Y-%m-%d') if item['date'] else None)
                         cn = ContactNews(

@@ -253,7 +253,7 @@ class TestAICSM002Lead:
         assert not any(r['title'] == 'AICS 日期过滤线索'
                        for r in ok(client.get('/api/leads?date_to=2000-01-01')))
 
-    def test_m002_017_delete_active_lead_clears_refs(self, client, dbsession):
+    def test_m002_017_delete_active_lead_clears_refs(self, client, dbsession, fresh_session):
         """AICS-M002-017 删除待转化线索并解除商机/联络的悬空引用。"""
         from app.models import Lead, Opportunity
         lead = Lead(title='AICS 待删除线索', status='active')
@@ -264,6 +264,7 @@ class TestAICSM002Lead:
         dbsession.commit()
         lid, oid = lead.id, opp.id
         ok(client.delete(f'/api/leads/{lid}'))
+        fresh_session()  # 换会话重查，墓碑行才不会靠身份映射返回
         assert client.get(f'/api/leads/{lid}').status_code == 404
         assert ok(client.get(f'/api/opportunities/{oid}'))['lead_id'] is None
 
@@ -1013,16 +1014,18 @@ class TestAICSM011Crawl:
         assert {'task_type', 'sources', 'status', 'items_count',
                 'error_count', 'started_at', 'finished_at'} <= set(logs[0])
 
-    def test_m011_009_delete_news(self, client, dbsession, seed):
+    def test_m011_009_delete_news(self, client, dbsession, seed, fresh_session):
         """AICS-M011-009 删除客户新闻与联系人动态。"""
         from app.models import ContactNews, CustomerNews
         n1 = CustomerNews(customer_id=seed['customer'], title='AICS 待删客户新闻')
         n2 = ContactNews(contact_id=seed['contact'], title='AICS 待删联系人动态')
         dbsession.add_all([n1, n2])
         dbsession.commit()
+        n1_id = n1.id
         ok(client.delete(f'/api/news/customer/{n1.id}'))
         ok(client.delete(f'/api/news/contact/{n2.id}'))
-        assert client.delete(f'/api/news/customer/{n1.id}').status_code == 404
+        fresh_session()
+        assert client.delete(f'/api/news/customer/{n1_id}').status_code == 404
 
 
 # ═══════════════════════════════════════════════════════════════

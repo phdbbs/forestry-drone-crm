@@ -1,5 +1,7 @@
 <template>
-  <el-container class="layout">
+  <!-- 公开页（登录）不套侧栏/顶栏外壳，否则会露出导航与用户信息 -->
+  <router-view v-if="$route.meta.public" />
+  <el-container v-else class="layout">
     <!-- 桌面侧边栏 -->
     <el-aside
       v-if="!isMobile"
@@ -27,7 +29,7 @@
           :collapse-transition="false"
           class="side-menu"
         >
-          <template v-for="g in NAV_GROUPS" :key="g.group">
+          <template v-for="g in navGroups" :key="g.group">
             <el-menu-item-group v-if="!collapsed" :title="g.group">
               <el-menu-item v-for="n in g.items" :key="n.path" :index="n.path">
                 <el-icon><component :is="n.icon" /></el-icon>
@@ -45,10 +47,10 @@
       </el-scrollbar>
       <div v-show="!collapsed" class="sidebar-foot">
         <div class="foot-user">
-          <el-avatar :size="24" class="foot-avatar">万</el-avatar>
+          <el-avatar :size="24" class="foot-avatar">{{ auth.initials }}</el-avatar>
           <div class="foot-meta">
-            <div class="foot-name">万升航控</div>
-            <div class="foot-role">市场</div>
+            <div class="foot-name">{{ auth.displayName }}</div>
+            <div class="foot-role">{{ auth.roleLabel }}</div>
           </div>
         </div>
       </div>
@@ -64,7 +66,7 @@
         </div>
       </div>
       <el-menu :default-active="$route.path" router class="side-menu" @select="drawerOpen = false">
-        <template v-for="g in NAV_GROUPS" :key="g.group">
+        <template v-for="g in navGroups" :key="g.group">
           <el-menu-item-group :title="g.group">
             <el-menu-item v-for="n in g.items" :key="n.path" :index="n.path">
               <el-icon><component :is="n.icon" /></el-icon>
@@ -120,16 +122,18 @@
           <div class="topbar-divider" aria-hidden="true"></div>
           <el-dropdown trigger="click">
             <div class="user-chip">
-              <el-avatar :size="26" class="user-avatar">万</el-avatar>
+              <el-avatar :size="26" class="user-avatar">{{ auth.initials }}</el-avatar>
               <div class="user-meta">
-                <div class="user-name">万升航控</div>
-                <div class="user-role">市场</div>
+                <div class="user-name">{{ auth.displayName }}</div>
+                <div class="user-role">{{ auth.roleLabel }}</div>
               </div>
               <el-icon class="user-caret" :size="12"><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item :icon="Setting" @click="$router.push('/settings')">系统设置</el-dropdown-item>
+                <el-dropdown-item v-if="auth.isAdmin" :icon="Setting" @click="$router.push('/settings')">系统设置</el-dropdown-item>
+                <el-dropdown-item :icon="Lock" @click="$router.push('/settings')">修改我的口令</el-dropdown-item>
+                <el-dropdown-item :icon="SwitchButton" divided @click="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -193,8 +197,21 @@ window.addEventListener('keydown', onGlobalKey)
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { get } from './api'
-import { Aim, Expand, Fold, Bell, ArrowDown, Setting, Search } from '@element-plus/icons-vue'
+import { Aim, Expand, Fold, Bell, ArrowDown, Setting, Search, SwitchButton, Lock } from '@element-plus/icons-vue'
+import { useAuthStore } from './stores/auth'
 const router = useRouter()
+const auth = useAuthStore()
+
+async function logout() {
+  await auth.logout()
+  router.replace('/login')
+}
+// 会话过期/被登出：任意请求返回 401 都会广播到这里统一收口
+function onUnauthorized() {
+  auth.markUnauthenticated()
+  if (router.currentRoute.value.meta.public) return
+  router.replace('/login')
+}
 
 const NAV_GROUPS = [
   { group: '工作台', items: [{ path: '/dashboard', label: '智能工作台', icon: 'Odometer' }] },
@@ -219,10 +236,15 @@ const NAV_GROUPS = [
     items: [
       { path: '/kanban', label: '看板管理', icon: 'Grid' },
       { path: '/reports', label: '数据报表', icon: 'TrendCharts' },
-      { path: '/settings', label: '系统设置', icon: 'Setting' },
+      { path: '/settings', label: '系统设置', icon: 'Setting', admin: true },
     ],
   },
 ]
+
+// 系统设置（AI/采集/账号）归管理员：销售看到的菜单里不出现这一项
+const navGroups = computed(() => NAV_GROUPS
+  .map((g) => ({ ...g, items: g.items.filter((n) => !n.admin || auth.isAdmin) }))
+  .filter((g) => g.items.length))
 
 const collapsed = ref(localStorage.getItem('crm_v2_sidebar') === '1')
 const isMobile = ref(window.innerWidth <= 768)
@@ -249,10 +271,12 @@ onMounted(() => {
   window.addEventListener('resize', onResize)
   onResize()
   window.addEventListener('crm:notif', onNotif)
+  window.addEventListener('crm:unauthorized', onUnauthorized)
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   window.removeEventListener('crm:notif', onNotif)
+  window.removeEventListener('crm:unauthorized', onUnauthorized)
 })
 </script>
 

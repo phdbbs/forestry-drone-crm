@@ -13,6 +13,15 @@ export async function request(path, opts = {}) {
     })
     let data = null
     try { data = await res.json() } catch (e) { /* 204/空响应 */ }
+    if (res.status === 401) {
+      // 会话过期/未登录：交给 App 层跳登录页。请求层不引 router，避免循环依赖。
+      window.dispatchEvent(new CustomEvent('crm:unauthorized'))
+      return { error: (data && data.error) || '请先登录', code: 'unauthorized' }
+    }
+    if (res.status === 403) {
+      // 角色不足（如销售访问系统设置）：只提示，不踢回登录页
+      return { error: (data && data.error) || '仅管理员可执行此操作', code: 'forbidden' }
+    }
     if (!res.ok) {
       return { error: (data && data.error) || `请求失败 (HTTP ${res.status})` }
     }

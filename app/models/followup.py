@@ -17,6 +17,7 @@ class FollowUp(db.Model):
     add_to_kanban = db.Column(db.Boolean, default=False)
     kanban_card_id = db.Column(db.Integer, db.ForeignKey('kanban_cards.id'))
     source_activity_id = db.Column(db.Integer, db.ForeignKey('activities.id'))
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     

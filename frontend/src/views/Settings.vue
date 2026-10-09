@@ -1,11 +1,11 @@
 <template>
   <div class="page">
-    <PageHeader title="系统设置" subtitle="AI 服务、采集任务、日志与技能的一站式配置" />
+    <PageHeader :title="auth.isAdmin ? '系统设置' : '我的口令'" :subtitle="auth.isAdmin ? 'AI 服务、采集任务、日志、技能与账号的一站式配置' : '修改自己的登录口令；系统配置仅管理员可见'" />
 
     <div class="settings-card">
       <el-tabs v-model="tab">
         <!-- ------------------------------ AI 配置 ------------------------------ -->
-        <el-tab-pane label="AI 配置" name="ai">
+        <el-tab-pane v-if="auth.isAdmin" label="AI 配置" name="ai">
           <div class="tab-body">
             <div class="ai-toolbar">
               <div class="note-box note-box--inline">
@@ -104,7 +104,7 @@
         </el-tab-pane>
 
         <!-- ------------------------------ 采集配置 ------------------------------ -->
-        <el-tab-pane label="采集配置" name="crawl">
+        <el-tab-pane v-if="auth.isAdmin" label="采集配置" name="crawl">
           <div class="tab-body">
             <div class="form-section sched-card">
               <div class="section-title">定时任务</div>
@@ -199,7 +199,7 @@
         </el-tab-pane>
 
         <!-- ------------------------------ 采集日志 ------------------------------ -->
-        <el-tab-pane :label="logTabLabel" name="logs">
+        <el-tab-pane v-if="auth.isAdmin" :label="logTabLabel" name="logs">
           <div class="tab-body">
             <!-- 概览 -->
             <div class="mini-grid">
@@ -380,7 +380,7 @@
         </el-tab-pane>
 
         <!-- ------------------------------ 技能管理 ------------------------------ -->
-        <el-tab-pane :label="`技能管理${skills.length ? ' (' + skills.length + ')' : ''}`" name="skills">
+        <el-tab-pane v-if="auth.isAdmin" :label="`技能管理${skills.length ? ' (' + skills.length + ')' : ''}`" name="skills">
           <div class="tab-body">
             <el-table v-loading="skillsLoading" :data="skills" size="default" empty-text="暂无技能">
               <el-table-column label="技能" min-width="200">
@@ -410,7 +410,7 @@
         </el-tab-pane>
 
         <!-- ------------------------------ 新闻采集 ------------------------------ -->
-        <el-tab-pane label="新闻采集" name="news">
+        <el-tab-pane v-if="auth.isAdmin" label="新闻采集" name="news">
           <div class="tab-body">
             <el-form label-width="112px" class="form-narrow">
               <div class="form-section">
@@ -433,8 +433,135 @@
             </div>
           </div>
         </el-tab-pane>
+
+        <!-- ------------------------------ 账号管理 ------------------------------ -->
+        <el-tab-pane v-if="auth.isAdmin" :label="`账号管理${users.length ? ' (' + users.length + ')' : ''}`" name="users">
+          <div class="tab-body">
+            <div class="ai-toolbar">
+              <div class="note-box note-box--inline">
+                每个同事一个账号，口令各自保管；停用或删除都只是打标记，账号行留在库里，历史操作痕迹仍可追溯。
+              </div>
+              <div class="ai-toolbar-actions">
+                <el-button type="primary" :icon="Plus" @click="openUserForm()">添加账号</el-button>
+              </div>
+            </div>
+            <el-table v-loading="usersLoading" :data="users" size="default" empty-text="暂无账号">
+              <el-table-column label="账号" min-width="150">
+                <template #default="{ row }">
+                  <div class="skill-cell">
+                    <el-avatar :size="26">{{ (row.display_name || row.username).slice(0, 1) }}</el-avatar>
+                    <div>
+                      <div class="skill-name">{{ row.display_name || row.username }}</div>
+                      <div class="serial mono">{{ row.username }}</div>
+                    </div>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="角色" width="110" align="center">
+                <template #default="{ row }">
+                  <span class="st-pill" :class="row.role === 'admin' ? 'st-pill--warning' : 'st-pill--info'">
+                    {{ row.role === 'admin' ? '管理员' : '销售' }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90" align="center">
+                <template #default="{ row }">
+                  <span class="st-pill" :class="row.is_active ? 'st-pill--success' : 'st-pill--danger'">
+                    {{ row.is_active ? '可用' : '已停用' }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="最近登录" width="150">
+                <template #default="{ row }">{{ row.last_login_at ? fmtDate(row.last_login_at) : '—' }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="230" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="openUserForm(row)">编辑</el-button>
+                  <el-button link type="primary" size="small" @click="openPwdForm(row)">重置口令</el-button>
+                  <el-button link type="danger" size="small" :disabled="row.id === auth.user.id" @click="deleteUser(row)">
+                    {{ row.id === auth.user.id ? '本人' : '删除' }}
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-tab-pane>
+
+        <!-- ------------------------------ 我的口令 ------------------------------ -->
+        <el-tab-pane :label="auth.isAdmin ? '安全' : '我的口令'" name="security">
+          <div class="tab-body">
+            <el-form label-width="112px" class="form-narrow">
+              <div class="form-section">
+                <div class="section-title">我的登录口令</div>
+                <el-form-item label="当前账号">
+                  <span class="mono">{{ auth.user ? auth.user.username : '—' }}</span>
+                  <span class="muted" style="margin-left: 8px">{{ auth.roleLabel }}</span>
+                </el-form-item>
+                <el-form-item label="当前口令">
+                  <el-input v-model="pwd.old" type="password" show-password autocomplete="off" />
+                </el-form-item>
+                <el-form-item label="新口令">
+                  <el-input v-model="pwd.next" type="password" show-password autocomplete="off" placeholder="至少 6 位" />
+                </el-form-item>
+                <el-form-item label="确认新口令">
+                  <el-input v-model="pwd.confirm" type="password" show-password autocomplete="off" />
+                </el-form-item>
+                <el-form-item label-width="0">
+                  <el-button type="primary" :loading="pwdSaving" @click="savePassword">修改口令</el-button>
+                </el-form-item>
+              </div>
+            </el-form>
+            <div class="note-box">
+              只能修改自己账号的口令，改完只影响本账号，其他同事不受影响。
+              口令只以散列形式存库，任何接口都不会回传原文；服务端对连续错误尝试有锁定保护。
+              忘记口令时请管理员在「账号管理」里重置。
+            </div>
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </div>
+
+    <!-- 账号表单（新增/编辑） -->
+    <el-dialog v-model="userFormVisible" :title="userEditId ? '编辑账号' : '添加账号'" width="460px" destroy-on-close>
+      <el-form label-width="92px">
+        <el-form-item label="账号名" required>
+          <el-input v-model="uform.username" :disabled="!!userEditId" placeholder="登录用，如 zhangsan" class="mi" />
+        </el-form-item>
+        <el-form-item label="显示名">
+          <el-input v-model="uform.display_name" placeholder="如 张三" />
+        </el-form-item>
+        <el-form-item v-if="!userEditId" label="初始口令" required>
+          <el-input v-model="uform.password" type="password" show-password placeholder="至少 6 位，告知本人后可自行修改" />
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="uform.role" style="width: 160px">
+            <el-option label="销售" value="sales" />
+            <el-option label="管理员" value="admin" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="userEditId" label="启用">
+          <el-switch v-model="uform.is_active" active-text="可登录" inactive-text="已停用" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="userFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="userSaving" @click="saveUser">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 管理员重置他人口令 -->
+    <el-dialog v-model="resetVisible" :title="`重置「${resetRow ? (resetRow.display_name || resetRow.username) : ''}」的口令`" width="420px" destroy-on-close>
+      <el-form label-width="92px">
+        <el-form-item label="新口令" required>
+          <el-input v-model="resetValue" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+      </el-form>
+      <div class="note-box note-box--inline">重置后对方原口令即刻失效，需要用新口令重新登录。</div>
+      <template #footer>
+        <el-button @click="resetVisible = false">取消</el-button>
+        <el-button type="primary" :loading="resetting" @click="saveReset">确定重置</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 日志详情抽屉 -->
     <el-drawer v-model="drawer" title="采集日志详情" size="720px" direction="rtl">
@@ -481,14 +608,100 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Lightning, Tools, Document, Refresh, Search, Delete, Plus, Download } from '@element-plus/icons-vue'
-import { get, getList, post, put, del } from '../api'
+import { get, getList, post, put, del, fmtDate } from '../api'
 import { useCrawlStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 import PageHeader from '../components/PageHeader.vue'
 import DetailGrid from '../components/DetailGrid.vue'
 import PageTable from '../components/PageTable.vue'
 
 const crawl = useCrawlStore()
-const tab = ref('ai')
+const auth = useAuthStore()
+const tab = ref(auth.isAdmin ? 'ai' : 'security')
+
+// ---- 账号管理（仅管理员） ----
+const users = ref([])
+const usersLoading = ref(false)
+const userFormVisible = ref(false)
+const userEditId = ref(null)
+const userSaving = ref(false)
+const uform = reactive({ username: '', display_name: '', password: '', role: 'sales', is_active: true })
+const resetVisible = ref(false)
+const resetRow = ref(null)
+const resetValue = ref('')
+const resetting = ref(false)
+
+async function loadUsers() {
+  usersLoading.value = true
+  users.value = await getList('/users')
+  usersLoading.value = false
+}
+function openUserForm(row) {
+  userEditId.value = row ? row.id : null
+  Object.assign(uform, {
+    username: row ? row.username : '',
+    display_name: row ? row.display_name || '' : '',
+    password: '',
+    role: row ? row.role : 'sales',
+    is_active: row ? !!row.is_active : true,
+  })
+  userFormVisible.value = true
+}
+async function saveUser() {
+  if (!uform.username.trim()) return ElMessage.warning('请填写账号名')
+  if (!userEditId.value && uform.password.length < 6) return ElMessage.warning('初始口令至少 6 位')
+  userSaving.value = true
+  const r = userEditId.value
+    ? await put(`/users/${userEditId.value}`, {
+        display_name: uform.display_name, role: uform.role, is_active: uform.is_active })
+    : await post('/users', {
+        username: uform.username.trim(), password: uform.password,
+        display_name: uform.display_name, role: uform.role })
+  userSaving.value = false
+  if (r.error) return ElMessage.error(r.error)
+  userFormVisible.value = false
+  ElMessage.success(userEditId.value ? '账号已更新' : '账号已创建')
+  loadUsers()
+}
+function openPwdForm(row) {
+  resetRow.value = row
+  resetValue.value = ''
+  resetVisible.value = true
+}
+async function saveReset() {
+  if (resetValue.value.length < 6) return ElMessage.warning('新口令至少 6 位')
+  resetting.value = true
+  const r = await post(`/users/${resetRow.value.id}/password`, { password: resetValue.value })
+  resetting.value = false
+  if (r.error) return ElMessage.error(r.error)
+  resetVisible.value = false
+  ElMessage.success('口令已重置')
+}
+async function deleteUser(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除账号「${row.display_name || row.username}」？删除后该账号立即无法登录，历史操作记录仍保留。`,
+      '删除账号', { type: 'warning' })
+  } catch (e) { return }
+  const r = await del(`/users/${row.id}`)
+  if (r.error) return ElMessage.error(r.error)
+  ElMessage.success('账号已删除')
+  loadUsers()
+}
+
+// ---- 访问口令修改 ----
+const pwd = reactive({ old: '', next: '', confirm: '' })
+const pwdSaving = ref(false)
+async function savePassword() {
+  if (pwd.next.length < 6) return ElMessage.warning('新口令至少 6 位')
+  if (pwd.next !== pwd.confirm) return ElMessage.warning('两次输入的新口令不一致')
+  pwdSaving.value = true
+  const err = await auth.change(pwd.old, pwd.next)
+  pwdSaving.value = false
+  if (err) return ElMessage.error(err)
+  Object.assign(pwd, { old: '', next: '', confirm: '' })
+  ElMessage.success('访问口令已更新')
+}
 const sched = ref({ crawl: { enabled: false, time: '08:00', next_run: '' }, backup: { schedule: '每日 02:30', next_run: '', keep: 14, list: [] } })
 const backuping = ref(false)
 const backupMsg = ref('')
@@ -883,6 +1096,8 @@ async function deleteSkill(id) {
 }
 
 onMounted(async () => {
+  if (auth.isAdmin) loadUsers()
+  if (!auth.isAdmin) return   // 销售只用到「我的口令」，其余配置接口一律 403
   loadSched()
   const config = await get('/config')
   const getV = (k, d = '') => config[k]?.value || d

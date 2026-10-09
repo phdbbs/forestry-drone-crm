@@ -2,6 +2,7 @@ from app import db
 from datetime import datetime
 from sqlalchemy.orm import validates
 from app.models.followup import FollowUp
+from app.models.user import User
 from app.services.textutil import clean_text
 
 
@@ -12,6 +13,12 @@ def _clean(value):
     所以 address / remark 这类多行字段也能安全使用。
     """
     return None if value is None else clean_text(value, collapse_space=True)
+
+
+# 逻辑删除标记：业务数据的「删除」一律只置 is_deleted=True，行永远留在库里。
+# 读取侧由 app/services/softdelete.py 的全局过滤器统一屏蔽，业务代码不必逐个加条件；
+# 编号分配、采集去重这类必须看到已删行的查询用 execution_options(include_deleted=True) 豁免。
+# 除 SystemConfig（键值配置行从不删除，删了反而撞 key 唯一约束）外，所有模型都带此列。
 
 
 class Customer(db.Model):
@@ -33,6 +40,7 @@ class Customer(db.Model):
     source = db.Column(db.String(100))
     remark = db.Column(db.Text)
     is_archived = db.Column(db.Boolean, default=False)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     contacts = db.relationship('Contact', backref='customer', lazy=True)
@@ -59,6 +67,7 @@ class CustomerNews(db.Model):
     publish_date = db.Column(db.DateTime)
     event_time = db.Column(db.DateTime)
     crawled_at = db.Column(db.DateTime, default=datetime.now)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
 class ContactNews(db.Model):
     """联系人动态信息：官网/媒体新闻中出现联系人姓名/职务时自动关联。"""
@@ -75,6 +84,7 @@ class ContactNews(db.Model):
     event_time = db.Column(db.DateTime)
     summary = db.Column(db.Text)
     crawled_at = db.Column(db.DateTime, default=datetime.now)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     contact = db.relationship('Contact', backref='news_items')
 
 class CrawlLog(db.Model):
@@ -106,6 +116,7 @@ class CrawlLog(db.Model):
     # 分类后的报错汇总 / 明细（JSON 文本）
     error_types = db.Column(db.Text, default='')
     error_detail = db.Column(db.Text, default='')
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
 
 class Lead(db.Model):
     __tablename__ = 'leads'
@@ -138,6 +149,7 @@ class Lead(db.Model):
     full_text = db.Column(db.Text)  # 公告全文（用于详情弹窗查看）
     reason = db.Column(db.String(300), default='')  # 释放/删除原因
     status = db.Column(db.String(20), default='active')  # 单列不建索引：由 (status, created_at) 复合索引前缀覆盖
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
     created_at = db.Column(db.DateTime, default=datetime.now, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
@@ -166,6 +178,7 @@ class Opportunity(db.Model):
     current_stage = db.Column(db.String(100), index=True)
     probability = db.Column(db.Integer, default=20)
     expected_close = db.Column(db.DateTime)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     customer = db.relationship('Customer', backref='opportunities')
@@ -178,6 +191,7 @@ class OpportunityStage(db.Model):
     name = db.Column(db.String(100), nullable=False)
     sort_order = db.Column(db.Integer, default=0)
     is_active = db.Column(db.Boolean, default=True)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
 
 class StageRecord(db.Model):
@@ -189,6 +203,7 @@ class StageRecord(db.Model):
     deadline = db.Column(db.DateTime)
     status = db.Column(db.String(20), default='pending')
     add_to_kanban = db.Column(db.Boolean, default=False)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -208,6 +223,7 @@ class Contact(db.Model):
     importance = db.Column(db.String(20))
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
     notes = db.Column(db.Text)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     activities = db.relationship('Activity', backref='contact', lazy=True)
@@ -227,6 +243,7 @@ class Activity(db.Model):
     next_followup_time = db.Column(db.DateTime)
     next_followup_content = db.Column(db.Text)
     add_to_kanban = db.Column(db.Boolean, default=False)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     customer = db.relationship('Customer', backref='activities')
@@ -238,8 +255,11 @@ class KanbanBoard(db.Model):
     __tablename__ = 'kanban_boards'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
-    columns = db.relationship('KanbanColumn', backref='board', lazy=True, order_by='KanbanColumn.sort_order', cascade='all, delete-orphan')
+    # 删除只做标记，级联删除已取消：全局软删过滤器会把子列/子卡从集合里隐藏，
+    # 若保留 delete-orphan，SQLAlchemy 会把「看不见」的孩子当成孤儿物理删掉。
+    columns = db.relationship('KanbanColumn', backref='board', lazy=True, order_by='KanbanColumn.sort_order')
 
 class KanbanColumn(db.Model):
     __tablename__ = 'kanban_columns'
@@ -247,8 +267,9 @@ class KanbanColumn(db.Model):
     board_id = db.Column(db.Integer, db.ForeignKey('kanban_boards.id'), index=True)
     name = db.Column(db.String(100), nullable=False)
     sort_order = db.Column(db.Integer, default=0)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
-    cards = db.relationship('KanbanCard', backref='column', lazy=True, order_by='KanbanCard.sort_order', cascade='all, delete-orphan')
+    cards = db.relationship('KanbanCard', backref='column', lazy=True, order_by='KanbanCard.sort_order')
 
 class KanbanCard(db.Model):
     __tablename__ = 'kanban_cards'
@@ -261,6 +282,7 @@ class KanbanCard(db.Model):
     sort_order = db.Column(db.Integer, default=0)
     source_type = db.Column(db.String(50))
     source_id = db.Column(db.Integer)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -281,5 +303,6 @@ class Skill(db.Model):
     is_builtin = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
     config_json = db.Column(db.Text)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)

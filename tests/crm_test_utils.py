@@ -33,6 +33,23 @@ def created_id(resp):
     return body['id']
 
 
+ADMIN_USER = 'admin'
+ADMIN_PASS = 'hunter2'
+
+
+def auth_setup(client, username=ADMIN_USER, password=ADMIN_PASS):
+    """首次初始化管理员（未初始化时才允许）。"""
+    return client.post('/api/auth/setup', json={'username': username, 'password': password})
+
+
+def auth_login(client, username=ADMIN_USER, password=ADMIN_PASS):
+    return client.post('/api/auth/login', json={'username': username, 'password': password})
+
+
+def auth_logout(client):
+    return client.post('/api/auth/logout', json={})
+
+
 def make_customer(client, name='测试客户-构造', **kw):
     payload = {'name': name}
     payload.update(kw)

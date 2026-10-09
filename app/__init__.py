@@ -149,10 +149,102 @@ def _configure_file_logging(app):
         logger.warning('日志文件初始化失败（不影响服务）: %s', e)
 
 
+def _configure_session(app):
+    from datetime import timedelta
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        # Lax：顶层导航带 cookie（本机 http 访问够用），跨站 POST 不带，
+        # 因而无需额外 CSRF token。将来上 HTTPS 再收紧为 Secure + Strict。
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_PERMANENT=True,
+        PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    )
+
+
+# 登录前必须可访问，否则永远无法完成登录（登出幂等，未登录调用也不该报错）
+_AUTH_EXEMPT = {'auth.status', 'auth.login', 'auth.setup', 'auth.logout'}
+
+# 管理员专属：系统设置（AI 口令/采集目标/定时任务/备份）、技能、采集日志、账号管理。
+# 业务数据（线索/客户/联系人/商机/联络/看板）全员共享，不区分账号归属。
+# 用路径前缀而不是逐个端点加装饰器：新增接口只要落在这些前缀下就默认受限。
+_ADMIN_PREFIXES = ('/api/config', '/api/skills', '/api/crawl/logs', '/api/error-types',
+                   '/api/users', '/api/news/collect-all')
+# 只限制写操作：阶段列表所有账号都要用来渲染商机页，改动配置才归管理员
+_ADMIN_WRITE_PREFIXES = ('/api/stages',)
+_WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
+
+
+def _is_admin_only_request(request):
+    path = request.path
+    if path.startswith(_ADMIN_PREFIXES):
+        return True
+    return request.method in _WRITE_METHODS and path.startswith(_ADMIN_WRITE_PREFIXES)
+
+
+def _install_auth_gate(app):
+    """未登录拦截所有 /api/*，并区分管理员专属接口。
+
+    此前 93 个端点全部匿名可读写：DELETE、改配置、触发采集都不需要身份，
+    而服务监听 0.0.0.0，同网段任意设备都能直接操作数据。
+    这里统一加一道闸，而不是逐个端点装饰，避免新接口默认漏保护。
+    """
+    from flask import jsonify, request
+
+    @app.before_request
+    def _require_login():
+        if app.config.get('AUTH_DISABLED'):
+            return None
+        if not request.path.startswith('/api/'):
+            return None
+        if request.method == 'OPTIONS':
+            return None
+        if request.endpoint in _AUTH_EXEMPT:
+            return None
+        from app.services.auth import current_user, is_admin
+        user = current_user()
+        if user is None:
+            return jsonify({"error": "请先登录", "code": "unauthorized"}), 401
+        if _is_admin_only_request(request) and not is_admin(user):
+            return jsonify({"error": "需要管理员权限", "code": "forbidden"}), 403
+
+
+def _load_secret_key(instance_dir):
+    """会话签名密钥：优先环境变量，其次读已落盘的随机密钥，都没有则新生成一个。
+
+    这里原先是写死的默认值。启用会话鉴权后写死默认值意味着任何拿到源码的人
+    都能伪造合法 cookie，口令等于白设，所以必须随机化并持久化
+    （持久化才不会每次重启都把已登录设备踢下线）。
+    """
+    env = os.environ.get('CRM_SECRET_KEY')
+    if env:
+        return env
+    path = os.path.join(instance_dir, 'secret_key')
+    try:
+        with open(path) as f:
+            secret = f.read().strip()
+        if secret:
+            return secret
+    except OSError:
+        pass
+    import secrets
+    secret = secrets.token_hex(32)
+    try:
+        # 0600：仅当前用户可读，避免密钥被同机其他账号取走
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(secret)
+    except OSError as e:
+        logger.warning('会话密钥未能持久化到 %s（仅本次运行有效）: %s', path, e)
+    return secret
+
+
 def create_app(config=None):
     app = Flask(__name__, static_folder='static', template_folder='templates')
-    app.config['SECRET_KEY'] = os.environ.get('CRM_SECRET_KEY', 'forest-drone-crm-2026')
-    db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'instance', 'crm.db')
+    instance_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'instance'
+    )
+    app.config['SECRET_KEY'] = _load_secret_key(instance_dir)
+    db_path = os.path.join(instance_dir, 'crm.db')
     # SQLite 不会自动创建父目录：全新环境首次启动前必须确保 instance/ 存在
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
@@ -175,6 +267,9 @@ def create_app(config=None):
         # 网络卷/磁盘锁竞争比内存慢，放宽等待时间，避免瞬时竞争直接报 locked
         'connect_args': {'timeout': 30},
     }
+    _configure_session(app)
+    # 鉴权默认开启；测试通过 config 里的 AUTH_DISABLED 显式关闭
+    app.config['AUTH_DISABLED'] = os.environ.get('CRM_AUTH_DISABLED') == '1'
     if config:
         app.config.update(config)
     cors_origins = os.environ.get('CRM_CORS_ORIGINS', '')
@@ -185,6 +280,8 @@ def create_app(config=None):
         except ImportError:
             pass
     db.init_app(app)
+    from app.services.softdelete import install as install_soft_delete_filter
+    install_soft_delete_filter()
     _configure_file_logging(app)
     # 必须在建池/建表之前完成：清掉可能残留的热日志并切换 WAL。
     # 顺序错了就失去意义 —— 坏状态会先被连接池持有，之后难以清除。
@@ -193,6 +290,11 @@ def create_app(config=None):
     _register_error_handlers(app)
     from app.routes import api
     app.register_blueprint(api, url_prefix='/api')
+    from app.routes.auth import auth_bp
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    from app.routes.users import users_bp
+    app.register_blueprint(users_bp, url_prefix='/api')
+    _install_auth_gate(app)
 
     def _missing_dist_response():
         # v3.0 内联 SPA（static/index.html）已下线归档至 deprecated/，
@@ -298,6 +400,14 @@ def _migrate_db():
     """Add new columns for v3.0 to existing databases."""
     from sqlalchemy import text, inspect
     inspector = inspect(db.engine)
+    # 逻辑删除：所有业务表补 is_deleted。NOT NULL + DEFAULT 保证既有行落到 0（未删除），
+    # 也让读取过滤器可以用确定的 is_deleted = 0 比较，不必处理 NULL。
+    soft_delete_tables = (
+        'customers', 'customer_news', 'contact_news', 'crawl_logs', 'leads',
+        'opportunities', 'opportunity_stages', 'stage_records', 'contacts',
+        'activities', 'kanban_boards', 'kanban_columns', 'kanban_cards',
+        'skills', 'followups',
+    )
     migrations = [
         ('leads', 'match_score', 'INTEGER DEFAULT 0'),
         ('leads', 'assignee', "VARCHAR(50) DEFAULT ''"),
@@ -324,7 +434,7 @@ def _migrate_db():
         ('crawl_logs', 'duration_ms', 'INTEGER DEFAULT 0'),
         ('crawl_logs', 'error_types', "TEXT DEFAULT ''"),
         ('crawl_logs', 'error_detail', "TEXT DEFAULT ''"),
-    ]
+    ] + [(t, 'is_deleted', 'BOOLEAN NOT NULL DEFAULT 0') for t in soft_delete_tables]
     with db.engine.connect() as conn:
         for table, column, col_type in migrations:
             try:
@@ -367,6 +477,9 @@ def _migrate_db():
             "CREATE INDEX IF NOT EXISTS ix_followups_opportunity_id ON followups (opportunity_id)",
             "CREATE INDEX IF NOT EXISTS ix_followups_lead_id ON followups (lead_id)",
             "CREATE INDEX IF NOT EXISTS ix_followups_plan_date ON followups (plan_date)",
+            # 用户名唯一只约束未删除账号：账号是逻辑删除的，硬唯一会让删掉的
+            # 账号永远占住用户名。users 表由 create_all 建，这里兜底补建。
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users (username) WHERE is_deleted = 0",
         ]:
             try:
                 conn.execute(text(stmt))
