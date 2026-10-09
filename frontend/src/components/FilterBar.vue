@@ -35,6 +35,10 @@ const collapsed = ref(true)
 // 回车即搜索：只在普通文本输入框触发，选择器/日期/数字/只读框交给各自的确认逻辑
 function onKeydown(e) {
   if (e.key !== 'Enter') return
+  // 中文输入法下的回车只是「把候选词上屏」，不是「确认搜索」。
+  // 不判这个就会拿半截拼音去搜一次，而真正打完词的那次回车被输入法吃掉，
+  // 用户看到的现象就是「输入文字后回车没反应」。
+  if (e.isComposing || e.keyCode === 229) return
   const t = e.target
   if (!t || t.tagName !== 'INPUT' || t.readOnly) return
   if (t.closest('.el-select, .el-autocomplete, .el-input-number, .el-date-editor')) return

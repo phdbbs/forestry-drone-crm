@@ -238,7 +238,7 @@ const activities = ref([])
 const loading = ref(false)
 const actNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
 const filter = useFilterMemory('log', { date_from: '', date_to: '', customer: '', opp: '', q: '' })
-const draft = reactive({ date_from: '', date_to: '', customer: '', opp: '', q: '' })
+const draft = reactive({ ...filter })  // 初值取记忆条件，别让输入框与生效条件脱节
 
 const filteredList = computed(() => activities.value.filter((a) => {
   const ad = fmtDate(a.activity_time)

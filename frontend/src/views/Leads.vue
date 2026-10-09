@@ -21,8 +21,8 @@
           <span class="seg-count">{{ counts[t.key] || 0 }}</span>
         </button>
       </div>
-      <div class="tabs-hint muted" v-if="filteredList.length !== counts[tab]">
-        筛选中：{{ filteredList.length }} / {{ counts[tab] || 0 }}
+      <div class="tabs-hint muted" v-if="hasActiveFilter">
+        条件命中 {{ searchedList.length }} / 全部 {{ leads.length }} 条
       </div>
     </div>
 
@@ -38,14 +38,11 @@
     <!-- 搜索 -->
     <FilterBar @search="applyFilter" @reset="resetFilter">
       <el-form-item label="关键词">
-        <el-input v-model="draft.q" placeholder="标题 / 编号 / 公告全文" clearable style="width:240px" />
+        <el-input v-model="draft.q" placeholder="标题 / 编号 / 地区 / 公告全文" clearable style="width:240px" />
       </el-form-item>
-      <el-form-item label="状态">
-        <el-select v-model="draft.status" clearable placeholder="全部状态" style="width:140px">
-          <el-option value="active" label="待转化" />
-          <el-option value="pool" label="公海池" />
-          <el-option value="converted" label="已转化" />
-          <el-option value="abandoned" label="已删除" />
+      <el-form-item label="类别">
+        <el-select v-model="draft.bid" clearable placeholder="全部类别" style="width:170px">
+          <el-option v-for="o in bidOptions" :key="o.value" :value="o.value" :label="o.label" />
         </el-select>
       </el-form-item>
       <el-form-item label="地区">
@@ -73,7 +70,7 @@
       >
         <template #empty-action>
           <el-button
-            v-if="tab === 'all' && !filter.q && !filter.region && !filter.status"
+            v-if="tab === 'all' && !hasActiveFilter"
             type="primary" plain size="small" :icon="Refresh" @click="doCrawl" style="margin-top:12px"
           >立即采集公告</el-button>
         </template>
@@ -466,8 +463,13 @@ const TABS = [
 const leads = ref([])
 const loading = ref(false)
 const tab = ref('all')
-const filter = useFilterMemory('leads', { q: '', region: '', from: '', to: '', status: '' })
-const draft = reactive({ q: '', region: '', from: '', to: '', status: '' })
+const FILTER_DEFAULTS = { q: '', region: '', from: '', to: '', bid: '' }
+// 只认已声明的条件键：clearable 控件会写入 undefined，历史遗留键也不该继续生效
+const pickFilter = (src) =>
+  Object.fromEntries(Object.keys(FILTER_DEFAULTS).map((k) => [k, src[k] || '']))
+const filter = useFilterMemory('leads', FILTER_DEFAULTS)
+// 输入框初值取记忆里的条件：否则「条件生效中但输入框是空的」，看着像搜索失灵
+const draft = reactive(pickFilter(filter))
 // 关键词全文检索命中的 id 集合；null 表示当前无关键词，不参与过滤
 const matchedIds = ref(null)
 
@@ -475,24 +477,27 @@ const budgetSum = computed(() => {
   const t = filteredList.value.reduce((a, l) => a + (parseFloat(l.budget) || 0), 0)
   return t ? (Math.round(t * 100) / 100).toLocaleString('zh-CN') : '0'
 })
-const counts = computed(() => ({
-  all: leads.value.length,
-  active: leads.value.filter((l) => l.status === 'active').length,
-  pool: leads.value.filter((l) => l.status === 'pool').length,
-  converted: leads.value.filter((l) => l.status === 'converted').length,
-  abandoned: leads.value.filter((l) => l.status === 'abandoned').length,
-}))
-const baseList = computed(() =>
-  tab.value === 'all' ? leads.value : leads.value.filter((l) => l.status === tab.value),
-)
-const filteredList = computed(() => baseList.value.filter((l) => {
+const hasActiveFilter = computed(() =>
+  !!(filter.q || filter.region || filter.from || filter.to || filter.bid))
+// 命中检索条件的全部线索（不含标签页的状态维度）：标签上的数字由它算，
+// 这样「待转化 12」就一定是点进去能看到的 12 行
+const searchedList = computed(() => leads.value.filter((l) => {
   if (filter.q && !(matchedIds.value && matchedIds.value.has(l.id))) return false
-  if (filter.status && l.status !== filter.status) return false
   if (filter.region && !(l.region || '').includes(filter.region)) return false
+  if (filter.bid && bidShort(l.bid_type) !== filter.bid) return false
   if (filter.from && l.created_at && l.created_at < filter.from) return false
   if (filter.to && l.created_at && l.created_at > filter.to) return false
   return true
 }))
+const counts = computed(() => ({
+  all: searchedList.value.length,
+  active: searchedList.value.filter((l) => l.status === 'active').length,
+  pool: searchedList.value.filter((l) => l.status === 'pool').length,
+  converted: searchedList.value.filter((l) => l.status === 'converted').length,
+  abandoned: searchedList.value.filter((l) => l.status === 'abandoned').length,
+}))
+const filteredList = computed(() =>
+  tab.value === 'all' ? searchedList.value : searchedList.value.filter((l) => l.status === tab.value))
 const emptyTextForTab = computed(() => ({ all: '暂无线索', active: '当前无待转化线索', pool: '公海池空空如也', converted: '还没有已转化的线索', abandoned: '没有被删除的线索' }[tab.value]))
 const emptyHintForTab = computed(() => ({
   all: '点击"采集线索"自动抓取最新公告；或"手工新增"录入自己发现的线索',
@@ -511,9 +516,21 @@ const BID_TYPE_SHORT = {
   '竞争性磋商公告': '磋商', '竞争性谈判公告': '谈判', '询价公告': '询价', '竞价公告': '竞价',
   '中标公告': '中标', '中标公示': '中标', '成交公告': '成交', '结果公告': '结果',
   '更正公告': '更正', '澄清公告': '澄清', '废标公告': '废标', '终止公告': '废标', '流标公告': '废标',
-  '其他公告': '其他',
+  '其他公告': '其他', '单一来源公告和公示': '单一来源',
 }
 const bidShort = (t) => (!t ? '待分类' : BID_TYPE_SHORT[t] || t.replace(/(公告|公示)$/, '') || t)
+// 类别下拉按当前数据现算（出现多的排前面），选项就是列里显示的那套简称：
+// 筛「招标」会同时命中公开招标/邀请招标，跟看到的一致
+const bidOptions = computed(() => {
+  const freq = new Map()
+  for (const l of leads.value) {
+    const k = bidShort(l.bid_type)
+    freq.set(k, (freq.get(k) || 0) + 1)
+  }
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+    .map(([value, n]) => ({ value, label: `${value} (${n})` }))
+})
 // 少量历史数据把单位写进了数值（"78.62万"），列头已带(万)，展示前去尾缀
 const fmtBudgetNum = (v) => fmtNum(String(v).replace(/[^\d.\-]/g, ''))
 const statusLabel = (s) => ({ converted: '已转化', abandoned: '已删除', pool: '公海池' }[s] || '待转化')
@@ -524,19 +541,23 @@ async function load() {
   loading.value = true
   leads.value = await getList('/leads')
   loading.value = false
+  // 命中集是上一次检索的快照：数据一刷新就要重取，否则新采集的线索永远搜不到
+  if (filter.q) await searchMatched(filter.q)
+}
+async function searchMatched(q) {
+  const r = await get('/leads/search?q=' + encodeURIComponent(q))
+  if (r.error) return ElMessage.error('关键词检索失败：' + r.error)
+  matchedIds.value = new Set(r.ids || [])
 }
 async function applyFilter() {
-  Object.assign(filter, draft)
-  if (filter.q) {
-    const r = await get('/leads/search?q=' + encodeURIComponent(filter.q))
-    matchedIds.value = new Set((r && r.ids) || [])
-  } else {
-    matchedIds.value = null
-  }
+  Object.assign(filter, pickFilter(draft))
+  if (filter.q) await searchMatched(filter.q)
+  else matchedIds.value = null
 }
+// 重置即生效：条件与命中集一起清空，不需要再点一次「搜索」
 function resetFilter() {
-  Object.assign(draft, { q: '', region: '', from: '', to: '', status: '' })
-  Object.assign(filter, draft)
+  Object.assign(draft, FILTER_DEFAULTS)
+  Object.assign(filter, FILTER_DEFAULTS)
   matchedIds.value = null
 }
 async function doCrawl() {

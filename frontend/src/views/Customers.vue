@@ -315,7 +315,7 @@ const shortUrl = (u) => (u || '').replace(/^https?:\/\//, '').replace(/\/$/, '')
 const customers = ref([])
 const loading = ref(false)
 const filter = useFilterMemory('customers', { q: '', type: '', level: '', region: '' })
-const draft = reactive({ q: '', type: '', level: '', region: '' })
+const draft = reactive({ ...filter })  // 初值取记忆条件，别让输入框与生效条件脱节
 
 const filteredList = computed(() => customers.value.filter((cu) => {
   if (filter.q && !(cu.name || '').toLowerCase().includes(filter.q.toLowerCase())) return false

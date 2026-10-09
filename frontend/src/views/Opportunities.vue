@@ -365,7 +365,7 @@ const opps = ref([])
 const loading = ref(false)
 const view = ref('list')
 const filter = useFilterMemory('opps', { q: '', customer: '', stage: '', from: '', to: '' })
-const draft = reactive({ q: '', customer: '', stage: '', from: '', to: '' })
+const draft = reactive({ ...filter })  // 初值取记忆条件，别让输入框与生效条件脱节
 
 // 编号：与线索一致的 6 位补零展示（id 即库内自增主键，稳定可检索）
 const oppNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))

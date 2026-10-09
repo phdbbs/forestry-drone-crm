@@ -330,8 +330,10 @@ def list_leads():
 @api.route('/leads/search', methods=['GET'])
 def search_leads():
     """关键词全文检索：返回命中的线索 id 列表。
-    覆盖标题/编号 + 摘要/服务内容/采购方/中标单位等富文本字段（不含全文大字段，避免全表扫描），
-    只回 id，避免把巨大的 full_text 塞进列表响应。"""
+    覆盖标题/编号/摘要/服务内容/采购方/中标单位/地区，并包含公告全文——
+    前端占位符承诺「标题 / 编号 / 公告全文」，正文里的字样必须也能搜到。
+    全文 LIKE 在本机千行级数据上是毫秒量级，且只回 id，不把巨大的 full_text 塞进响应。
+    """
     q = (request.args.get('q') or '').strip()
     if not q:
         return jsonify({"ids": []})
@@ -343,6 +345,8 @@ def search_leads():
         | Lead.service_content.like(like)
         | Lead.purchaser.like(like)
         | Lead.winner.like(like)
+        | Lead.region.like(like)
+        | Lead.full_text.like(like)
     ).all()
     return jsonify({"ids": [r[0] for r in rows]})
 

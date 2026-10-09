@@ -304,7 +304,7 @@ const followups = ref([])
 const loading = ref(false)
 const fuNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
 const filter = useFilterMemory('followups', { q: '', customer: '', contact: '', status: '', from: '', to: '' })
-const draft = reactive({ q: '', customer: '', contact: '', status: '', from: '', to: '' })
+const draft = reactive({ ...filter })  // 初值取记忆条件，别让输入框与生效条件脱节
 
 const todayStr = () => {
   const d = new Date()

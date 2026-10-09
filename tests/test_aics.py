@@ -1345,5 +1345,34 @@ class TestAICSM015Fulltext:
         assert 'HTTP 404' in err(client.post(f'/api/leads/{lid}/fulltext/fetch'), 502)
 
 
+class TestAICSM016LeadKeywordSearch:
+    """AICS-M016 线索关键词检索：占位符承诺能搜的地方，就必须真能搜到。"""
+
+    def test_m016_001_matches_full_text(self, client, dbsession):
+        """M016-001 只出现在公告正文里的字样也能被关键词命中。"""
+        from app.models import Lead
+        lead = Lead(title='AICS 检索正文线索', status='active',
+                    full_text='一、项目概况\n本项目采购无人机机载激光雷达设备。')
+        dbsession.add(lead)
+        dbsession.commit()
+        assert lead.id in ok(client.get('/api/leads/search?q=激光雷达'))['ids']
+
+    def test_m016_002_matches_region(self, client):
+        """M016-002 地区是用户最常敲进关键词的词，纳入命中范围。"""
+        lid = make_lead(client, 'AICS 检索地区线索', region='浙江省杭州市')
+        assert lid in ok(client.get('/api/leads/search?q=杭州'))['ids']
+
+    def test_m016_003_only_ids(self, client):
+        """M016-003 响应只回 id，不把巨大的正文塞进列表响应。"""
+        lid = make_lead(client, 'AICS 检索瘦身线索', service_content='林业无人机巡检服务')
+        body = ok(client.get('/api/leads/search?q=无人机巡检'))
+        assert set(body.keys()) == {'ids'}
+        assert lid in body['ids']
+
+    def test_m016_004_empty_keyword(self, client):
+        """M016-004 空关键词返回空命中，而不是全表 id。"""
+        assert ok(client.get('/api/leads/search?q='))['ids'] == []
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([os.path.abspath(__file__), '-v', '-p', 'no:cacheprovider']))

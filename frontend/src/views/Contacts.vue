@@ -250,7 +250,7 @@ const contacts = ref([])
 const loading = ref(false)
 const ctNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
 const filter = useFilterMemory('contacts', { q: '', customer: '', role: '' })
-const draft = reactive({ q: '', customer: '', role: '' })
+const draft = reactive({ ...filter })  // 初值取记忆条件，别让输入框与生效条件脱节
 
 // 稳定色相：同名联系人头像底色一致
 const avatarHue = (name) => {
