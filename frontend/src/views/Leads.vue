@@ -406,7 +406,12 @@
           <el-alert v-if="fulltextError" type="warning" :closable="false" :title="fulltextError" />
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div v-else-if="fulltext" class="md-body" v-html="fulltextHtml"></div>
-          <div v-else class="ft-empty muted">（无正文内容）</div>
+          <div v-else-if="fulltextNeedFetch && !fulltextLoading" class="ft-empty">
+            <div class="muted">本地尚未存储公告正文。</div>
+            <el-button v-if="fulltextFetchable" type="primary" plain size="small" class="ft-fetch-btn" @click="fetchFulltext">获取原文</el-button>
+            <div v-else class="muted">该线索没有可抓取的原文链接。</div>
+          </div>
+          <div v-else-if="!fulltextLoading" class="ft-empty muted">（无正文内容）</div>
         </div>
       </div>
       <div v-if="detail?.source_url" class="ft-footer">
@@ -614,16 +619,32 @@ const fulltextVisible = ref(false)
 const fulltextLoading = ref(false)
 const fulltext = ref('')
 const fulltextError = ref('')
+const fulltextNeedFetch = ref(false)
+const fulltextFetchable = ref(false)
 const fulltextHtml = computed(() => DOMPurify.sanitize(marked.parse(fulltext.value || '')))
 async function openFulltext() {
   fulltextVisible.value = true
   fulltextLoading.value = true
   fulltext.value = ''
   fulltextError.value = ''
+  fulltextNeedFetch.value = false
+  fulltextFetchable.value = false
+  // GET 只读库里已有正文；没有正文时由用户点「获取原文」再抓，避免打开弹窗就写库
   const r = await get(`/leads/${detail.value.id}/fulltext`)
   fulltextLoading.value = false
   if (r.error) { fulltextError.value = r.error; return }
-  fulltext.value = r.text || '（无正文内容）'
+  fulltext.value = r.text || ''
+  fulltextNeedFetch.value = !!r.need_fetch
+  fulltextFetchable.value = !!r.fetchable
+}
+async function fetchFulltext() {
+  fulltextLoading.value = true
+  fulltextError.value = ''
+  const r = await post(`/leads/${detail.value.id}/fulltext/fetch`, {})
+  fulltextLoading.value = false
+  if (r.error) { fulltextError.value = r.error; return }
+  fulltextNeedFetch.value = false
+  fulltext.value = r.text || ''
 }
 
 // ---- 转化 ----
@@ -965,6 +986,7 @@ onMounted(async () => {
   color: var(--crm-fg-1);
 }
 .ft-empty { padding: 60px 0; text-align: center; }
+.ft-fetch-btn { margin-top: 14px; }
 .ft-footer {
   padding: 12px 24px;
   border-top: 1px solid var(--crm-border-soft);

@@ -22,8 +22,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from crm_test_utils import (  # noqa: E402
-    created_id, err, json_of, make_activity, make_card, make_contact,
-    make_customer, make_followup, make_lead, make_opportunity, ok,
+    created_id, err, fake_remote, json_of, make_activity, make_card, make_contact,
+    make_customer, make_followup, make_lead, make_opportunity, ok, set_config,
 )
 
 # ═══════════════════════════════════════════════════════════════
@@ -710,6 +710,60 @@ class TestAICSM007Settings:
                        json={'keywords': 'AICS技能写入关键词'}))
         assert ok(client.get('/api/config'))['keywords']['value'] == 'AICS技能写入关键词'
 
+    def test_m007_020_execute_hides_credentials(self, client, app):
+        """AICS-M007-020 get_config 技能不得成为脱敏绕道。"""
+        set_config(app, ai_api_key='sk-AICS-SECRET-1234')
+        body = ok(client.post('/api/skills/get_config/execute', json={}))
+        assert body['ai_api_key'] == '[已隐藏]'
+        assert 'sk-AICS-SECRET-1234' not in str(body)
+
+    def test_m007_021_update_config_blocks_secrets(self, client, app):
+        """AICS-M007-021 凭据类配置不能由技能改写。"""
+        set_config(app, ai_api_key='sk-原值')
+        assert '不能通过技能修改' in err(
+            client.post('/api/skills/update_config/execute', json={'ai_api_key': 'sk-改写'}), 400)
+        with app.app_context():
+            from app.models import SystemConfig
+            assert SystemConfig.query.filter_by(key='ai_api_key').first().value == 'sk-原值'
+
+    def test_m007_022_disabled_skill_refused(self, client):
+        """AICS-M007-022 禁用开关对执行生效（此前只是存了个字段）。"""
+        sid = created_id(client.post('/api/skills', json={'name': 'get_config'}))
+        ok(client.post(f'/api/skills/{sid}/toggle'))
+        assert '已禁用' in err(client.post('/api/skills/get_config/execute', json={}), 409)
+        ok(client.post(f'/api/skills/{sid}/toggle'))
+        ok(client.post('/api/skills/get_config/execute', json={}))
+
+    def test_m007_023_execute_param_guard(self, client):
+        """AICS-M007-023 参数名必须能安全地当关键字使用。"""
+        assert '不合法' in err(client.post('/api/skills/analyze_data/execute', json={'a-b': 1}), 400)
+        assert '不合法' in err(client.post('/api/skills/read_database/execute', json={'self': 1}), 400)
+        assert 'JSON 对象' in err(client.post('/api/skills/read_database/execute', json=[1, 2]), 400)
+
+    def test_m007_024_execute_failure_is_500(self, client, monkeypatch):
+        """AICS-M007-024 技能内部异常回 500，而不是 200 里夹一个 error。"""
+        from app.services import skills
+        monkeypatch.setattr(skills, '_read_db',
+                            lambda: (_ for _ in ()).throw(RuntimeError('AICS 技能炸了')))
+        resp = client.post('/api/skills/read_database/execute', json={})
+        assert resp.status_code == 500
+        body = resp.get_json()
+        assert body['code'] == 'skill_failed' and 'AICS 技能炸了' in body['error']
+
+    def test_m007_025_snapshot_capped_but_counts_true(self, client, app):
+        """AICS-M007-025 技能快照有行数上限，但统计口径仍是真实总量。"""
+        from app import db
+        from app.models import Lead
+        from app.services.skills import SNAPSHOT_LIMIT
+        with app.app_context():
+            db.session.add_all([Lead(title=f'AICS 压量线索{i}', status='active')
+                                 for i in range(SNAPSHOT_LIMIT + 5)])
+            db.session.commit()
+        snap = ok(client.post('/api/skills/read_database/execute', json={}))
+        assert len(snap['leads']) == SNAPSHOT_LIMIT
+        summary = ok(client.post('/api/skills/analyze_data/execute', json={}))['summary']
+        assert summary['leads'] > SNAPSHOT_LIMIT
+
     def test_m007_008_crawl_targets(self, client):
         """AICS-M007-008 采集站点配置读写。"""
         defaults = ok(client.get('/api/config/crawl-targets'))
@@ -934,6 +988,21 @@ class TestAICSM010Dashboard:
         make_opportunity(client, 'AICS 最新商机')
         titles = [o['title'] for o in ok(client.get('/api/dashboard'))['opportunities']]
         assert titles[0] == 'AICS 最新商机'
+
+    def test_m010_008_lists_capped_but_stats_count_all(self, client):
+        """AICS-M010-008 工作台只回前几条，但统计卡是总量（不是被裁剪后的列表长度）。"""
+        from datetime import date, timedelta
+        today = date.today()
+        for i in range(12):
+            make_lead(client, f'AICS 压量紧急线索{i}',
+                      deadline=(today + timedelta(days=i % 4)).isoformat())
+        for i in range(6):
+            make_opportunity(client, f'AICS 压量商机{i}')
+        body = ok(client.get('/api/dashboard'))
+        assert len(body['urgent_leads']) == 5
+        assert len(body['opportunities']) == 5
+        assert body['stats']['urgent_leads'] >= 12
+        assert body['stats']['active_leads'] >= 12
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1212,74 +1281,68 @@ class TestAICSM014Export:
 
 class TestAICSM015Fulltext:
     def test_m015_001_stored_fulltext(self, client, dbsession):
-        """AICS-M015-001 已入库全文直接返回并转为 Markdown。"""
+        """AICS-M015-001 已入库全文直接返回并转为 Markdown（只读，不触发抓取）。"""
         from app.models import Lead
         lead = Lead(title='AICS 全文线索', status='active',
                     full_text='AICS 公告标题行\n一、项目概况\n本项目采购无人机巡检服务。')
         dbsession.add(lead)
         dbsession.commit()
         body = ok(client.get(f'/api/leads/{lead.id}/fulltext'))
-        assert body['source'] == 'stored'
+        assert body['source'] == 'stored' and body['need_fetch'] is False
         assert body['text'].startswith('# AICS 公告标题行')
         assert '### 一、项目概况' in body['text']
 
+    def test_m015_007_get_never_fetches(self, client, monkeypatch):
+        """AICS-M015-007 GET 只读：没有全文时标记 need_fetch，绝不抓远端也不写库。"""
+        import requests
+
+        from app import db
+        from app.models import Lead
+        monkeypatch.setattr(requests, 'get',
+                            lambda *a, **k: (_ for _ in ()).throw(AssertionError('GET 不应联网')))
+        lid = make_lead(client, 'AICS 只读全文线索', source_url='https://example.com/x')
+        body = ok(client.get(f'/api/leads/{lid}/fulltext'))
+        assert body['source'] == 'none' and body['need_fetch'] is True
+        assert body['fetchable'] is True
+        with client.application.app_context():
+            assert Lead.query.get(lid).full_text is None
+            db.session.remove()
+
     def test_m015_002_no_source_url(self, client):
-        """AICS-M015-002 无原文链接时返回 400 提示。"""
+        """AICS-M015-002 无原文链接时抓取返回 400 提示。"""
         lid = make_lead(client, 'AICS 无链接线索')
-        assert '无原文链接' in err(client.get(f'/api/leads/{lid}/fulltext'))
+        assert '无原文链接' in err(client.post(f'/api/leads/{lid}/fulltext/fetch'))
 
     def test_m015_003_ssrf_blocked(self, client):
         """AICS-M015-003 内网/环回地址被 SSRF 防护拦截。"""
         lid = make_lead(client, 'AICS SSRF 线索', source_url='http://127.0.0.1:5001/secret')
-        assert '受限地址' in err(client.get(f'/api/leads/{lid}/fulltext'))
+        assert '受限' in err(client.post(f'/api/leads/{lid}/fulltext/fetch'))
 
     def test_m015_004_invalid_scheme(self, client):
         """AICS-M015-004 非 http(s) 链接被拒绝。"""
         lid = make_lead(client, 'AICS 非法链接线索', source_url='file:///etc/passwd')
-        assert '不合法' in err(client.get(f'/api/leads/{lid}/fulltext'))
+        assert '不合法' in err(client.post(f'/api/leads/{lid}/fulltext/fetch'))
 
     def test_m015_005_fetch_and_convert(self, client, monkeypatch):
         """AICS-M015-005 远程抓取并转为近似 Markdown（打桩，不触网）。"""
-        import socket
-
-        import requests
-
         html = ('<html><body><h1>AICS 远程公告</h1><p>正文段落一。</p>'
                 '<table><tr><th>项目</th><th>内容</th></tr>'
                 '<tr><td>预算</td><td>100</td></tr></table></body></html>')
-
-        class FakeResp:
-            status_code = 200
-            text = html
-            encoding = 'utf-8'
-            apparent_encoding = 'utf-8'
-
-        monkeypatch.setattr(socket, 'getaddrinfo',
-                            lambda *a, **k: [(2, 1, 6, '', ('93.184.216.34', 0))])
-        monkeypatch.setattr(requests, 'get', lambda *a, **k: FakeResp())
+        fake_remote(monkeypatch, body=html)
         lid = make_lead(client, 'AICS 远程抓取线索', source_url='https://example.com/notice/1')
-        body = ok(client.get(f'/api/leads/{lid}/fulltext'))
+        body = ok(client.post(f'/api/leads/{lid}/fulltext/fetch'))
         assert body['source'] == 'fetched'
         assert '# AICS 远程公告' in body['text']
         assert '| 项目 | 内容 |' in body['text']
+        # 抓到的正文要落库，第二次读取不应再打远端
+        again = ok(client.get(f'/api/leads/{lid}/fulltext'))
+        assert again['source'] == 'stored'
 
     def test_m015_006_remote_error(self, client, monkeypatch):
         """AICS-M015-006 原文站点非 200 时返回 502 提示。"""
-        import socket
-
-        import requests
-
-        class FakeResp:
-            status_code = 404
-            text = 'not found'
-            encoding = 'utf-8'
-            apparent_encoding = 'utf-8'
-
-        monkeypatch.setattr(socket, 'getaddrinfo',
-                            lambda *a, **k: [(2, 1, 6, '', ('93.184.216.34', 0))])
-        monkeypatch.setattr(requests, 'get', lambda *a, **k: FakeResp())
+        fake_remote(monkeypatch, status=404, body='not found')
         lid = make_lead(client, 'AICS 抓取失败线索', source_url='https://example.com/missing')
-        assert 'HTTP 404' in err(client.get(f'/api/leads/{lid}/fulltext'), 502)
+        assert 'HTTP 404' in err(client.post(f'/api/leads/{lid}/fulltext/fetch'), 502)
 
 
 if __name__ == '__main__':

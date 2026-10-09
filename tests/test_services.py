@@ -907,18 +907,19 @@ class TestSkillRegistryAndSuggestions:
                 'get_config', 'update_config'} <= names
 
     def test_unit_07_002_registry_unknown(self):
-        """UNIT-07-002 未知技能返回 error 而非抛异常。"""
+        """UNIT-07-002 未知技能抛 KeyError，由路由翻成 404，不再伪装成一次成功执行。"""
         from app.services.skills import SkillRegistry
-        assert SkillRegistry.execute('nope') == {'error': 'Skill not found'}
+        with pytest.raises(KeyError):
+            SkillRegistry.execute('nope')
 
-    def test_unit_07_003_registry_exception_wrapped(self, app, monkeypatch):
-        """UNIT-07-003 技能内部异常被包装为 error 字段。"""
+    def test_unit_07_003_registry_exception_propagates(self, app, monkeypatch):
+        """UNIT-07-003 技能内部异常原样上抛（吞掉它会回 200，前端无从判断失败）。"""
         from app.services import skills
         monkeypatch.setattr(skills, '_read_db',
                             lambda: (_ for _ in ()).throw(RuntimeError('AICS 内部错误')))
         with app.app_context():
-            result = skills.SkillRegistry.execute('read_database')
-            assert 'AICS 内部错误' in result['error']
+            with pytest.raises(RuntimeError, match='AICS 内部错误'):
+                skills.SkillRegistry.execute('read_database')
 
     def test_unit_07_004_stale_contact_suggestion(self, app):
         """UNIT-07-004 超过 14 天未联络的联系人产生 stale_contact 建议。"""

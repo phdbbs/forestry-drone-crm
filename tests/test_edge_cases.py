@@ -129,9 +129,8 @@ class TestEdge01Validation:
             assert 'method' not in msg.lower() and 'requested URL' not in msg
 
     def test_edge_01_013_unknown_skill(self, client):
-        """EDGE-01-013 执行不存在的技能返回 error 字段而非异常。"""
-        body = ok(client.post('/api/skills/not_exist/execute', json={}))
-        assert 'error' in body
+        """EDGE-01-013 执行不存在的技能返回 404 + error 字段，而不是 200 里的 error。"""
+        assert '不存在' in err(client.post('/api/skills/not_exist/execute', json={}), 404)
 
 
 # ═══════════════════════════════════════════════════════════════

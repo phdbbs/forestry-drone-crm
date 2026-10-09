@@ -1,16 +1,39 @@
 """统一的 SSRF 防护抓取入口：所有抓取外部 URL 的代码必须经过 safe_get。
 
-防护点：仅 http/https；域名解析结果全部为公网地址（拦截内网/环回/保留段）；
-禁止重定向（防校验后跳转绕过）；限制响应大小与超时。
+防护点：
+- 仅 http/https；
+- 域名解析结果全部为公网地址（拦截内网/环回/保留段）；
+- 把建连固定到**已校验的那个 IP**：校验与建连之间还要再解析一次，
+  这次答案完全可以和上次不同（DNS rebinding），旧实现正是栽在这一刀；
+- 禁止自动重定向（防校验后跳转绕过），逐跳跟随时每一跳重新校验；
+- 真正按字节上限分块读取：旧实现只把上限记在响应对象上没人用，
+  调用方取 .text 时照样能把远端整站拖进内存。
 """
 import ipaddress
 import socket
-from urllib.parse import urlparse
+import threading
+from contextlib import contextmanager
+from urllib.parse import urljoin, urlparse
 
 import requests
 
-_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+_CHUNK = 64 * 1024
+_MAX_HOPS = 3
+
+# 线程内的「域名 → 已校验 IP」映射。requests/urllib3 建连时走 socket.getaddrinfo，
+# 我们只替换当前线程已登记域名的答案，其它线程与其它域名不受影响。
+_local = threading.local()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _pinned_getaddrinfo(host, port, *args, **kwargs):
+    pins = getattr(_local, 'pins', None)
+    if pins and isinstance(host, str) and host in pins:
+        host = pins[host]
+    return _orig_getaddrinfo(host, port, *args, **kwargs)
+
+
+socket.getaddrinfo = _pinned_getaddrinfo
 
 
 class SafeFetchError(Exception):
@@ -22,16 +45,90 @@ class SafeFetchError(Exception):
         self.security = security
 
 
-def _assert_public_host(hostname):
+def _is_restricted(ip_str):
+    ip = ipaddress.ip_address(ip_str)
+    return (ip.is_private or ip.is_loopback or ip.is_reserved
+            or ip.is_link_local or ip.is_multicast or ip.is_unspecified)
+
+
+def _resolve_public_ip(hostname):
+    """解析域名：任一答案落在受限网段就整体拒绝，否则返回用于固定的答案。
+
+    用当前生效的 socket.getaddrinfo（即本模块装上的固定版），保证同一主机
+    在一轮抓取里的多次解析都拿到同一个答案。
+    """
     try:
-        infos = socket.getaddrinfo(hostname, None)
+        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
     except OSError as e:
         raise SafeFetchError(f"域名无法解析: {hostname}", security=True) from e
+    if not infos:
+        raise SafeFetchError(f"域名无法解析: {hostname}", security=True)
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (ip.is_private or ip.is_loopback or ip.is_reserved
-                or ip.is_link_local or ip.is_multicast or ip.is_unspecified):
+        if _is_restricted(info[4][0]):
             raise SafeFetchError("目标地址指向受限地址（内网/保留地址段），已拦截", security=True)
+    return infos[0][4][0]
+
+
+@contextmanager
+def _pinned(hostname, ip):
+    pins = _local.__dict__.setdefault('pins', {})
+    had_previous = hostname in pins
+    previous = pins.get(hostname)
+    pins[hostname] = ip
+    try:
+        yield
+    finally:
+        if had_previous:
+            pins[hostname] = previous
+        else:
+            pins.pop(hostname, None)
+
+
+def _check_url(url):
+    u = urlparse(url)
+    if u.scheme not in ('http', 'https') or not u.hostname:
+        raise SafeFetchError("URL 不合法（仅支持 http/https）", security=True)
+    return u
+
+
+def _read_capped(resp, max_bytes):
+    """分块读到 max_bytes 就断开；正文缓存在响应对象上，后续 .text 不再碰 socket。"""
+    chunks = []
+    total = 0
+    truncated = False
+    try:
+        for chunk in resp.iter_content(chunk_size=_CHUNK):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= max_bytes:
+                truncated = True
+                break
+    except requests.RequestException as e:
+        raise SafeFetchError(f"读取响应失败: {e}") from e
+    finally:
+        # 提前中断必须归还连接，否则半开连接会一直占着句柄和连接池
+        resp.close()
+    body = b''.join(chunks)
+    if truncated:
+        body = body[:max_bytes]
+    resp._content = body
+    resp._content_consumed = True
+    resp._crm_truncated = truncated
+    return resp
+
+
+def _get_once(getter, url, timeout, headers, kw):
+    """单个 URL 的一次校验 + 固定 IP 建连。返回的响应可能仍是重定向。"""
+    u = _check_url(url)
+    ip = _resolve_public_ip(u.hostname)
+    with _pinned(u.hostname, ip):
+        try:
+            return getter(url, timeout=timeout, headers=headers,
+                          allow_redirects=False, stream=True, **kw)
+        except requests.RequestException as e:
+            raise SafeFetchError(f"请求失败: {e}") from e
 
 
 def safe_get(url, timeout=15, max_bytes=8 * 1024 * 1024, session=None, **kw):
@@ -39,36 +136,27 @@ def safe_get(url, timeout=15, max_bytes=8 * 1024 * 1024, session=None, **kw):
 
     session: 可传入 requests.Session（复用 UA/cookie），安全校验不变。
     """
-    u = urlparse(url)
-    if u.scheme not in ('http', 'https') or not u.hostname:
-        raise SafeFetchError("URL 不合法（仅支持 http/https）", security=True)
-    _assert_public_host(u.hostname)
-    getter = session.get if session is not None else requests.get
     headers = kw.pop('headers', None)
-    try:
-        resp = getter(url, timeout=timeout, headers=headers,
-                      allow_redirects=False, stream=True, **kw)
-    except requests.RequestException as e:
-        raise SafeFetchError(f"请求失败: {e}") from e
-    # 重定向目标同样校验（逐跳跟随，每跳都过公网检查）
+    getter = session.get if session is not None else requests.get
+    resp = _get_once(getter, url, timeout, headers, kw)
     hops = 0
-    while getattr(resp, 'is_redirect', False) and hops < 3:
-        loc = resp.headers.get('Location', '')
-        u2 = urlparse(loc)
-        if u2.scheme not in ('http', 'https') or not u2.hostname:
-            raise SafeFetchError("重定向地址不合法", security=True)
-        _assert_public_host(u2.hostname)
-        try:
-            resp = getter(loc, timeout=timeout, headers=headers,
-                          allow_redirects=False, stream=True, **kw)
-        except requests.RequestException as e:
-            raise SafeFetchError(f"重定向请求失败: {e}") from e
+    current = url
+    while resp.is_redirect:
+        if hops >= _MAX_HOPS:
+            resp.close()
+            raise SafeFetchError(f"重定向次数超过 {_MAX_HOPS} 次上限", security=True)
+        # Location 允许是相对路径，按当前 URL 归一化后再校验，避免绕开检查
+        current = urljoin(current, resp.headers.get('Location', ''))
+        resp.close()
+        resp = _get_once(getter, current, timeout, headers, kw)
         hops += 1
     if resp.status_code != 200:
-        raise SafeFetchError(f"站点返回 HTTP {resp.status_code}")
+        code = resp.status_code
+        resp.close()
+        raise SafeFetchError(f"站点返回 HTTP {code}")
+    resp = _read_capped(resp, max_bytes)
     if not resp.encoding or resp.encoding.lower() == 'iso-8859-1':
         resp.encoding = resp.apparent_encoding or 'utf-8'
-    resp._max_bytes = max_bytes
     return resp
 
 

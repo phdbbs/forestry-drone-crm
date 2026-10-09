@@ -1,9 +1,10 @@
-// 统一请求层：永不抛错，失败返回 { error }。
+// 统一请求层：永不抛错，失败返回 { error, code }。
 //
 // ⚠️ 重要约定：失败时返回的是 `{ error: '...' }` 对象，**不是数组**。
 // 列表接口请一律用 getList()，它保证返回数组——否则
 // `data = (await get('/x')) || []` 会把 truthy 的 { error } 当成数组，
 // 后续 .filter()/.map() 直接抛错导致白屏。
+// error 给用户看（直接 toast），code 给程序判断（后端统一保证 {error, code} 形状）。
 export async function request(path, opts = {}) {
   try {
     const res = await fetch('/api' + path, {
@@ -13,21 +14,23 @@ export async function request(path, opts = {}) {
     })
     let data = null
     try { data = await res.json() } catch (e) { /* 204/空响应 */ }
+    const bizError = (data && data.error) || ''
+    const bizCode = (data && data.code) || ''
     if (res.status === 401) {
       // 会话过期/未登录：交给 App 层跳登录页。请求层不引 router，避免循环依赖。
       window.dispatchEvent(new CustomEvent('crm:unauthorized'))
-      return { error: (data && data.error) || '请先登录', code: 'unauthorized' }
+      return { error: bizError || '请先登录', code: bizCode || 'unauthorized' }
     }
     if (res.status === 403) {
       // 角色不足（如销售访问系统设置）：只提示，不踢回登录页
-      return { error: (data && data.error) || '仅管理员可执行此操作', code: 'forbidden' }
+      return { error: bizError || '仅管理员可执行此操作', code: bizCode || 'forbidden' }
     }
     if (!res.ok) {
-      return { error: (data && data.error) || `请求失败 (HTTP ${res.status})` }
+      return { error: bizError || `请求失败 (HTTP ${res.status})`, code: bizCode || `http_${res.status}` }
     }
     return data || {}
   } catch (e) {
-    return { error: '网络异常: ' + e.message }
+    return { error: '网络异常: ' + e.message, code: 'network_error' }
   }
 }
 

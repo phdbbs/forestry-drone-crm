@@ -294,6 +294,18 @@ class SystemConfig(db.Model):
     description = db.Column(db.String(300))
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
+    # 凭据类配置：读取一律脱敏，写入只能经各自的专用端点（/config/ai-providers 等），
+    # 否则任何「批量写配置」的入口都会变成改写凭据的后门。
+    SECRET_KEYS = frozenset({'ai_api_key', 'ai_providers', 'auth_password_hash'})
+
+    @classmethod
+    def is_secret(cls, key):
+        return key in cls.SECRET_KEYS
+
+    @property
+    def masked_value(self):
+        return '[已隐藏]' if self.is_secret(self.key) else self.value
+
 class Skill(db.Model):
     __tablename__ = 'skills'
     id = db.Column(db.Integer, primary_key=True)

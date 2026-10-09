@@ -5,6 +5,8 @@
 """
 from flask import Blueprint, jsonify, request, session
 
+from app.errors import fail
+
 from app.services import auth as auth_svc
 
 auth_bp = Blueprint('auth', __name__)
@@ -52,14 +54,14 @@ def login():
     key = auth_svc.attempt_key(username, _source())
     remaining = auth_svc.lock_remaining(key)
     if remaining:
-        return jsonify({"error": "失败次数过多，请稍后再试"}), 429
+        return fail("失败次数过多，请稍后再试", 429)
     if not auth_svc.has_accounts():
-        return jsonify({"error": "尚未创建账号，请先初始化管理员"}), 400
+        return fail("尚未创建账号，请先初始化管理员", 400, "not_initialized")
     user = auth_svc.verify(username, str(body.get('password') or ''))
     if user is None:
         auth_svc.note_failure(key)
         # 不区分「账号不存在」与「口令错误」，避免被用来枚举账号名
-        return jsonify({"error": "账号或口令不正确"}), 401
+        return fail("账号或口令不正确", 401, "bad_credentials")
     auth_svc.touch_login(user)
     _begin_session(user)
     return jsonify({"ok": True, "user": user.to_dict()})
@@ -69,14 +71,14 @@ def login():
 def setup():
     """首次使用：创建第一个管理员账号并直接登录。已有账号则拒绝，避免越权建号。"""
     if auth_svc.has_accounts():
-        return jsonify({"error": "系统已初始化，请让管理员在账号管理中添加账号"}), 409
+        return fail("系统已初始化，请让管理员在账号管理中添加账号", 409, "already_initialized")
     body = _body()
     username = _username_from(body)
     password = str(body.get('password') or '')
     if not username:
-        return jsonify({"error": "请填写账号名"}), 400
+        return fail("请填写账号名", 400)
     if len(password) < MIN_LENGTH:
-        return jsonify({"error": f"口令至少 {MIN_LENGTH} 位"}), 400
+        return fail(f"口令至少 {MIN_LENGTH} 位", 400)
     user = auth_svc.create_user(username, password, role=auth_svc.ADMIN,
                                 display_name=str(body.get('display_name') or username))
     auth_svc.touch_login(user)
@@ -88,7 +90,7 @@ def setup():
 def me():
     user = auth_svc.current_user()
     if user is None:
-        return jsonify({"error": "请先登录", "code": "unauthorized"}), 401
+        return fail("请先登录", 401)
     return jsonify(user.to_dict())
 
 
@@ -98,13 +100,13 @@ def change():
     from app.services.auth import current_user
     user = current_user()
     if user is None:
-        return jsonify({"error": "请先登录", "code": "unauthorized"}), 401
+        return fail("请先登录", 401)
     body = _body()
     if auth_svc.verify(user.username, str(body.get('password') or '')) is None:
-        return jsonify({"error": "原口令不正确"}), 401
+        return fail("原口令不正确", 401, "bad_credentials")
     new_password = str(body.get('new_password') or '')
     if len(new_password) < MIN_LENGTH:
-        return jsonify({"error": f"新口令至少 {MIN_LENGTH} 位"}), 400
+        return fail(f"新口令至少 {MIN_LENGTH} 位", 400)
     auth_svc.set_password(user, new_password)
     return jsonify({"ok": True})
 

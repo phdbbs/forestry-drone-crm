@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, abort, Response
+from app.errors import fail
 from flask import current_app
 from app import db
 from app.models import (
@@ -11,6 +12,7 @@ from app.services.serial import gen_serial
 from app.services.skills import SkillRegistry
 from app.services.softdelete import alive
 from app.services.amountutil import normalize_amount_text, parse_amount_wan
+from app.services.textutil import clean_text
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, timedelta
 import requests as http_requests
@@ -116,7 +118,7 @@ def create_skill():
     # 命中墓碑就复用那一行（恢复 + 覆盖内容），否则同名重建只会报「数据已存在」。
     existing = Skill.query.filter_by(name=d['name']).execution_options(include_deleted=True).first()
     if existing is not None and not existing.is_deleted:
-        return jsonify({"error": "技能名称已存在"}), 400
+        return fail("技能名称已存在", 400)
     s = existing or Skill(name=d['name'], is_builtin=False)
     if existing is not None:
         s.is_deleted = False
@@ -132,7 +134,7 @@ def create_skill():
 def update_skill(id):
     s = Skill.query.get_or_404(id)
     if s.is_builtin:
-        return jsonify({"error": "内置技能不可编辑"}), 400
+        return fail("内置技能不可编辑", 400)
     d = request.get_json()
     if 'name' in d: s.name = d['name']
     if 'description' in d: s.description = d['description']
@@ -145,7 +147,7 @@ def update_skill(id):
 def toggle_skill(id):
     s = Skill.query.get_or_404(id)
     if s.is_builtin:
-        return jsonify({"error": "内置技能不可禁用"}), 400
+        return fail("内置技能不可禁用", 400)
     s.is_active = not s.is_active
     db.session.commit()
     return jsonify({"id": s.id, "is_active": s.is_active, "message": "已" + ("启用" if s.is_active else "禁用")})
@@ -154,24 +156,46 @@ def toggle_skill(id):
 def delete_skill(id):
     s = Skill.query.get_or_404(id)
     if s.is_builtin:
-        return jsonify({"error": "内置技能不可删除"}), 400
+        return fail("内置技能不可删除", 400)
     s.is_deleted = True
     db.session.commit()
     return jsonify({"ok": True})
 
 @api.route('/skills/<name>/execute', methods=['POST'])
 def execute_skill(name):
-    data = request.get_json() or {}
-    result = SkillRegistry.execute(name, **data)
-    return jsonify(result)
+    """执行技能：参数只收扁平的标量 JSON，技能必须已注册且未被禁用。
+
+    旧实现把整个请求体原样 **kwargs 传下去，技能内部报错也只回 200 + {"error"}：
+    前端分不清成功与失败，凭据类配置更能从技能这条侧门被改写。
+    """
+    payload = request.get_json(silent=True)
+    if payload is not None and not isinstance(payload, dict):
+        abort(400, description='技能参数必须是 JSON 对象')
+    kw = {}
+    for key, value in (payload or {}).items():
+        # 参数名要能安全地当关键字用：JSON 键可以是任意字符串
+        if not isinstance(key, str) or not key.isidentifier() or key == 'self':
+            abort(400, description=f'技能参数名不合法: {key!r}')
+        if isinstance(value, (dict, list)):
+            abort(400, description=f'技能参数 {key} 只接受字符串或数字')
+        kw[key] = value
+    if not SkillRegistry.exists(name):
+        return fail(f"技能不存在: {name}", 404, "skill_not_found")
+    row = Skill.query.filter_by(name=name).first()
+    if row is not None and not row.is_active:
+        return fail("技能已禁用", 409, "skill_disabled")
+    try:
+        return jsonify(SkillRegistry.execute(name, **kw))
+    except ValueError as e:
+        return fail(str(e), 400, "bad_param")
+    except Exception as e:
+        current_app.logger.error('技能 %s 执行失败: %s', name, e, exc_info=True)
+        return fail(f"技能执行失败: {str(e)[:200]}", 500, "skill_failed")
 
 @api.route('/dashboard', methods=['GET'])
 def dashboard():
-    leads = Lead.query.options(joinedload(Lead.customer)).filter_by(status='active').all()
-    level_score = {'高匹配': 300, '中匹配': 200, '低匹配': 100}
-    leads.sort(key=lambda l: -(level_score.get(l.match_level, 0)))
+    from sqlalchemy import case
     now = datetime.now()
-    today = now.strftime('%Y-%m-%d')
     # 范围条件代替 func.date()：后者对列套函数导致索引失效全表扫描
     _day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
     _day1 = _day0 + timedelta(days=1)
@@ -181,16 +205,29 @@ def dashboard():
     today_followups = FollowUp.query.options(
         joinedload(FollowUp.contact)
     ).filter(FollowUp.plan_date >= _day0, FollowUp.plan_date < _day1).all()
-    # 用日期差计算剩余天数：当天截止（0 天）也算紧急；datetime 直接相减会把当天误判为 -1 天
-    urgent_leads = [l for l in leads if l.deadline and 0 <= (l.deadline.date() - now.date()).days <= 3]
-    opportunities = Opportunity.query.options(
-        joinedload(Opportunity.customer)
-    ).order_by(Opportunity.created_at.desc()).all()
     kanban_cards = KanbanCard.query.filter(KanbanCard.deadline.isnot(None)).order_by(KanbanCard.deadline).limit(10).all()
+
+    # 计数走 SQL：工作台每开一次就把整张线索表读进内存再排序/裁剪，
+    # 数据涨到几万条时首屏会先卡住再出图
+    active_leads = Lead.query.filter_by(status='active').count()
+    total_opportunities = Opportunity.query.count()
+    # 用日期差计算剩余天数：当天截止（0 天）也算紧急；datetime 直接相减会把当天误判为 -1 天
+    urgent_filter = (Lead.query.filter_by(status='active')
+                     .filter(Lead.deadline.isnot(None),
+                             Lead.deadline >= _day0,
+                             Lead.deadline < _day0 + timedelta(days=4)))
+    urgent_count = urgent_filter.count()
+    level_weight = case(('高匹配', 300), ('中匹配', 200), ('低匹配', 100), else_=0)
+    urgent_leads = urgent_filter.options(joinedload(Lead.customer)) \
+        .order_by(level_weight.desc(), Lead.deadline.asc(), Lead.id.asc()).limit(5).all()
+    top_opportunities = Opportunity.query.options(joinedload(Opportunity.customer)) \
+        .order_by(Opportunity.created_at.desc(), Opportunity.id.desc()).limit(5).all()
     return jsonify({
-        "stats": {"active_leads": len(leads), "opportunities": len(opportunities), "today_activities": len(today_activities), "urgent_leads": len(urgent_leads), "today_followups": len(today_followups)},
-        "urgent_leads": [{"id": l.id, "title": _text(l.title)[:60], "level": l.match_level, "deadline": str(l.deadline.date()) if l.deadline else None, "match_keywords": l.match_keywords, "customer_name": l.customer.name if l.customer else None} for l in urgent_leads[:5]],
-        "opportunities": [{"id": o.id, "title": _text(o.title)[:60], "stage": o.current_stage, "amount": o.amount, "customer_name": o.customer.name if o.customer else None} for o in opportunities],
+        "stats": {"active_leads": active_leads, "opportunities": total_opportunities,
+                  "today_activities": len(today_activities), "urgent_leads": urgent_count,
+                  "today_followups": len(today_followups)},
+        "urgent_leads": [{"id": l.id, "title": _text(l.title)[:60], "level": l.match_level, "deadline": str(l.deadline.date()) if l.deadline else None, "match_keywords": l.match_keywords, "customer_name": l.customer.name if l.customer else None} for l in urgent_leads],
+        "opportunities": [{"id": o.id, "title": _text(o.title)[:60], "stage": o.current_stage, "amount": o.amount, "customer_name": o.customer.name if o.customer else None} for o in top_opportunities],
         "today_activities": [{"id": a.id, "method": a.method, "content": _text(a.content)[:80], "time": str(a.activity_time), "contact_name": a.contact.name if a.contact else None, "customer_name": a.customer.name if a.customer else None} for a in today_activities],
         "today_followups": [{"id": f.id, "content": _text(f.content)[:60], "contact_name": f.contact.name if f.contact else None, "plan_date": str(f.plan_date)} for f in today_followups],
         "kanban_cards": [{"id": c.id, "title": c.title, "deadline": str(c.deadline.date()) if c.deadline else None, "color": c.label_color} for c in kanban_cards],
@@ -330,10 +367,10 @@ def get_lead(id):
 def update_lead(id):
     l = Lead.query.get_or_404(id)
     if l.status == 'converted':
-        return jsonify({"error": "已转化线索不可修改"}), 400
+        return fail("已转化线索不可修改", 400, "invalid_state")
     d = request.get_json() or {}
     if 'status' in d and d['status'] not in ('active', 'abandoned'):
-        return jsonify({"error": "状态无效"}), 400
+        return fail("状态无效", 400)
     for key in ['title','bid_number','budget','region','purchaser','contact_name','contact_phone','address','service_content','match_keywords','match_level','match_score','match_reason','assignee','bid_type','winner','related_customer_ids','source_platform','source_url','status','customer_id']:
         if key in d: setattr(l, key, normalize_amount_text(d[key]) if key == 'budget' else d[key])
     if 'deadline' in d: l.deadline = _parse_date(d.get('deadline'))
@@ -355,7 +392,7 @@ def _find_or_create_customer(name, source, remark):
 @api.route('/leads/<int:id>/convert', methods=['POST'])
 def convert_lead(id):
     l = Lead.query.get_or_404(id)
-    if l.status != 'active': return jsonify({"error": "仅待转化线索可转化"}), 400
+    if l.status != 'active': return fail("仅待转化线索可转化", 400, "invalid_state")
     d = request.get_json() or {}
     related_ids = []
     # 中标/成交公告：支持多家中标单位 + 采购单位，全部建/匹配客户并记录关联
@@ -423,9 +460,9 @@ def batch_leads():
     ids = d.get('ids') or []
     reason = (d.get('reason') or '')[:300]
     if action not in ('release', 'abandon'):
-        return jsonify({"error": "不支持的操作"}), 400
+        return fail("不支持的操作", 400)
     if not ids:
-        return jsonify({"error": "未选择线索"}), 400
+        return fail("未选择线索", 400)
     leads = Lead.query.filter(Lead.id.in_([int(i) for i in ids])).all()
     done, skipped = 0, []
     for l in leads:
@@ -453,7 +490,7 @@ def batch_leads():
 def abandon_lead(id):
     l = Lead.query.get_or_404(id)
     if l.status == 'converted':
-        return jsonify({"error": "已转化线索不可删除"}), 400
+        return fail("已转化线索不可删除", 400, "invalid_state")
     l.status = 'abandoned'
     l.reason = (request.get_json() or {}).get('reason', '')[:300]
     db.session.commit()
@@ -828,11 +865,11 @@ def execute_followup(id):
     """执行联络计划：标记完成，并把本次联系内容写入日常联络记录。"""
     f = FollowUp.query.get_or_404(id)
     if f.actual_date:
-        return jsonify({"error": "该计划已完成，不能重复执行"}), 400
+        return fail("该计划已完成，不能重复执行", 400, "invalid_state")
     d = request.get_json() or {}
     content = (d.get('actual_content') or '').strip()
     if not content:
-        return jsonify({"error": "请填写本次联系内容"}), 400
+        return fail("请填写本次联系内容", 400)
     now = datetime.now()
     f.actual_date = now
     f.actual_content = content
@@ -909,7 +946,7 @@ def collect_customer_news_api(id):
         r = collect_customer_news(id)
         return jsonify({"ok": True, **r})
     except Exception as e:
-        return jsonify({"ok": False, "error": f"采集失败: {str(e)[:200]}"}), 200
+        return jsonify({"ok": False, "error": f"采集失败: {str(e)[:200]}", "code": "collect_failed"})
 
 @api.route('/contacts/<int:id>/collect-news', methods=['POST'])
 def collect_contact_news_api(id):
@@ -918,7 +955,7 @@ def collect_contact_news_api(id):
         r = collect_contact_news(id)
         return jsonify({"ok": True, **r})
     except Exception as e:
-        return jsonify({"ok": False, "error": f"采集失败: {str(e)[:200]}"}), 200
+        return jsonify({"ok": False, "error": f"采集失败: {str(e)[:200]}", "code": "collect_failed"})
 
 @api.route('/news/collect-all', methods=['POST'])
 def collect_all_news_api():
@@ -929,7 +966,7 @@ def collect_all_news_api():
         r = collect_all(kind)
         return jsonify({"ok": True, "message": f"批量采集完成，新增 {r['count']} 条", **r})
     except Exception as e:
-        return jsonify({"ok": False, "error": f"批量采集失败: {str(e)[:200]}"}), 200
+        return jsonify({"ok": False, "error": f"批量采集失败: {str(e)[:200]}", "code": "collect_failed"})
 
 @api.route('/news/logs', methods=['GET'])
 def news_logs():
@@ -1053,7 +1090,7 @@ def move_card(card_id):
 def create_card():
     d = request.get_json() or {}
     if not (d.get('title') or '').strip():
-        return jsonify({"error": "标题不能为空"}), 400
+        return fail("标题不能为空", 400)
     col = KanbanColumn.query.get_or_404(d.get('column_id'))
     next_order = (db.session.query(db.func.max(KanbanCard.sort_order))
                   .filter_by(column_id=col.id).scalar() or 0) + 1
@@ -1148,10 +1185,8 @@ def import_to_kanban():
     db.session.commit()
     return jsonify({"message": f"已导入 {len(items)} 张卡片"})
 
-# 这些键的值是凭据，绝不能整份下发给前端：
-# ai_providers 的 JSON 里内嵌各家 api_key，auth_password_hash 是访问口令散列。
-# 页面需要展示时走各自的脱敏视图（/config/ai-providers 只给末 4 位）。
-_SECRET_CONFIG_KEYS = {'ai_api_key', 'ai_providers', 'auth_password_hash'}
+# 凭据类配置的脱敏与写入限制规则在 SystemConfig.SECRET_KEYS（模型层）：
+# 技能里的 get_config/update_config 也要用同一套，放这里会变成只有接口层知道的私规。
 
 
 @api.route('/config', methods=['GET'])
@@ -1159,18 +1194,19 @@ def get_config():
     configs = SystemConfig.query.all()
     return jsonify({
         c.key: {
-            "value": '[已隐藏]' if c.key in _SECRET_CONFIG_KEYS else c.value,
+            "value": c.masked_value,
             "description": c.description,
         }
         for c in configs
     })
 
+
 @api.route('/config', methods=['PUT'])
 def update_config():
     d = request.get_json()
     # 凭据类键只经由各自的专用端点写入（口令走 /auth/change，
-    # AI 各家配置走 /config/ai-providers），否则这里就是「匿名改写口令散列」的后门。
-    blocked = [k for k in d if k in _SECRET_CONFIG_KEYS]
+    # AI 各家配置走 /config/ai-providers），否则这里就是「改写凭据」的后门。
+    blocked = [k for k in d if SystemConfig.is_secret(k)]
     if blocked:
         abort(400, description=f"以下配置项不能通过通用接口修改: {', '.join(blocked)}")
     for key, value in d.items():
@@ -1238,7 +1274,7 @@ def put_ai_providers():
     from app.services.ai_client import get_ai_providers, _clean_provider
     data = request.get_json()
     if not isinstance(data, list):
-        return jsonify({"error": "格式错误：应提交 provider 列表"}), 400
+        return fail("格式错误：应提交 provider 列表", 400)
 
     stored_by_id = {p["id"]: p["api_key"] for p in get_ai_providers() if p["id"]}
     cleaned = []
@@ -1329,7 +1365,7 @@ def trigger_crawl():
     started = start_crawl_background(current_app._get_current_object())
     if started:
         return jsonify({"ok": True, "running": True, "message": "采集已启动，正在抓取并 AI 分析..."})
-    return jsonify({"ok": False, "running": True, "error": "采集已在运行中，请稍候"}), 200
+    return jsonify({"ok": False, "running": True, "error": "采集已在运行中，请稍候", "code": "crawl_running"})
 
 @api.route('/crawl/status', methods=['GET'])
 def crawl_status():
@@ -1476,7 +1512,7 @@ def clear_crawl_logs():
 
     has_filter = any(_active(k) for k in ('task_type', 'status', 'error_code', 'days')) or _active('q')
     if not has_filter:
-        return jsonify({"error": "请先设置筛选条件（任务 / 状态 / 报错类型 / 时间 / 关键词）后再清理，避免误删全部日志"}), 400
+        return fail("请先设置筛选条件（任务 / 状态 / 报错类型 / 时间 / 关键词）后再清理，避免误删全部日志", 400)
 
     q = _crawl_log_query()
     scope_parts = []
@@ -1491,7 +1527,7 @@ def clear_crawl_logs():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": f"清理失败: {str(e)[:120]}"}), 200
+        return fail(f"清理失败: {str(e)[:120]}", 500, "cleanup_failed")
     return jsonify({"ok": True, "deleted": n, "message": f"已按条件清理 {n} 条采集日志（{scope}）"})
 
 
@@ -1540,7 +1576,7 @@ def get_urgent_tasks():
         db.session.commit()
         return jsonify({"ok": True, "source": "ai", "generated_at": ts_str, **plan})
     except Exception as e:
-        return jsonify({"ok": False, "error": f"AI 分析失败: {str(e)[:200]}"}), 200
+        return jsonify({"ok": False, "error": f"AI 分析失败: {str(e)[:200]}", "code": "ai_failed"})
 
 @api.route('/ai/urgent-tasks/refresh', methods=['POST'])
 def refresh_urgent_tasks():
@@ -1561,7 +1597,7 @@ def delete_lead(id):
     这里打 is_deleted 标记，线索从所有列表与统计中消失。"""
     l = Lead.query.get_or_404(id)
     if l.status == 'converted':
-        return jsonify({"error": "已转化线索不可删除"}), 400
+        return fail("已转化线索不可删除", 400, "invalid_state")
     # 解除关联引用，避免孤儿数据（商机/活动/联络计划的 lead_id 悬空）
     Opportunity.query.filter_by(lead_id=id).filter(alive(Opportunity)) \
         .update({'lead_id': None}, synchronize_session=False)
@@ -1636,7 +1672,7 @@ def get_options():
 def claim_lead(id):
     l = Lead.query.get_or_404(id)
     if l.status != 'pool':
-        return jsonify({"error": "仅公海池线索可领取"}), 400
+        return fail("仅公海池线索可领取", 400, "invalid_state")
     d = request.get_json() or {}
     l.status = 'active'
     l.assignee = d.get('assignee', '李明')
@@ -1647,7 +1683,7 @@ def claim_lead(id):
 def release_lead(id):
     l = Lead.query.get_or_404(id)
     if l.status != 'active':
-        return jsonify({"error": "仅待转化线索可释放至公海"}), 400
+        return fail("仅待转化线索可释放至公海", 400, "invalid_state")
     l.status = 'pool'
     l.assignee = ''
     l.reason = ((request.get_json() or {}).get('reason') or '')[:300]
@@ -1888,20 +1924,32 @@ def _text_to_md(text):
 
 @api.route('/leads/<int:id>/fulltext', methods=['GET'])
 def lead_fulltext(id):
-    """线索公告全文：返回 Markdown 格式文本，近似还原公告原版式。"""
+    """只读返回库里已有的公告全文（Markdown）。
+
+    抓取动作在 POST /leads/<id>/fulltext/fetch：GET 里顺手抓远端并写库，
+    会让浏览器预取/重试都触发一次抓取，还会把站点故障表现为「读取失败」5xx。
+    """
     l = Lead.query.get_or_404(id)
     if l.full_text:
-        _backfill_summary(l, l.full_text)
-        db.session.commit()
-        return jsonify({"source": "stored", "text": _text_to_md(l.full_text)})
+        return jsonify({"source": "stored", "text": _text_to_md(l.full_text),
+                        "need_fetch": False, "fetchable": bool(l.source_url)})
+    return jsonify({"source": "none", "text": "",
+                    "need_fetch": True, "fetchable": bool(l.source_url)})
+
+
+@api.route('/leads/<int:id>/fulltext/fetch', methods=['POST'])
+def fetch_lead_fulltext(id):
+    """按原文链接抓取公告正文，存库并返回 Markdown。"""
+    l = Lead.query.get_or_404(id)
     if not l.source_url:
-        return jsonify({"error": "该线索无原文链接，无法获取全文"}), 400
+        return fail("该线索无原文链接，无法获取全文", 400, "no_source_url")
     from app.services.netutil import safe_get, SafeFetchError
     try:
         resp = safe_get(l.source_url, timeout=15)
     except SafeFetchError as e:
         # 安全校验未过（内网/非法URL）回 400；网络/远端故障回 502
-        return jsonify({"error": f"抓取失败: {e}"}), 400 if e.security else 502
+        code = 'url_blocked' if e.security else 'remote_unavailable'
+        return fail(f"抓取失败: {e}", 400 if e.security else 502, code)
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(resp.text, 'html.parser')
     for tag in soup(['script', 'style', 'noscript', 'iframe', 'form', 'button']):
@@ -1910,6 +1958,7 @@ def lead_fulltext(id):
     md = _html_to_md(soup)
     if not md.strip():
         md = _text_to_md(raw_text)
+    l.full_text = clean_text(raw_text)[:60000]  # 与采集入库同一口径与同一上限
     _backfill_summary(l, raw_text)
     db.session.commit()
     return jsonify({"source": "fetched", "text": md})
@@ -1937,7 +1986,7 @@ def global_search():
 @api.route('/config/scheduler', methods=['GET'])
 def scheduler_status():
     """定时任务可视化：采集计划 + 备份列表 + 下次执行时间。"""
-    from app.services.scheduler import get_scheduler, _crawl_config
+    from app.services.scheduler import get_scheduler, _crawl_config, next_crawl_run
     enabled, hh, mm = _crawl_config()
     sched = get_scheduler()
     next_runs = {}
@@ -1945,6 +1994,9 @@ def scheduler_status():
         for job in sched.get_jobs():
             if job.next_run_time:
                 next_runs[job.id] = str(job.next_run_time)[:19]
+    # 采集任务是每 10 分钟一个观察点，job.next_run_time 只会显示下个整点，
+    # 那不是用户关心的「下次采集时间」，所以按配置时刻单独算
+    nxt = next_crawl_run() if enabled else None
     backup_dir = os.path.join(current_app.instance_path, 'backups')
     backups = []
     if os.path.isdir(backup_dir):
@@ -1953,7 +2005,7 @@ def scheduler_status():
                 fp = os.path.join(backup_dir, f)
                 backups.append({"name": f, "size_kb": round(os.path.getsize(fp) / 1024), "mtime": datetime.fromtimestamp(os.path.getmtime(fp)).strftime('%Y-%m-%d %H:%M')})
     return jsonify({
-        "crawl": {"enabled": enabled, "time": f"{hh:02d}:{mm:02d}", "next_run": next_runs.get('scheduled_crawl', '')},
+        "crawl": {"enabled": enabled, "time": f"{hh:02d}:{mm:02d}", "next_run": str(nxt)[:19] if nxt else ''},
         "backup": {"schedule": "每日 02:30", "next_run": next_runs.get('scheduled_backup', ''), "keep": 14, "list": backups[:14]},
     })
 
@@ -1962,8 +2014,10 @@ def scheduler_status():
 def backup_now():
     """手动触发一次备份。"""
     from app.services.scheduler import scheduled_backup_job
-    scheduled_backup_job()
-    return jsonify({"message": "备份完成"})
+    name = scheduled_backup_job()
+    if not name:
+        return fail("备份未执行：数据库文件不可用", 500, "backup_skipped")
+    return jsonify({"message": "备份完成", "file": name})
 
 
 @api.route('/analytics', methods=['GET'])
@@ -2099,7 +2153,7 @@ def export_csv(etype):
     """按当前筛选结果导出 CSV。body: {"ids": [1,2,...]}（空/缺省=导出全部）"""
     spec = EXPORT_TYPES.get(etype)
     if not spec:
-        return jsonify({"error": f"不支持的导出类型: {etype}"}), 400
+        return fail(f"不支持的导出类型: {etype}", 400)
     d = request.get_json() or {}
     ids = d.get('ids') or []
     # 预加载导出时用到的人类可读关联，避免逐行触发 N+1 查询
@@ -2116,7 +2170,7 @@ def export_csv(etype):
         query = query.filter(spec['model'].id.in_(ids))
     items = query.all()
     if not items:
-        return jsonify({"error": "当前无数据可导出"}), 400
+        return fail("当前无数据可导出", 400)
 
     # UTF-8 BOM 确保 Excel 直接打开不乱码
     buf = io.StringIO()

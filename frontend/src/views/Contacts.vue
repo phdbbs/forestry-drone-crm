@@ -40,13 +40,10 @@
         </el-table-column>
         <el-table-column prop="name" label="姓名" min-width="150" sortable="custom">
           <template #default="{ row }">
-            <div>
-              <div class="cell-title-text" :title="row.name">{{ row.name }}</div>
-              <div v-if="staleDays(row.last_activity_at) !== null" class="stale-tag" :class="{ 'is-hot': staleDays(row.last_activity_at) >= 30 }">已 {{ staleDays(row.last_activity_at) }} 天未联络</div>
-            </div>
             <div class="p-body">
-              <div class="cell-title-text is-link" @click="viewDetail(row.id)">{{ row.name }}</div>
+              <div class="cell-title-text is-link" :title="row.name" @click="viewDetail(row.id)">{{ row.name }}</div>
               <div v-if="row.title" class="cell-meta">{{ row.title }}</div>
+              <div v-if="staleDays(row.last_activity_at) !== null" class="cell-meta stale-tag" :class="{ 'is-hot': staleDays(row.last_activity_at) >= 30 }">已 {{ staleDays(row.last_activity_at) }} 天未联络</div>
             </div>
           </template>
         </el-table-column>

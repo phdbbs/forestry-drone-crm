@@ -3,6 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 import logging
 import os
 
+from app.errors import fail
+
 db = SQLAlchemy()
 logger = logging.getLogger('crm')
 
@@ -188,7 +190,7 @@ def _install_auth_gate(app):
     而服务监听 0.0.0.0，同网段任意设备都能直接操作数据。
     这里统一加一道闸，而不是逐个端点装饰，避免新接口默认漏保护。
     """
-    from flask import jsonify, request
+    from flask import request
 
     @app.before_request
     def _require_login():
@@ -203,9 +205,9 @@ def _install_auth_gate(app):
         from app.services.auth import current_user, is_admin
         user = current_user()
         if user is None:
-            return jsonify({"error": "请先登录", "code": "unauthorized"}), 401
+            return fail("请先登录", 401)
         if _is_admin_only_request(request) and not is_admin(user):
-            return jsonify({"error": "需要管理员权限", "code": "forbidden"}), 403
+            return fail("需要管理员权限", 403)
 
 
 def _load_secret_key(instance_dir):
@@ -299,11 +301,8 @@ def create_app(config=None):
     def _missing_dist_response():
         # v3.0 内联 SPA（static/index.html）已下线归档至 deprecated/，
         # Vue 构建产物是唯一入口；缺失时不再静默回退旧原型，而是给出明确修复指引。
-        from flask import jsonify
-        return jsonify({
-            "error": "前端构建产物缺失",
-            "hint": "请在 frontend/ 目录执行 npm install && npm run build，产物会输出到 app/static/dist/",
-        }), 503
+        return fail("前端构建产物缺失", 503, 'dist_missing',
+                    detail="请在 frontend/ 目录执行 npm install && npm run build，产物会输出到 app/static/dist/")
 
     @app.route('/')
     def serve_index():
@@ -317,7 +316,7 @@ def create_app(config=None):
 
     @app.route('/<path:path>')
     def serve_spa(path):
-        from flask import send_from_directory, jsonify
+        from flask import send_from_directory
         import os
         # 未注册的 /api/* 必须返回 JSON 404，不能被 SPA 兜底吞成 200 HTML，
         # 否则前端 fetch 拿到 HTML 会解析失败、掩盖接口拼写错误。
@@ -333,8 +332,8 @@ def create_app(config=None):
                 except Exception:
                     continue
                 if endpoint != 'serve_spa':
-                    return jsonify({"error": "请求方法不被允许"}), 405
-            return jsonify({"error": "接口不存在"}), 404
+                    return fail("请求方法不被允许", 405)
+            return fail("接口不存在", 404)
         # 依次查找 dist/ 与 static/ 下的静态文件；都未命中则回退 SPA 入口
         for base in (os.path.join(app.static_folder, 'dist'), app.static_folder):
             file_path = os.path.join(base, path)
@@ -344,7 +343,7 @@ def create_app(config=None):
         # 绝不能兜底成 index.html：HTML 顶替 JS 会让浏览器动态 import 抛出
         # 难以定位的 MIME/解析错误，前端"点击菜单没反应"多源于此。
         if path.startswith('assets/') or path.endswith(('.js', '.css', '.svg', '.png', '.ico', '.woff', '.woff2')):
-            return jsonify({"error": "静态资源不存在", "path": path}), 404
+            return fail("静态资源不存在", 404, 'asset_not_found', detail=path)
         dist_index = os.path.join(app.static_folder, 'dist', 'index.html')
         if os.path.isfile(dist_index):
             return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
@@ -488,43 +487,40 @@ def _migrate_db():
         conn.commit()
 
 def _register_error_handlers(app):
-    from flask import jsonify
     from sqlalchemy.exc import IntegrityError
-
-    _HTTP_ERROR_TEXT = {
-        400: '请求参数有误',
-        404: '请求的资源不存在',
-        405: '请求方法不被允许',
-        415: '请求体必须为 JSON 格式',
-    }
+    from app.errors import http_error
 
     @app.errorhandler(400)
     @app.errorhandler(404)
     @app.errorhandler(405)
     @app.errorhandler(415)
     def handle_http_error(e):
-        # abort(400, description=...) 传入的业务提示优先；若仍是 Werkzeug 的类默认
-        # 描述（英文），则替换为统一中文文案，避免英文/内部细节透给前端
-        desc = getattr(e, 'description', None)
-        if desc and desc == getattr(type(e), 'description', None):
-            desc = None
-        return jsonify({"error": desc or _HTTP_ERROR_TEXT.get(e.code, '请求错误')}), e.code
+        # 统一形状由 http_error 负责：abort(400, description=...) 的业务提示优先，
+        # 若仍是 Werkzeug 的类默认描述（英文），则替换为中文兜底文案
+        return http_error(e)
 
     @app.errorhandler(KeyError)
-    @app.errorhandler(ValueError)
-    def handle_bad_request(e):
+    def handle_missing_param(e):
         db.session.rollback()
-        return jsonify({"error": f"参数错误: {e}"}), 400
+        # KeyError 的 str() 带引号且只有字段名，直接拼进文案会像内部报错
+        key = str((e.args or [''])[0]).strip("'\"")
+        return fail(f"请求参数有误: {key}" if key else "请求参数有误", 400, 'missing_param')
+
+    @app.errorhandler(ValueError)
+    def handle_bad_value(e):
+        db.session.rollback()
+        # 服务层用 ValueError 承载业务校验文案（如「口令至少 6 位」），可直接给用户看
+        return fail(str(e) or "请求参数有误", 400, 'bad_param')
 
     @app.errorhandler(IntegrityError)
     def handle_integrity_error(e):
         db.session.rollback()
-        detail = str(getattr(e, 'orig', e) or e).upper()
-        if 'FOREIGN KEY' in detail:
-            return jsonify({"error": "关联对象不存在，请检查所选客户/联系人/商机等是否有效"}), 400
-        if 'UNIQUE' in detail:
-            return jsonify({"error": "数据已存在，请勿重复提交"}), 400
-        return jsonify({"error": "数据完整性校验失败"}), 400
+        raw = str(getattr(e, 'orig', e) or e).upper()
+        if 'FOREIGN KEY' in raw:
+            return fail("关联对象不存在，请检查所选客户/联系人/商机等是否有效", 400, 'bad_reference')
+        if 'UNIQUE' in raw:
+            return fail("数据已存在，请勿重复提交", 400, 'duplicate')
+        return fail("数据完整性校验失败", 400, 'integrity_error')
 
     @app.errorhandler(500)
     def handle_server_error(e):
@@ -541,4 +537,4 @@ def _register_error_handlers(app):
             detail = str(orig)
         # 落盘完整堆栈：接口只返回通用文案，不记日志就等于故障无法回溯
         app.logger.error('服务器内部错误: %s\n%s', orig, detail)
-        return jsonify({"error": "服务器内部错误"}), 500
+        return fail("服务器内部错误", 500)
