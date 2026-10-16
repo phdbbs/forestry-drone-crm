@@ -198,6 +198,32 @@ class TestRegions:
         assert _extract_candidates('内蒙古自治区呼和浩特市新城区')[0] == '内蒙古自治区'
         assert resolve_region('本项目建设地点在福建省') == '福建'
 
+    def test_unit_03_009_ethnic_county_short_name(self):
+        """UNIT-03-009 「简称+县」写法不得缩成别的县名子串（回归：601401 景宁县被判成甘肃庆阳宁县）。
+
+        景宁的官方原名是「景宁畲族自治县」，索引里没有「景宁县」这个原名键；
+        早先只按原名索引逐字往短缩，「景宁县」就滑进了「宁县」（甘肃庆阳）。
+        """
+        from app.services.regions import _extract_candidates, resolve_region
+        title = '景宁县森林资源保护提升项目（2026-2030年松材线虫病防治）'
+        assert _extract_candidates(title)[2] == '景宁'
+        assert resolve_region(title) == '浙江丽水景宁'
+        # 来源按优先级取第一个命中，靠前的标题也不能把靠后的采购单位带跑
+        assert resolve_region(title, '景宁畲族自治县生态林业发展中心') == '浙江丽水景宁'
+
+    def test_unit_03_010_strip_suffix_scope(self):
+        """UNIT-03-010 脱后缀只用于县/旗，区级与「XX市市」维持原名索引的严格匹配。
+
+        「城北/河东/中原」这些区简称真实存在，脱「区」会把「XX区」错接到别的城市；
+        「天津市」也必须留在原名索引里落空，否则会误命中湖南常德的县级「津市」。
+        """
+        from app.services.regions import resolve_region
+        assert resolve_region('湖北省黄冈市黄梅县') == '湖北黄冈黄梅'
+        assert resolve_region('甘肃省庆阳市宁县') == '甘肃庆阳宁县'
+        assert resolve_region('湖南省常德市津市市') == '湖南常德津市'
+        assert resolve_region('天津市') == '天津'
+        assert resolve_region('青海省海东市平安区') == '青海海东平安'
+
 
 # ═══════════════════════════════════════════════════════════════
 # UNIT-04 爬虫解析与兜底提取（services/crawler.py）

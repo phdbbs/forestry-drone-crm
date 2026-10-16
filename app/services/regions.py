@@ -58,6 +58,31 @@ def _match_city(name):
     return cities.get(name) or []
 
 
+# 脱后缀查简称只用于县/旗：公告常写「景宁县」，而索引里的原名是
+# 「景宁畲族自治县」（简称键是「景宁」）。区级不做这层——「城北/河东/中原」
+# 都是真实存在的区简称，脱「区」会把「XX区」错接到别的城市；
+# 「市」也不做，否则「天津市」会被缩成湖南常德代管的县级「津市」。
+_STRIP_SUFFIXES = ('自治县', '县', '自治旗', '旗')
+
+
+def _match_county_key(name):
+    """返回 name 在索引里实际可用的键，没命中返回 ''。
+
+    先按原名（含后缀）查，查不到再脱掉县/旗后缀按简称查。关键是顺序：
+    缩字循环是从最长候选往短试的，这一层让「景宁县」在缩成别人县名子串
+    「宁县」（甘肃庆阳）之前就先命中「景宁」（浙江丽水）。
+    """
+    if _match_county_orig(name):
+        return name
+    for suf in _STRIP_SUFFIXES:
+        if name.endswith(suf):
+            short = name[:-len(suf)]
+            if len(short) >= 2 and _match_county(short):
+                return short
+            return ''
+    return ''
+
+
 def _match_province(name):
     provs = _load()['provinces']
     if name in provs:
@@ -122,9 +147,9 @@ def _extract_candidates(s):
     for mm in re.finditer(r'自治县|自治旗|林区|特区|新区|矿区|[县区旗市]', s):
         end, start_min = mm.end(), max(0, mm.start() - 12)
         for start in range(start_min, mm.start()):
-            cand = s[start:end]
-            if _match_county_orig(cand):
-                county = cand
+            key = _match_county_key(s[start:end])
+            if key:
+                county = key
                 break
         if county:
             break
