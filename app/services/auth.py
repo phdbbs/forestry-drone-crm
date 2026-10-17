@@ -130,3 +130,8 @@ def current_user():
     g.crm_user = user
     return user
 
+
+# 业务表里的「操作人」列在没有登录身份时的取值：定时采集、脚本导入、
+# 以及改造上线前的历史行，都归到这个名字，列表永远不会出现空操作人。
+SYSTEM_ACTOR = '系统'
+

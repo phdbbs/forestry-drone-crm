@@ -3,7 +3,7 @@ from app.errors import fail
 from flask import current_app
 from app import db
 from app.models import (
-    Customer, CustomerNews, Lead, Opportunity, OpportunityStage,
+    Customer, CustomerNews, Lead, LeadOperation, Opportunity, OpportunityStage,
     StageRecord, Contact, Activity, KanbanBoard, KanbanColumn,
     KanbanCard, SystemConfig, Skill, FollowUp, ContactNews, CrawlLog
 )
@@ -28,6 +28,47 @@ def _require_fields(d, *fields):
     missing = [f for f in fields if not str(d.get(f) or '').strip()]
     if missing:
         abort(400, description=f"缺少必填字段: {', '.join(missing)}")
+
+
+def _actor():
+    """写入操作人列的当前登录人名。
+
+    AUTH_DISABLED（测试基线）下 current_user() 查不到 uid，但那个人名并非真的
+    「系统」自动写的，所以这里给独立的「未登录」，避免和采集/历史行混淆。
+    """
+    from flask import current_app
+    from app.services.auth import SYSTEM_ACTOR, current_user
+    if current_app.config.get('AUTH_DISABLED'):
+        return '未登录'
+    user = current_user()
+    return (user.name if user else '') or SYSTEM_ACTOR
+
+
+def _log_lead_op(lead_id, action, detail=''):
+    """记一条线索操作流水。只 add 不 commit，由调用方的业务写入一起提交，
+    保证「状态改了但没留痕」和「留痕了但状态没改」都不会出现。"""
+    db.session.add(LeadOperation(
+        lead_id=lead_id, action=action, operator=_actor(), detail=(detail or '')[:300]))
+
+
+def _last_lead_ops(lead_ids):
+    """{lead_id: 最近一次操作流水}。列表逐行查会打出 N 条 SQL，这里压成一次聚合。"""
+    if not lead_ids:
+        return {}
+    from sqlalchemy import func as _f
+    latest = (db.session.query(LeadOperation.lead_id, _f.max(LeadOperation.id).label('last_id'))
+              .filter(LeadOperation.lead_id.in_(lead_ids))
+              .group_by(LeadOperation.lead_id).subquery())
+    return {r.lead_id: r for r in db.session.query(LeadOperation)
+            .join(latest, LeadOperation.id == latest.c.last_id).all()}
+
+
+def _lead_brief(lead):
+    """联系人详情里的来源线索摘要：备注要能追回那条招标公告，所以必须带编号、类别和原文链接。"""
+    if lead is None:
+        return None
+    return {"id": lead.id, "serial_no": lead.serial_no or '', "title": lead.title,
+            "bid_type": lead.bid_type or '', "source_url": lead.source_url or ''}
 
 
 def _text(value, default=''):
@@ -320,9 +361,13 @@ def list_leads():
         page = page_size = None
         leads = query.order_by(Lead.created_at.desc(), Lead.id.desc()).all()
     result = []
+    last_ops = _last_lead_ops([l.id for l in leads])
     for l in leads:
         days_left = (l.deadline.date() - datetime.now().date()).days if l.deadline else None
-        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "serial_no": l.serial_no or "", "reason": l.reason or "", "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
+        op = last_ops.get(l.id)
+        # 流水上线前的老线索没有操作记录，操作人按「系统」展示，时间退回行的最后修改时间
+        op_time = op.created_at if op else (l.updated_at or l.created_at)
+        result.append({"id": l.id, "title": l.title, "bid_number": l.bid_number, "budget": l.budget, "deadline": str(l.deadline.date()) if l.deadline else None, "days_left": days_left, "region": l.region, "purchaser": l.purchaser, "contact_name": l.contact_name or '', "contact_phone": l.contact_phone or '', "address": l.address or '', "service_content": l.service_content, "match_keywords": l.match_keywords, "match_level": l.match_level, "match_score": l.match_score or 0, "match_reason": l.match_reason, "assignee": l.assignee or '', "operator": op.operator if op else '系统', "operation": op.action if op else '', "operated_at": op_time.strftime('%Y-%m-%d %H:%M') if op_time else None, "bid_type": l.bid_type or '', "winner": l.winner or '', "related_customer_ids": l.related_customer_ids or '', "serial_no": l.serial_no or "", "reason": l.reason or "", "source_platform": l.source_platform, "source_url": l.source_url, "status": l.status, "customer_id": l.customer_id, "customer_name": l.customer.name if l.customer else None, "created_at": str(l.created_at.date()) if l.created_at else None})
     if paginated:
         return jsonify({"items": result, "total": total, "page": page, "page_size": page_size, "pages": pages})
     return jsonify(result)
@@ -359,6 +404,8 @@ def create_lead():
     match_lead(l)
     l.serial_no = gen_serial(l.created_at or datetime.now())
     db.session.add(l)
+    db.session.flush()
+    _log_lead_op(l.id, '新建')
     db.session.commit()
     return jsonify({"id": l.id, "message": "创建成功"})
 
@@ -375,9 +422,19 @@ def update_lead(id):
     d = request.get_json() or {}
     if 'status' in d and d['status'] not in ('active', 'abandoned'):
         return fail("状态无效", 400)
+    changed = []
+    old_status = l.status
     for key in ['title','bid_number','budget','region','purchaser','contact_name','contact_phone','address','service_content','match_keywords','match_level','match_score','match_reason','assignee','bid_type','winner','related_customer_ids','source_platform','source_url','status','customer_id']:
-        if key in d: setattr(l, key, normalize_amount_text(d[key]) if key == 'budget' else d[key])
+        if key in d:
+            new_val = normalize_amount_text(d[key]) if key == 'budget' else d[key]
+            if getattr(l, key) != new_val:
+                setattr(l, key, new_val)
+                changed.append(key)
     if 'deadline' in d: l.deadline = _parse_date(d.get('deadline'))
+    if changed:
+        # 前端「恢复」走 PUT status=active，这里按语义记成恢复而不是编辑
+        action = '恢复' if (l.status == 'active' and old_status == 'abandoned') else '编辑'
+        _log_lead_op(l.id, action, '、'.join(changed[:6]) + ('…' if len(changed) > 6 else ''))
     db.session.commit()
     return jsonify({"id": l.id, "message": "更新成功"})
 
@@ -437,6 +494,7 @@ def convert_lead(id):
         db.session.add(contact)
         db.session.flush()
         contact_id = contact.id
+        contact.lead_id = l.id
     o = Opportunity(lead_id=l.id, customer_id=customer_id, contact_id=contact_id,
                     title=d.get('title', l.title), amount=normalize_amount_text(d.get('amount', l.budget)),
                     current_stage=d.get('stage', '初步接触'),
@@ -449,10 +507,11 @@ def convert_lead(id):
         db.session.flush()
         db.session.add(Activity(
             customer_id=customer_id, contact_id=contact_id, opportunity_id=o.id, lead_id=l.id,
-            method='转化', content=reason, activity_time=datetime.now()))
+            method='转化', content=reason, activity_time=datetime.now(), operator=_actor()))
     # 回写客户关联：已转化线索在列表中能显示客户名，避免关联断链
     if customer_id:
         l.customer_id = customer_id
+    _log_lead_op(l.id, '转化', f"转为商机[{(o.title or '')[:40]}]")
     db.session.commit()
     return jsonify({"id": o.id, "message": "已转为商机"})
 
@@ -469,6 +528,7 @@ def batch_leads():
         return fail("未选择线索", 400)
     leads = Lead.query.filter(Lead.id.in_([int(i) for i in ids])).all()
     done, skipped = 0, []
+    operator = _actor()
     for l in leads:
         if action == 'release':
             if l.status != 'active':
@@ -483,6 +543,8 @@ def batch_leads():
                 continue
             l.status = 'abandoned'
             l.reason = reason
+        db.session.add(LeadOperation(lead_id=l.id, action='释放' if action == 'release' else '删除',
+                                     operator=operator, detail=reason))
         done += 1
     db.session.commit()
     msg = f"已{('释放' if action == 'release' else '删除')} {done} 条"
@@ -497,16 +559,24 @@ def abandon_lead(id):
         return fail("已转化线索不可删除", 400, "invalid_state")
     l.status = 'abandoned'
     l.reason = (request.get_json() or {}).get('reason', '')[:300]
+    _log_lead_op(l.id, '删除', l.reason)
     db.session.commit()
     return jsonify({"message": "已删除，可在已删除中恢复"})
 
 @api.route('/opportunities', methods=['GET'])
 def list_opportunities():
-    ops = Opportunity.query.options(
+    query = Opportunity.query.options(
         joinedload(Opportunity.customer),
         joinedload(Opportunity.contact),
         joinedload(Opportunity.stage_records),
-    ).order_by(Opportunity.created_at.desc()).all()
+    )
+    contact_id = _int_arg('contact_id')
+    customer_id = _int_arg('customer_id')
+    if contact_id:
+        query = query.filter(Opportunity.contact_id == contact_id)
+    if customer_id:
+        query = query.filter(Opportunity.customer_id == customer_id)
+    ops = query.order_by(Opportunity.created_at.desc()).all()
     return jsonify([{"id": o.id, "title": o.title, "amount": o.amount, "source_url": o.source_url or '', "current_stage": o.current_stage, "probability": o.probability or 20, "expected_close": str(o.expected_close.date()) if o.expected_close else None, "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None, "contact_id": o.contact_id, "contact_name": o.contact.name if o.contact else None, "lead_id": o.lead_id, "created_at": str(o.created_at.date()) if o.created_at else None, "stages": [{"stage": s.stage_name, "content": s.content, "deadline": str(s.deadline.date()) if s.deadline else None, "status": s.status, "created_at": str(s.created_at.date()) if s.created_at else None} for s in o.stage_records]} for o in ops])
 
 @api.route('/opportunities/<int:id>', methods=['GET'])
@@ -577,7 +647,7 @@ def delete_stage(id):
 def list_contacts():
     q = request.args.get('search', '')
     customer_id = _int_arg('customer_id')
-    query = Contact.query.options(joinedload(Contact.customer))
+    query = Contact.query.options(joinedload(Contact.customer), joinedload(Contact.lead))
     if q: query = query.filter(Contact.name.contains(q))
     if customer_id: query = query.filter_by(customer_id=customer_id)
     rows = query.all()
@@ -589,7 +659,7 @@ def list_contacts():
         la = (db.session.query(Activity.contact_id, _f.max(Activity.activity_time))
               .filter(Activity.contact_id.in_(ids)).group_by(Activity.contact_id).all())
         last_act = {cid: t for cid, t in la}
-    return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or c.name[0] if c.name else '', "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes, "last_activity_at": str(last_act[c.id]) if last_act.get(c.id) else ""} for c in rows])
+    return jsonify([{"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or c.name[0] if c.name else '', "importance": c.importance, "customer_id": c.customer_id, "customer_name": c.customer.name if c.customer else None, "business_scope": c.business_scope, "notes": c.notes, "lead": _lead_brief(c.lead), "last_activity_at": str(last_act[c.id]) if last_act.get(c.id) else ""} for c in rows])
 
 @api.route('/contacts', methods=['POST'])
 def create_contact():
@@ -607,7 +677,12 @@ def get_contact(id):
     customer = c.customer
     news = [{"id": n.id, "title": n.title, "date": str(n.publish_date.date()) if n.publish_date else None, "url": n.url} for n in customer.news_items] if customer else []
     contact_news = [{"id": n.id, "title": n.title, "url": n.url, "source_name": n.source_name or '', "date": str(n.publish_date.date()) if n.publish_date else None, "event_time": str(n.event_time.date()) if n.event_time else None, "summary": n.summary or '', "crawled_at": str(n.crawled_at) if n.crawled_at else None} for n in c.news_items]
-    return jsonify({"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or (c.name[0] if c.name else ''), "importance": c.importance, "customer_id": c.customer_id, "customer_name": customer.name if customer else None, "business_scope": c.business_scope, "notes": c.notes, "news": news, "contact_news": contact_news})
+    # 一个联系人可以挂多条商机（商机表用 contact_id 单值外键指向同一个联系人）
+    opps = Opportunity.query.filter_by(contact_id=id).order_by(Opportunity.created_at.desc()).all()
+    opportunities = [{"id": o.id, "title": o.title, "amount": o.amount, "current_stage": o.current_stage,
+                      "customer_id": o.customer_id, "customer_name": o.customer.name if o.customer else None,
+                      "created_at": str(o.created_at.date()) if o.created_at else None} for o in opps]
+    return jsonify({"id": c.id, "name": c.name, "title": c.title, "phone": c.phone, "email": c.email, "wechat": c.wechat, "role": c.role or '', "tags": c.tags or '', "avatar": c.avatar or (c.name[0] if c.name else ''), "importance": c.importance, "customer_id": c.customer_id, "customer_name": customer.name if customer else None, "business_scope": c.business_scope, "notes": c.notes, "lead": _lead_brief(c.lead), "opportunities": opportunities, "news": news, "contact_news": contact_news})
 
 @api.route('/contacts/<int:id>', methods=['PUT'])
 def update_contact(id):
@@ -640,6 +715,7 @@ def list_activities():
     q = request.args.get('search', '')
     method = request.args.get('method', '')
     customer_id = _int_arg('customer_id')
+    contact_id = _int_arg('contact_id')
     opportunity_id = _int_arg('opportunity_id')
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -650,6 +726,7 @@ def list_activities():
     if q: query = query.filter(Activity.content.contains(q))
     if method: query = query.filter_by(method=method)
     if customer_id: query = query.filter_by(customer_id=customer_id)
+    if contact_id: query = query.filter_by(contact_id=contact_id)
     if opportunity_id: query = query.filter_by(opportunity_id=opportunity_id)
     if date_from:
         d = _parse_date(date_from)
@@ -658,12 +735,12 @@ def list_activities():
         d = _parse_date(date_to)
         if d: query = query.filter(Activity.activity_time < d + timedelta(days=1))
     acts = query.order_by(Activity.activity_time.desc()).all()
-    return jsonify([{"id": a.id, "title": a.title, "method": a.method, "content": a.content, "activity_time": str(a.activity_time) if a.activity_time else None, "next_followup_time": str(a.next_followup_time.date()) if a.next_followup_time else None, "next_followup_content": a.next_followup_content, "customer_id": a.customer_id, "customer_name": a.customer.name if a.customer else None, "contact_id": a.contact_id, "contact_name": a.contact.name if a.contact else None, "opportunity_id": a.opportunity_id, "opportunity_title": a.opportunity.title if a.opportunity else None, "lead_id": a.lead_id} for a in acts])
+    return jsonify([{"id": a.id, "title": a.title, "method": a.method, "content": a.content, "operator": a.operator or '系统', "activity_time": str(a.activity_time) if a.activity_time else None, "next_followup_time": str(a.next_followup_time.date()) if a.next_followup_time else None, "next_followup_content": a.next_followup_content, "customer_id": a.customer_id, "customer_name": a.customer.name if a.customer else None, "contact_id": a.contact_id, "contact_name": a.contact.name if a.contact else None, "opportunity_id": a.opportunity_id, "opportunity_title": a.opportunity.title if a.opportunity else None, "lead_id": a.lead_id} for a in acts])
 
 @api.route('/activities', methods=['POST'])
 def create_activity():
     d = request.get_json() or {}
-    a = Activity(title=_text(d.get('title')), customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), opportunity_id=d.get('opportunity_id'), lead_id=d.get('lead_id'), method=_text(d.get('method')), content=_text(d.get('content')), activity_time=_parse_datetime(d.get('time')) or datetime.now(), next_followup_time=_parse_date(d.get('next_time')), next_followup_content=_text(d.get('next_content')), add_to_kanban=d.get('add_to_kanban', False))
+    a = Activity(title=_text(d.get('title')), customer_id=d.get('customer_id'), contact_id=d.get('contact_id'), opportunity_id=d.get('opportunity_id'), lead_id=d.get('lead_id'), method=_text(d.get('method')), content=_text(d.get('content')), activity_time=_parse_datetime(d.get('time')) or datetime.now(), next_followup_time=_parse_date(d.get('next_time')), next_followup_content=_text(d.get('next_content')), add_to_kanban=d.get('add_to_kanban', False), operator=_actor())
     db.session.add(a)
     if a.add_to_kanban:
         db.session.flush()
@@ -688,6 +765,7 @@ def create_activity():
             content=fu_content,
             ai_suggested_content=ai_suggested,
             source_activity_id=a.id,
+            operator=_actor(),
             add_to_kanban=d.get('add_to_kanban', False)
         )
         db.session.add(fu)
@@ -709,7 +787,7 @@ def create_activity():
 @api.route('/activities/<int:id>', methods=['GET'])
 def get_activity(id):
     a = Activity.query.get_or_404(id)
-    return jsonify({"id": a.id, "title": a.title, "method": a.method, "content": a.content, "activity_time": str(a.activity_time) if a.activity_time else None, "next_followup_time": str(a.next_followup_time.date()) if a.next_followup_time else None, "next_followup_content": a.next_followup_content, "customer_id": a.customer_id, "customer_name": a.customer.name if a.customer else None, "contact_id": a.contact_id, "contact_name": a.contact.name if a.contact else None, "opportunity_id": a.opportunity_id, "opportunity_title": a.opportunity.title if a.opportunity else None, "lead_id": a.lead_id})
+    return jsonify({"id": a.id, "title": a.title, "method": a.method, "content": a.content, "operator": a.operator or '系统', "activity_time": str(a.activity_time) if a.activity_time else None, "next_followup_time": str(a.next_followup_time.date()) if a.next_followup_time else None, "next_followup_content": a.next_followup_content, "customer_id": a.customer_id, "customer_name": a.customer.name if a.customer else None, "contact_id": a.contact_id, "contact_name": a.contact.name if a.contact else None, "opportunity_id": a.opportunity_id, "opportunity_title": a.opportunity.title if a.opportunity else None, "lead_id": a.lead_id})
 
 @api.route('/activities/<int:id>', methods=['PUT'])
 def update_activity(id):
@@ -799,6 +877,7 @@ def list_followups():
         "opportunity_title": f.opportunity.title if f.opportunity else None,
         "plan_date": str(f.plan_date) if f.plan_date else None,
         "content": f.content, "ai_suggested_content": f.ai_suggested_content,
+        "operator": f.operator or '系统', "executed_by": f.executed_by or '',
         "actual_date": str(f.actual_date) if f.actual_date else None,
         "actual_content": f.actual_content, "source_activity_id": f.source_activity_id,
         "add_to_kanban": f.add_to_kanban,
@@ -815,6 +894,7 @@ def create_followup():
         opportunity_id=d.get('opportunity_id'),
         plan_date=_parse_date(d.get('plan_date')),
         content=_text(d.get('content')), ai_suggested_content=_text(d.get('ai_content')),
+        operator=_actor(),
         add_to_kanban=d.get('add_to_kanban', False)
     )
     db.session.add(f)
@@ -877,6 +957,7 @@ def execute_followup(id):
     now = datetime.now()
     f.actual_date = now
     f.actual_content = content
+    f.executed_by = _actor()
     a = Activity(
         customer_id=f.customer_id, contact_id=f.contact_id, opportunity_id=f.opportunity_id,
         lead_id=f.lead_id, method=d.get('method', '电话') or '电话',
@@ -884,6 +965,7 @@ def execute_followup(id):
         activity_time=now,
         next_followup_time=_parse_date(d.get('next_time')),
         next_followup_content=d.get('next_content', ''),
+        operator=f.executed_by,
     )
     db.session.add(a)
     db.session.flush()
@@ -896,6 +978,7 @@ def execute_followup(id):
             plan_date=a.next_followup_time, content=next_content,
             ai_suggested_content=f"来源于联络计划执行 [{a.method}] 客户: {f.customer.name if f.customer else '-'} | 内容: {content[:100]}",
             source_activity_id=a.id,
+            operator=f.executed_by,
         ))
     db.session.commit()
     return jsonify({"id": f.id, "activity_id": a.id, "message": "已记录本次联络，并在日常联络中可见"})
@@ -1610,6 +1693,7 @@ def delete_lead(id):
     FollowUp.query.filter_by(lead_id=id).filter(alive(FollowUp)) \
         .update({'lead_id': None}, synchronize_session=False)
     l.is_deleted = True
+    _log_lead_op(l.id, '彻底删除', l.reason or '')
     db.session.commit()
     return jsonify({"message": "已删除"})
 
@@ -1667,7 +1751,7 @@ def get_options():
                 return [v.strip() for v in val.split(',') if v.strip()]
         return default
     return jsonify({
-        "customer_types": parse_list('opt_customer_types', ['政府部门', '事业单位', '国有企业', '民营企业', '科研院所', '其他']),
+        "customer_types": parse_list('opt_customer_types', ['政府/林场', '集成伙伴', '林业行业', '其他占位1', '其他占位2', '其他占位3']),
         "customer_levels": parse_list('opt_customer_levels', ['A-重点客户', 'B-重要客户', 'C-一般客户', 'D-潜在客户']),
         "regions": parse_list('opt_regions', ['北京','上海','重庆','天津','河北','山西','辽宁','吉林','黑龙江','江苏','浙江','安徽','福建','江西','山东','河南','湖北','湖南','广东','海南','四川','贵州','云南','陕西','甘肃','青海','内蒙古','广西','西藏','宁夏','新疆']),
     })
@@ -1679,7 +1763,9 @@ def claim_lead(id):
         return fail("仅公海池线索可领取", 400, "invalid_state")
     d = request.get_json() or {}
     l.status = 'active'
-    l.assignee = d.get('assignee', '李明')
+    # 领取人默认当前登录人，不再写死某个销售的名字
+    l.assignee = (d.get('assignee') or '').strip() or _actor()
+    _log_lead_op(l.id, '领取', l.assignee)
     db.session.commit()
     return jsonify({"id": l.id, "message": f"已领取线索: {l.title[:30]}"})
 
@@ -1691,6 +1777,7 @@ def release_lead(id):
     l.status = 'pool'
     l.assignee = ''
     l.reason = ((request.get_json() or {}).get('reason') or '')[:300]
+    _log_lead_op(l.id, '释放', l.reason)
     db.session.commit()
     return jsonify({"message": "已释放至公海池"})
 
@@ -2011,6 +2098,7 @@ def scheduler_status():
     return jsonify({
         "crawl": {"enabled": enabled, "time": f"{hh:02d}:{mm:02d}", "next_run": str(nxt)[:19] if nxt else ''},
         "backup": {"schedule": "每日 02:30", "next_run": next_runs.get('scheduled_backup', ''), "keep": 14, "list": backups[:14]},
+        "summary": {"schedule": "每日 03:30", "next_run": next_runs.get('scheduled_summary', '')},
     })
 
 

@@ -104,7 +104,24 @@ def finish_log(log, items_count=0, errors=None, status=None, message=''):
             db.session.rollback()
         except Exception:
             pass
+    _note_audit(log, result)
     return result
+
+
+def _note_audit(log, result):
+    """把采集本身也记进操作日志。
+
+    采集线程没有请求上下文，中间件看不到它：不补这一行，
+    「定时采集成败了几次、新增多少条」在操作日志和每日汇总里就是空白。
+    """
+    from app.services.audit import log_action
+    task = log.task_type or '采集'
+    module = '新闻采集' if '新闻' in task else '采集'
+    status = result.get('status') or '未知'
+    ok = status == 'success'
+    detail = (f'{task}{"完成" if ok else f"结束（{status}）"}：'
+              f'新增 {result.get("items_count", 0)} 条，报错 {result.get("error_count", 0)} 个')
+    log_action('采集', module, detail[:300])
 
 
 def mark_stale_logs(minutes=_STALE_MINUTES):

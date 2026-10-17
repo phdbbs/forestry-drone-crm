@@ -17,6 +17,9 @@ class FollowUp(db.Model):
     add_to_kanban = db.Column(db.Boolean, default=False)
     kanban_card_id = db.Column(db.Integer, db.ForeignKey('kanban_cards.id'))
     source_activity_id = db.Column(db.Integer, db.ForeignKey('activities.id'))
+    # 计划创建人 / 执行人：历史行与无人值守写入统一为「系统」，执行人为空表示尚未执行
+    operator = db.Column(db.String(50), nullable=False, server_default='系统')
+    executed_by = db.Column(db.String(50), default='')
     is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)

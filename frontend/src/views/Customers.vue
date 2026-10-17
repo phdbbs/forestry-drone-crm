@@ -298,7 +298,7 @@ const dict = useDictStore()
 const route = useRoute()
 const router = useRouter()
 const custNo = (id) => (id === null || id === undefined ? '—' : String(id).padStart(6, '0'))
-const TYPE_OPTIONS = ['政府部门', '事业单位', '国有企业', '民营企业', '科研院所', '运营商', '科技公司']
+const TYPE_OPTIONS = ['政府/林场', '集成伙伴', '林业行业', '其他占位1', '其他占位2', '其他占位3']
 const LEVEL_OPTIONS = ['A-重点客户', 'B-重要客户', 'C-一般客户', 'D-潜在客户']
 const typeOptions = computed(() => (dict.options.customer_types?.length ? dict.options.customer_types : TYPE_OPTIONS))
 const levelOptions = computed(() => (dict.options.customer_levels?.length ? dict.options.customer_levels : LEVEL_OPTIONS))

@@ -174,6 +174,17 @@ def scheduled_backup_job():
         return None
 
 
+@_job
+def scheduled_summary_job():
+    """每日日志总结：归档昨天，并刷新今天已经发生的操作。
+
+    排在备份（02:30）之后：备份先把库复制走，汇总再往里写，
+    两个写任务不撞在同一把锁上。
+    """
+    from app.services.audit import scheduled_archive_job
+    return scheduled_archive_job()
+
+
 def init_scheduler(app):
     """在 create_app 末尾调用。生产环境启动每日定时任务。"""
     global _scheduler, _app
@@ -189,8 +200,10 @@ def init_scheduler(app):
                        misfire_grace_time=WATCH_INTERVAL_MINUTES * 60)
     _scheduler.add_job(scheduled_backup_job, 'cron', hour=2, minute=30, id='scheduled_backup',
                        max_instances=1, coalesce=True, misfire_grace_time=3600)
+    _scheduler.add_job(scheduled_summary_job, 'cron', hour=3, minute=30, id='scheduled_summary',
+                       max_instances=1, coalesce=True, misfire_grace_time=3600 * 6)
     _scheduler.start()
     app.logger.info(
         f'定时任务已启动：采集（每 {WATCH_INTERVAL_MINUTES} 分钟检查一次配置时刻）'
-        '/ 备份（每日 02:30）')
+        '/ 备份（每日 02:30）/ 操作日志汇总（每日 03:30）')
     return _scheduler

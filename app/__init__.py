@@ -166,11 +166,12 @@ def _configure_session(app):
 # 登录前必须可访问，否则永远无法完成登录（登出幂等，未登录调用也不该报错）
 _AUTH_EXEMPT = {'auth.status', 'auth.login', 'auth.setup', 'auth.logout'}
 
-# 管理员专属：系统设置（AI 口令/采集目标/定时任务/备份）、技能、采集日志、账号管理。
+# 管理员专属：系统设置（AI 口令/采集目标/定时任务/备份）、技能、采集日志、账号管理、操作日志。
 # 业务数据（线索/客户/联系人/商机/联络/看板）全员共享，不区分账号归属。
 # 用路径前缀而不是逐个端点加装饰器：新增接口只要落在这些前缀下就默认受限。
+# /api/track 故意不在这个名单里：埋点每个账号都要上报，普通销售点菜单不该吃 403。
 _ADMIN_PREFIXES = ('/api/config', '/api/skills', '/api/crawl/logs', '/api/error-types',
-                   '/api/users', '/api/news/collect-all')
+                   '/api/users', '/api/news/collect-all', '/api/audit')
 # 只限制写操作：阶段列表所有账号都要用来渲染商机页，改动配置才归管理员
 _ADMIN_WRITE_PREFIXES = ('/api/stages',)
 _WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
@@ -296,7 +297,11 @@ def create_app(config=None):
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     from app.routes.users import users_bp
     app.register_blueprint(users_bp, url_prefix='/api')
+    from app.routes.audit import audit_bp
+    app.register_blueprint(audit_bp, url_prefix='/api')
     _install_auth_gate(app)
+    from app.services.audit import install_audit
+    install_audit(app)
 
     def _missing_dist_response():
         # v3.0 内联 SPA（static/index.html）已下线归档至 deprecated/，
@@ -360,6 +365,13 @@ def create_app(config=None):
             logger.warning('清理残留采集日志失败（不影响服务）: %s', e)
         from app.services.seed import seed_if_empty
         seed_if_empty()
+        # 补归档：凌晨那次定时任务可能没跑成（首次上线、服务停机、机器休眠），
+        # 不补的话设置页的汇总表会缺一截，看起来就像功能压根没生效。
+        try:
+            from app.services.audit import ensure_recent_summaries
+            ensure_recent_summaries()
+        except Exception as e:
+            logger.warning('操作日志汇总补齐失败（不影响服务）: %s', e)
 
     # 定时任务（采集/备份）在生产启动时开启；测试环境由 CRM_DISABLE_SCHEDULER=1 关闭
     from app.services.scheduler import init_scheduler
@@ -405,7 +417,7 @@ def _migrate_db():
         'customers', 'customer_news', 'contact_news', 'crawl_logs', 'leads',
         'opportunities', 'opportunity_stages', 'stage_records', 'contacts',
         'activities', 'kanban_boards', 'kanban_columns', 'kanban_cards',
-        'skills', 'followups',
+        'skills', 'followups', 'lead_operations',
     )
     migrations = [
         ('leads', 'match_score', 'INTEGER DEFAULT 0'),
@@ -433,6 +445,12 @@ def _migrate_db():
         ('crawl_logs', 'duration_ms', 'INTEGER DEFAULT 0'),
         ('crawl_logs', 'error_types', "TEXT DEFAULT ''"),
         ('crawl_logs', 'error_detail', "TEXT DEFAULT ''"),
+        # 操作留痕：历史行无法追溯操作人，统一补成「系统」而不是留空，
+        # 这样列表里的「操作用户」列永远有值，前端不必再判空。
+        ('activities', 'operator', "VARCHAR(50) NOT NULL DEFAULT '系统'"),
+        ('followups', 'operator', "VARCHAR(50) NOT NULL DEFAULT '系统'"),
+        ('followups', 'executed_by', "VARCHAR(50) DEFAULT ''"),
+        ('contacts', 'lead_id', 'INTEGER'),
     ] + [(t, 'is_deleted', 'BOOLEAN NOT NULL DEFAULT 0') for t in soft_delete_tables]
     with db.engine.connect() as conn:
         for table, column, col_type in migrations:
@@ -464,6 +482,9 @@ def _migrate_db():
             "CREATE INDEX IF NOT EXISTS ix_opportunities_created_at ON opportunities (created_at)",
             "CREATE INDEX IF NOT EXISTS ix_stage_records_opportunity_id ON stage_records (opportunity_id)",
             "CREATE INDEX IF NOT EXISTS ix_contacts_customer_id ON contacts (customer_id)",
+            "CREATE INDEX IF NOT EXISTS ix_contacts_lead_id ON contacts (lead_id)",
+            "CREATE INDEX IF NOT EXISTS ix_lead_operations_lead_id ON lead_operations (lead_id)",
+            "CREATE INDEX IF NOT EXISTS ix_lead_operations_created_at ON lead_operations (created_at)",
             "CREATE INDEX IF NOT EXISTS ix_activities_customer_id ON activities (customer_id)",
             "CREATE INDEX IF NOT EXISTS ix_activities_contact_id ON activities (contact_id)",
             "CREATE INDEX IF NOT EXISTS ix_activities_opportunity_id ON activities (opportunity_id)",

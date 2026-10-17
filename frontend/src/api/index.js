@@ -128,3 +128,49 @@ export const stageColor = (name, names) => {
 }
 export const ROLE_OPTIONS = ['决策人', '业务负责人', '技术对接', '采购执行']
 export const METHOD_OPTIONS = ['电话', '视频会议', '现场拜访', '微信', '邮件']
+
+/**
+ * 点击埋点：把「谁点了哪个页面/按钮」上报给操作日志。
+ *
+ * 静默发送、不返回结果、失败不提示：埋点属于旁路，网络抖动时丢一条日志
+ * 远比弹一个「请求失败」红条重要；同时用 keepalive，避免跳转瞬间请求被砍掉。
+ */
+export function track(page, target = '') {
+  try {
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page: page || '', target: target || '' }),
+      keepalive: true,
+    }).catch(() => {})
+  } catch (e) { /* 埋点永不影响交互 */ }
+}
+
+/**
+ * GET 下载（后端直接回 CSV 的接口，如操作日志导出）。
+ * 与 exportCsv 的区别：参数在 query 上，且不走 POST ids。
+ */
+export async function downloadCsv(path, fallbackName) {
+  try {
+    const res = await fetch('/api' + path)
+    if (!res.ok) {
+      let msg = '导出失败'
+      try { msg = (await res.json()).error || msg } catch (e) {}
+      return msg
+    }
+    const blob = await res.blob()
+    const cd = res.headers.get('Content-Disposition') || ''
+    const m = cd.match(/filename\*=UTF-8''(.+)/)
+    const name = m ? decodeURIComponent(m[1]) : fallbackName
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 100)
+    return ''
+  } catch (e) {
+    return '导出异常: ' + e.message
+  }
+}

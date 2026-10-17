@@ -379,6 +379,194 @@
           </div>
         </el-tab-pane>
 
+        <!-- ------------------------------ 操作日志 ------------------------------ -->
+        <el-tab-pane v-if="auth.isAdmin" :label="opTabLabel" name="oplog">
+          <div class="tab-body">
+            <!-- 概览 -->
+            <div class="mini-grid">
+              <div class="mini-card">
+                <div class="mini-label">今日操作</div>
+                <div class="mini-value mono">{{ todayRow.total }}</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-label">今日写操作</div>
+                <div class="mini-value mono is-ok">{{ todayWrites }}</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-label">近 7 天操作</div>
+                <div class="mini-value mono">{{ weekTotal }}</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-label">近 7 天失败</div>
+                <div class="mini-value mono" :class="{ 'is-bad': weekFails > 0 }">{{ weekFails }}</div>
+              </div>
+            </div>
+
+            <!-- 每日总结 -->
+            <div class="section-title oplog-title">
+              <span>每日日志总结</span>
+              <div class="grow" />
+              <el-select v-model="sumDays" size="small" class="f-select" @change="loadSummary">
+                <el-option :value="7" label="近 7 天" />
+                <el-option :value="30" label="近 30 天" />
+                <el-option :value="90" label="近 90 天" />
+              </el-select>
+              <el-button size="small" :loading="sumGenerating" @click="generateSummary('')">生成今日总结</el-button>
+              <el-button size="small" :icon="Refresh" @click="loadSummary">刷新</el-button>
+            </div>
+            <el-table v-loading="sumLoading" :data="sumRows" size="small" row-key="day" empty-text="暂无汇总，可点击「生成今日总结」">
+              <el-table-column type="expand">
+                <template #default="{ row }">
+                  <div class="detail-wrap">
+                    <div class="sub-head">{{ row.headline }}</div>
+                    <div v-if="Object.keys(row.by_user || {}).length" class="chip-bar">
+                      <span class="bar-label">按用户</span>
+                      <span v-for="(n, u) in row.by_user" :key="u" class="st-pill st-pill--info">
+                        {{ u }} <b class="mono">{{ n }}</b>
+                      </span>
+                    </div>
+                    <div v-if="Object.keys(row.by_module || {}).length" class="chip-bar">
+                      <span class="bar-label">按模块</span>
+                      <span v-for="(n, m) in row.by_module" :key="m" class="st-pill st-pill--info">
+                        {{ m }} <b class="mono">{{ n }}</b>
+                      </span>
+                    </div>
+                    <div v-if="row.total" class="op-actions-row">
+                      <el-button link type="primary" size="small" @click="openDayLogs(row.day)">查看这一天明细</el-button>
+                      <el-button link type="primary" size="small" @click="generateSummary(row.day)">重新生成这天总结</el-button>
+                    </div>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column prop="day" label="日期" width="112" />
+              <el-table-column label="总结" min-width="320" show-overflow-tooltip>
+                <template #default="{ row }"><span class="summary-text">{{ row.headline }}</span></template>
+              </el-table-column>
+              <el-table-column label="总数" width="76" align="right">
+                <template #default="{ row }"><span class="mono">{{ row.total }}</span></template>
+              </el-table-column>
+              <el-table-column v-for="a in SUMMARY_ACTIONS" :key="a" :label="a" width="68" align="right">
+                <template #default="{ row }">
+                  <span class="mono" :class="{ muted: !row.by_action[a] }">{{ row.by_action[a] || 0 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="失败" width="68" align="right">
+                <template #default="{ row }">
+                  <span class="mono" :class="{ 'is-bad': row.failures > 0 }">{{ row.failures }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="账号" width="68" align="right">
+                <template #default="{ row }"><span class="mono">{{ row.active_users }}</span></template>
+              </el-table-column>
+              <el-table-column label="归档" width="82" align="center">
+                <template #default="{ row }">
+                  <span class="st-pill" :class="row.archived ? 'st-pill--success' : 'st-pill--info'">
+                    {{ row.archived ? '已生成' : '未生成' }}
+                  </span>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <!-- 明细：动作分布 chips + 筛选 -->
+            <div class="section-title oplog-title">
+              <span>操作明细</span>
+              <div class="grow" />
+              <el-button size="small" :icon="Download" @click="exportOpLogs">导出 CSV</el-button>
+            </div>
+            <div v-if="opStatActions.length" class="chip-bar">
+              <span class="bar-label">动作</span>
+              <button
+                v-for="a in opStatActions"
+                :key="a.code"
+                type="button"
+                :class="['chip', `chip--${opChipTag(a.code)}`, { active: opFilters.action === a.code }]"
+                @click="opFilters.action = opFilters.action === a.code ? 'all' : a.code; opPage = 1; loadOpLogs()"
+              >{{ a.code }}<span class="chip-n">{{ a.count }}</span></button>
+            </div>
+            <div class="log-filters">
+              <el-select v-model="opFilters.days" size="small" class="f-select" @change="onOpDaysChange">
+                <el-option label="今天" value="today" />
+                <el-option label="近 7 天" value="7" />
+                <el-option label="近 30 天" value="30" />
+                <el-option label="近 90 天" value="90" />
+                <el-option label="全部时间" value="all" />
+              </el-select>
+              <el-select v-model="opFilters.user" size="small" class="f-select" clearable placeholder="全部用户" @change="opPage = 1; loadOpLogs()">
+                <el-option label="全部用户" value="all" />
+                <el-option v-for="u in opEnums.users" :key="u" :label="u" :value="u" />
+              </el-select>
+              <el-select v-model="opFilters.action" size="small" class="f-select" placeholder="全部操作" @change="opPage = 1; loadOpLogs()">
+                <el-option label="全部操作" value="all" />
+                <el-option v-for="a in opEnums.actions" :key="a" :label="a" :value="a" />
+              </el-select>
+              <el-select v-model="opFilters.module" size="small" class="f-select" placeholder="全部模块" @change="opPage = 1; loadOpLogs()">
+                <el-option label="全部模块" value="all" />
+                <el-option v-for="m in opEnums.modules" :key="m" :label="m" :value="m" />
+              </el-select>
+              <el-select v-model="opFilters.result" size="small" class="f-select" @change="opPage = 1; loadOpLogs()">
+                <el-option label="全部结果" value="all" />
+                <el-option label="仅失败" value="fail" />
+              </el-select>
+              <el-input
+                v-model="opFilters.q"
+                size="small"
+                class="f-search"
+                placeholder="搜索操作内容 / 接口 / 用户"
+                clearable
+                @keyup.enter="opPage = 1; loadOpLogs()"
+                @clear="opPage = 1; loadOpLogs()"
+              />
+              <el-button size="small" :icon="Search" @click="opPage = 1; loadOpLogs()">查询</el-button>
+              <el-button size="small" @click="resetOpFilters">重置</el-button>
+              <div class="grow" />
+              <el-button size="small" :icon="Refresh" @click="loadOpLogs">刷新</el-button>
+            </div>
+
+            <el-table v-loading="opLoading" :data="opLogs" size="small" empty-text="暂无操作日志">
+              <el-table-column label="时间" width="150">
+                <template #default="{ row }"><span class="mono cell-time">{{ row.time }}</span></template>
+              </el-table-column>
+              <el-table-column prop="user" label="用户" width="96" show-overflow-tooltip />
+              <el-table-column label="操作" width="88" align="center">
+                <template #default="{ row }">
+                  <span class="st-pill" :class="'st-pill--' + opTag(row.action)">{{ row.action }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="module" label="模块" width="92" show-overflow-tooltip />
+              <el-table-column label="操作内容" min-width="260" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.detail || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="接口" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span class="mono muted">{{ row.method }} {{ row.path }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="结果" width="72" align="center">
+                <template #default="{ row }">
+                  <span class="mono" :class="row.status_code >= 400 ? 'is-bad' : 'muted'">{{ row.status_code }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="耗时" width="76" align="right">
+                <template #default="{ row }"><span class="mono muted">{{ fmtDuration(row.duration_ms) }}</span></template>
+              </el-table-column>
+              <el-table-column prop="ip" label="来源" width="116" show-overflow-tooltip />
+            </el-table>
+
+            <el-pagination
+              v-if="opTotal > 0"
+              class="pager"
+              size="small"
+              layout="total, sizes, prev, pager, next"
+              :total="opTotal"
+              :current-page="opPage"
+              :page-size="opPageSize"
+              :page-sizes="[20, 50, 100, 200]"
+              @current-change="(p) => { opPage = p; loadOpLogs() }"
+              @size-change="(s) => { opPageSize = s; opPage = 1; loadOpLogs() }"
+            />
+          </div>
+        </el-tab-pane>
+
         <!-- ------------------------------ 技能管理 ------------------------------ -->
         <el-tab-pane v-if="auth.isAdmin" :label="`技能管理${skills.length ? ' (' + skills.length + ')' : ''}`" name="skills">
           <div class="tab-body">
@@ -608,7 +796,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Lightning, Tools, Document, Refresh, Search, Delete, Plus, Download } from '@element-plus/icons-vue'
-import { get, getList, post, put, del, fmtDate } from '../api'
+import { get, getList, post, put, del, fmtDate, downloadCsv } from '../api'
 import { useCrawlStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import PageHeader from '../components/PageHeader.vue'
@@ -1075,6 +1263,129 @@ async function clearLogs() {
   loadLogs()
 }
 
+// ---- 操作日志（仅管理员） ----
+const SUMMARY_ACTIONS = ['登录', '查询', '点击', '新增', '修改', '删除', '采集']
+const OP_ACTION_TAG = {
+  新增: 'success', 登录: 'success', 转化: 'success', 采集: 'success', 执行: 'success',
+  修改: 'warning', 领取: 'warning', 批量操作: 'warning', 改密: 'warning', 恢复: 'warning',
+  删除: 'danger', 初始化: 'danger',
+  查询: 'info', 点击: 'info', 登出: 'info', 导出: 'info', 备份: 'info',
+}
+const opLogs = ref([])
+const opTotal = ref(0)
+const opPage = ref(1)
+const opPageSize = ref(50)
+const opLoading = ref(false)
+const opStats = reactive({ by_action: {}, failures: 0, active_users: 0, scoped: 0 })
+const opEnums = reactive({ users: [], actions: [], modules: [] })
+const opFilters = reactive({ days: 'today', user: 'all', action: 'all', module: 'all', result: 'all', q: '' })
+// 从每日总结「查看这一天明细」带过来的精确日期区间；为空时按 opFilters.days 走
+const dayRange = ref({ start: '', end: '' })
+const sumRows = ref([])
+const sumDays = ref(30)
+const sumLoading = ref(false)
+const sumGenerating = ref(false)
+let opLoaded = false
+
+const opTag = (a) => OP_ACTION_TAG[a] || 'info';
+const opChipTag = (a) => ({ success: 'success', warning: 'warning', danger: 'danger' }[opTag(a)] || 'info');
+const opTabLabel = computed(() => `操作日志${opTotal.value ? ` (${opTotal.value})` : ''}`);
+const opStatActions = computed(() =>
+  Object.entries(opStats.by_action || {}).map(([code, count]) => ({ code, count })));
+
+function localDay(offset = 0) {
+  const d = new Date()
+  d.setDate(d.getDate() - offset)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+// 今日/近 7 天口径直接来自每日总结，不再单独发一次统计请求
+const todayRow = computed(() => sumRows.value.find((r) => r.day === localDay()) || { total: 0, by_action: {}, failures: 0 })
+const todayWrites = computed(() => SUMMARY_ACTIONS.filter((a) => ['新增', '修改', '删除'].includes(a))
+  .reduce((n, a) => n + (todayRow.value.by_action?.[a] || 0), 0))
+const weekRows = computed(() => sumRows.value.filter((r) => r.day >= localDay(6)))
+const weekTotal = computed(() => weekRows.value.reduce((n, r) => n + (r.total || 0), 0))
+const weekFails = computed(() => weekRows.value.reduce((n, r) => n + (r.failures || 0), 0))
+
+function opQuery(extra = {}) {
+  const qs = new URLSearchParams({
+    days: opFilters.days, user: opFilters.user, action: opFilters.action,
+    module: opFilters.module, result: opFilters.result,
+  })
+  if (opFilters.q) qs.set('q', opFilters.q)
+  if (dayRange.value.start) {
+    qs.set('start', dayRange.value.start)
+    qs.set('end', dayRange.value.end || dayRange.value.start)
+    qs.delete('days')
+  }
+  Object.entries(extra || {}).forEach(([k, v]) => qs.set(k, String(v)))
+  return qs.toString()
+}
+
+async function loadOpLogs() {
+  opLoading.value = true
+  try {
+    const r = await get(`/audit/logs?${opQuery({ page: opPage.value, page_size: opPageSize.value })}`)
+    if (r.error) { ElMessage.error(r.error); return }
+    opLogs.value = r.items || []
+    opTotal.value = r.total || 0
+    Object.assign(opStats, r.stats || {})
+    Object.assign(opEnums, { users: r.users || [], actions: r.actions || [], modules: r.modules || [] })
+  } finally {
+    opLoading.value = false
+  }
+}
+
+async function loadSummary() {
+  sumLoading.value = true
+  try {
+    const r = await get(`/audit/summary?days=${sumDays.value}`)
+    if (r.error) { ElMessage.error(r.error); return }
+    // 最近的日期排在最前，和明细列表保持同一个阅读方向
+    sumRows.value = (r.days || []).slice().reverse()
+  } finally {
+    sumLoading.value = false
+  }
+}
+
+async function generateSummary(day) {
+  sumGenerating.value = true
+  try {
+    const r = await post('/audit/summary', { day: day || localDay() })
+    if (r.error) return ElMessage.error(r.error)
+    ElMessage.success(r.message || '已生成')
+    await Promise.all([loadSummary(), loadOpLogs()])
+  } finally {
+    sumGenerating.value = false
+  }
+}
+
+function openDayLogs(day) {
+  Object.assign(opFilters, { days: 'all', user: 'all', action: 'all', module: 'all', result: 'all', q: '' })
+  dayRange.value = { start: day, end: day }
+  opPage.value = 1
+  loadOpLogs()
+}
+
+// 手动改时间范围就等于放弃「某一天」的精确区间
+function onOpDaysChange() {
+  dayRange.value = { start: '', end: '' }
+  opPage.value = 1
+  loadOpLogs()
+}
+
+function resetOpFilters() {
+  Object.assign(opFilters, { days: 'today', user: 'all', action: 'all', module: 'all', result: 'all', q: '' })
+  dayRange.value = { start: '', end: '' }
+  opPage.value = 1
+  loadOpLogs()
+}
+
+async function exportOpLogs() {
+  const msg = await downloadCsv(`/audit/export?${opQuery()}`, `操作日志_${localDay()}.csv`)
+  if (msg) ElMessage.error(msg)
+}
+
 async function loadSkills() {
   skillsLoading.value = true
   const data = await get('/skills')
@@ -1119,6 +1430,14 @@ onMounted(async () => {
 // 采集结束后自动刷新日志
 watch(() => crawl.finishedAt, () => {
   if (crawl.finishedAt) { page.value = 1; loadLogs() }
+})
+
+// 操作日志只在进入标签时拉：日志表会长年累月地涨，不该在打开设置页时就查两次
+watch(tab, (t) => {
+  if (t !== 'oplog' || opLoaded) return
+  opLoaded = true
+  loadSummary()
+  loadOpLogs()
 })
 </script>
 
@@ -1270,6 +1589,10 @@ watch(() => crawl.finishedAt, () => {
 /* 展开明细 / 抽屉 */
 .detail-wrap { padding: 8px 12px 12px; }
 .sub-head { font-size: 13px; font-weight: 650; color: var(--crm-fg-1); margin: 18px 0 8px; }
+/* 操作日志：标题行要能挂筛选器与按钮，所以自己拉成 flex（全局 .section-title 是块级） */
+.oplog-title { display: flex; align-items: center; gap: 8px; }
+.summary-text { color: var(--crm-fg-2); }
+.op-actions-row { margin-top: 8px; }
 .detail-table { margin-bottom: 4px; }
 .pager { margin-top: 12px; justify-content: flex-end; }
 .drawer-body { padding-bottom: 20px; }

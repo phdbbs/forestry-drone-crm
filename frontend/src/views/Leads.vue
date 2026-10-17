@@ -120,6 +120,14 @@
             <span class="mono date muted">{{ fmtDateMDY(row.created_at) || '—' }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="operated_at" label="操作" width="112" sortable="custom">
+          <template #default="{ row }">
+            <div class="op-cell">
+              <span class="op-user">{{ row.operator || '系统' }}</span>
+              <span class="mono op-time muted">{{ row.operated_at || '—' }}</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="source_platform" label="来源" width="140" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="dim">{{ row.source_platform || '—' }}</span>
@@ -569,7 +577,8 @@ watch(() => crawl.finishedAt, () => { load(); dict.loadCustomers() })
 
 // ---- 行操作 ----
 async function claimLead(id) {
-  const r = await post(`/leads/${id}/claim`, { assignee: '万升航控' })
+  // 不传 assignee：由后端按登录身份写入，前端写死名字会让所有人显示成同一个人
+  const r = await post(`/leads/${id}/claim`, {})
   if (r.error) return ElMessage.error(r.error)
   ElMessage.success(r.message || '已领取'); load()
 }
@@ -841,6 +850,9 @@ onMounted(async () => {
 .date { font-size: 12px; }
 .date.is-urgent { color: var(--crm-rose-500); font-weight: 600; }
 .reason-cell { font-size: 12px; }
+.op-cell { display: flex; flex-direction: column; line-height: 1.35; }
+.op-user { font-size: 12px; color: var(--crm-fg-2); }
+.op-time { font-size: 11px; }
 .row-actions { display: inline-flex; gap: 0; justify-content: flex-end; align-items: center; }
 .row-actions :deep(.el-button.is-link) { padding: 2px 6px; }
 

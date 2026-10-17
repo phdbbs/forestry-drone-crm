@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { track } from '../api'
 
 // meta.group 用于面包屑与侧边栏分区；meta.title 同时作为文档标题与面包屑末级
 // meta.public：不套应用外壳、登录前即可访问
@@ -57,6 +58,8 @@ router.afterEach((to) => {
   document.title = (to.meta.title || '') + ' - 林业无人机CRM'
   // 任一页面成功渲染即说明分块已可正常加载，解除刷新保护
   window.sessionStorage.removeItem('crm_chunk_reloaded')
+  // 点击埋点：登录页不算业务操作（登录本身由后端记账），404 页也不记
+  if (!to.meta.public && to.name !== 'notfound') track(to.meta.title || to.path)
 })
 
 export default router

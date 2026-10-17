@@ -33,7 +33,7 @@ const saving = ref(false)
 const name = ref('')
 const region = ref('')
 const type = ref('')
-const FALLBACK_TYPES = ['政府部门', '事业单位', '国有企业', '民营企业', '科研院所', '运营商', '科技公司']
+const FALLBACK_TYPES = ['政府/林场', '集成伙伴', '林业行业', '其他占位1', '其他占位2', '其他占位3']
 const typeOptions = computed(() => dict.options.customer_types?.length ? dict.options.customer_types : FALLBACK_TYPES)
 
 const emit = defineEmits(['created'])

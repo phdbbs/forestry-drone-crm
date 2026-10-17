@@ -59,7 +59,7 @@
             <span v-else class="dim">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="wechat" label="微信" width="110" show-overflow-tooltip>
+        <el-table-column prop="wechat" label="微信号" width="110" show-overflow-tooltip>
           <template #default="{ row }"><span class="muted">{{ row.wechat || '—' }}</span></template>
         </el-table-column>
         <el-table-column prop="role" label="角色" width="106" sortable="custom">
@@ -136,6 +136,13 @@
               </el-form-item>
             </el-col>
           </el-row>
+          <el-row :gutter="12">
+            <el-col :span="12">
+              <el-form-item label="微信号">
+                <el-input v-model="form.wechat" placeholder="微信号，详情页同一字段" />
+              </el-form-item>
+            </el-col>
+          </el-row>
         </div>
 
         <div class="form-section">
@@ -181,40 +188,135 @@
             <DetailGrid :items="[
               { label: '电话', value: detail.phone, mono: true, slot: 'phone' },
               { label: '邮箱', value: detail.email, mono: true },
-              { label: '微信', value: detail.wechat },
+              { label: '微信号', value: detail.wechat },
               { label: '重要性', value: detail.importance },
               { label: '分管业务', value: detail.business_scope, full: true },
               { label: '标签', value: detail.tags, full: true },
-              { label: '备注', value: detail.notes, full: true },
+              { label: '备注', value: detail.notes, full: true, slot: 'notes' },
             ]" >
   <template #phone="{ item }"><CopyText :value="item.value" tel /></template>
+  <template #notes="{ item }">
+    <div v-if="item.value" class="notes-text">{{ item.value }}</div>
+    <div v-if="detail.lead" class="lead-ref">
+      <span>由线索{{ detail.lead.serial_no ? ` ${detail.lead.serial_no} ` : ' ' }}创建：{{ detail.lead.title }}</span>
+      <el-link
+        v-if="isWinLead && detail.lead.source_url" type="primary"
+        :href="detail.lead.source_url" target="_blank" :underline="false" class="bid-link"
+      >招标链接</el-link>
+    </div>
+    <span v-if="!item.value && !detail.lead" class="muted">—</span>
+  </template>
 </DetailGrid>
 
-            <div class="section-title">动态信息<i class="sec-count">{{ (detail.contact_news || []).length }}</i></div>
-            <div class="tab-toolbar">
-              <el-button type="primary" plain size="small" :icon="Lightning" :loading="newsLoading" @click="collectNews">
-                采集
-              </el-button>
-              <span class="muted hint-inline">按姓名匹配官网 / 媒体提及</span>
-            </div>
+            <div class="section-title">动态信息</div>
+            <el-tabs v-model="ctTab" class="ct-tabs">
+              <!-- 联络记录 -->
+              <el-tab-pane :label="`联络记录 (${ctActs.length})`" name="acts">
+                <el-table v-loading="actsLoading" :data="ctActs" size="small">
+                  <el-table-column label="时间" width="140">
+                    <template #default="{ row }"><span class="mono">{{ fmtDate(row.activity_time) || '—' }}</span></template>
+                  </el-table-column>
+                  <el-table-column label="方式" width="80">
+                    <template #default="{ row }">{{ row.method || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="内容" min-width="220" show-overflow-tooltip>
+                    <template #default="{ row }">{{ row.content || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="商机" width="150" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <el-link v-if="row.opportunity_id" type="primary" :underline="false" @click="openOpp(row.opportunity_id)">
+                        {{ row.opportunity_title || '查看商机' }}
+                      </el-link>
+                      <span v-else class="dim">—</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作用户" width="96">
+                    <template #default="{ row }">{{ row.operator || '系统' }}</template>
+                  </el-table-column>
+                </el-table>
+                <div v-if="!ctActs.length && !actsLoading" class="list-empty muted">暂无联络记录</div>
+              </el-tab-pane>
 
-            <div v-if="(detail.contact_news || []).length" class="news-list">
-              <div v-for="n in detail.contact_news" :key="n.id" class="news-item">
-                <div class="news-main">
-                  <el-link v-if="n.url" type="primary" :href="n.url" target="_blank" :underline="false" class="news-title">
-                    {{ n.title }}
-                  </el-link>
-                  <div v-else class="news-title">{{ n.title }}</div>
-                  <div v-if="n.summary" class="news-summary muted">{{ n.summary }}</div>
-                  <div class="news-meta mono">
-                    {{ n.source_name || '未知来源' }}<span v-if="n.event_time"> · 事件 {{ n.event_time }}</span>
-                    · 采集于 {{ fmtDate(n.crawled_at) || '—' }}
+              <!-- 联络计划 -->
+              <el-tab-pane :label="`联络计划 (${ctPlans.length})`" name="plans">
+                <el-table v-loading="plansLoading" :data="ctPlans" size="small">
+                  <el-table-column label="计划时间" width="110">
+                    <template #default="{ row }"><span class="mono">{{ fmtDate(row.plan_date) || '—' }}</span></template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="80">
+                    <template #default="{ row }">
+                      <el-tag :type="row.actual_date ? 'success' : 'warning'" size="small" effect="plain" round>
+                        {{ row.actual_date ? '已完成' : '待执行' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="内容" min-width="220" show-overflow-tooltip>
+                    <template #default="{ row }">{{ row.actual_content || row.content || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="商机" width="150" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <el-link v-if="row.opportunity_id" type="primary" :underline="false" @click="openOpp(row.opportunity_id)">
+                        {{ row.opportunity_title || '查看商机' }}
+                      </el-link>
+                      <span v-else class="dim">—</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作用户" width="96">
+                    <template #default="{ row }">{{ row.executed_by || row.operator || '系统' }}</template>
+                  </el-table-column>
+                </el-table>
+                <div v-if="!ctPlans.length && !plansLoading" class="list-empty muted">暂无联络计划</div>
+              </el-tab-pane>
+
+              <!-- 关联商机 -->
+              <el-tab-pane :label="`关联商机 (${(detail.opportunities || []).length})`" name="opps">
+                <el-table v-if="(detail.opportunities || []).length" :data="detail.opportunities" size="small">
+                  <el-table-column label="商机名称" min-width="220">
+                    <template #default="{ row }">
+                      <el-link type="primary" :underline="false" @click="openOpp(row.id)">{{ row.title }}</el-link>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="金额(万)" width="100" align="right">
+                    <template #default="{ row }"><span class="mono">{{ row.amount || '—' }}</span></template>
+                  </el-table-column>
+                  <el-table-column label="阶段" width="110">
+                    <template #default="{ row }">{{ row.current_stage || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="创建" width="110">
+                    <template #default="{ row }"><span class="mono muted">{{ fmtDate(row.created_at) || '—' }}</span></template>
+                  </el-table-column>
+                </el-table>
+                <div v-else class="list-empty muted">该联系人暂无关联商机</div>
+              </el-tab-pane>
+
+              <!-- 动态信息（新闻采集） -->
+              <el-tab-pane :label="`动态 (${(detail.contact_news || []).length})`" name="news">
+                <div class="tab-toolbar">
+                  <el-button type="primary" plain size="small" :icon="Lightning" :loading="newsLoading" @click="collectNews">
+                    采集
+                  </el-button>
+                  <span class="muted hint-inline">按姓名匹配官网 / 媒体提及</span>
+                </div>
+
+                <div v-if="(detail.contact_news || []).length" class="news-list">
+                  <div v-for="n in detail.contact_news" :key="n.id" class="news-item">
+                    <div class="news-main">
+                      <el-link v-if="n.url" type="primary" :href="n.url" target="_blank" :underline="false" class="news-title">
+                        {{ n.title }}
+                      </el-link>
+                      <div v-else class="news-title">{{ n.title }}</div>
+                      <div v-if="n.summary" class="news-summary muted">{{ n.summary }}</div>
+                      <div class="news-meta mono">
+                        {{ n.source_name || '未知来源' }}<span v-if="n.event_time"> · 事件 {{ n.event_time }}</span>
+                        · 采集于 {{ fmtDate(n.crawled_at) || '—' }}
+                      </div>
+                    </div>
+                    <el-button link type="danger" size="small" @click="deleteNews(n.id)">删除</el-button>
                   </div>
                 </div>
-                <el-button link type="danger" size="small" @click="deleteNews(n.id)">删除</el-button>
-              </div>
-            </div>
-            <div v-else class="list-empty muted">暂无动态信息，点击「采集」（按姓名匹配官网/媒体新闻）</div>
+                <div v-else class="list-empty muted">暂无动态信息，点击「采集」（按姓名匹配官网/媒体新闻）</div>
+              </el-tab-pane>
+            </el-tabs>
           </div>
         </template>
       </div>
@@ -230,7 +332,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Download, Lightning, StarFilled, Phone } from '@element-plus/icons-vue'
@@ -333,12 +435,43 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref(null)
 const newsLoading = ref(false)
+const ctTab = ref('acts')
+const ctActs = ref([])
+const ctPlans = ref([])
+const actsLoading = ref(false)
+const plansLoading = ref(false)
+
+// 只有中标/成交类公告才在备注里给招标链接（与线索转化弹窗的判定口径一致）
+const isWinLead = computed(() => /中标|成交/.test(detail.value?.lead?.bid_type || ''))
 
 async function viewDetail(id) {
   const r = await get(`/contacts/${id}`)
   if (!r || r.error) return ElMessage.error('加载联系人详情失败：' + ((r && r.error) || '请稍后重试'))
+  ctTab.value = 'acts'
+  ctActs.value = []
+  ctPlans.value = []
   detail.value = r
   detailVisible.value = true
+}
+
+// 联络记录/计划只在切到对应标签时才拉，打开详情不用一次性打三个接口
+watch(ctTab, async (t) => {
+  const id = detail.value?.id
+  if (!id) return
+  if (t === 'acts' && !ctActs.value.length) {
+    actsLoading.value = true
+    ctActs.value = await getList(`/activities?contact_id=${id}`)
+    actsLoading.value = false
+  } else if (t === 'plans' && !ctPlans.value.length) {
+    plansLoading.value = true
+    ctPlans.value = await getList(`/followups?contact_id=${id}`)
+    plansLoading.value = false
+  }
+})
+
+function openOpp(id) {
+  detailVisible.value = false
+  router.push({ path: '/opportunities', query: { detail: id } })
 }
 
 async function collectNews() {
@@ -475,6 +608,15 @@ onMounted(async () => {
 
 .tab-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .hint-inline { font-size: 12px; }
+
+/* 备注里的来源线索：正文 + 可点的招标公告链接 */
+.notes-text { line-height: 1.65; }
+.lead-ref {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin-top: 4px; font-size: 12.5px; color: var(--crm-fg-3);
+}
+.bid-link { font-size: 12.5px; }
+.ct-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
 
 /* 动态列表 */
 .news-list { display: flex; flex-direction: column; }

@@ -166,6 +166,19 @@ class Lead(db.Model):
     def _clean_fields(self, key, value):
         return _clean(value)
 
+class LeadOperation(db.Model):
+    __tablename__ = 'lead_operations'
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'), index=True, nullable=False)
+    # 领取/释放/删除/彻底删除/转化/新建/编辑
+    action = db.Column(db.String(20), nullable=False)
+    # 操作人姓名；登录前写入、采集等无人值守动作统一记「系统」
+    operator = db.Column(db.String(50), nullable=False, server_default='系统')
+    detail = db.Column(db.String(300), default='')
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
+    lead = db.relationship('Lead', backref=db.backref('operations', lazy=True))
+
 class Opportunity(db.Model):
     __tablename__ = 'opportunities'
     id = db.Column(db.Integer, primary_key=True)
@@ -223,6 +236,10 @@ class Contact(db.Model):
     importance = db.Column(db.String(20))
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), index=True)
     notes = db.Column(db.Text)
+    # 线索转化时自动建联系人：记下来源线索，详情里的「由线索***创建」备注
+    # 才能带上编号和招标链接，而不是只留一行纯文本。
+    lead_id = db.Column(db.Integer, db.ForeignKey('leads.id'), index=True)
+    lead = db.relationship('Lead', backref=db.backref('contacts', lazy=True))
     is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
@@ -243,6 +260,8 @@ class Activity(db.Model):
     next_followup_time = db.Column(db.DateTime)
     next_followup_content = db.Column(db.Text)
     add_to_kanban = db.Column(db.Boolean, default=False)
+    # 记录人：历史行与无人值守写入统一为「系统」
+    operator = db.Column(db.String(50), nullable=False, server_default='系统')
     is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
@@ -315,6 +334,61 @@ class Skill(db.Model):
     is_builtin = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
     config_json = db.Column(db.Text)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class OperationLog(db.Model):
+    """操作日志：一次请求/一次点击 = 一行「时间-用户-操作内容」。
+
+    与 lead_operations 的分工：那张表跟着某条线索走，是业务流水；
+    这张表跟着系统走，记录登录、查询、新增、修改、删除、点击等全部行为，
+    用来看谁做了什么、有没有做坏，并作为每日汇总的数据源。
+
+    没有清理接口：日志的价值就在于不可抵赖，能一键抹掉的审计记录等于没有。
+    带 is_deleted 只为与其他表保持一致（全局软删过滤器会顺带屏蔽它们）。
+    """
+    __tablename__ = 'operation_logs'
+    # 列表与每日汇总都是「按时间倒序取一段」，复合索引让两者走同一个索引
+    __table_args__ = (
+        db.Index('ix_operation_logs_created_action', 'created_at', 'action'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
+    user = db.Column(db.String(50), nullable=False, index=True, server_default='系统')
+    # 登录/登出/登录失败/查询/新增/修改/删除/点击/采集/执行/转化/领取/释放/恢复
+    action = db.Column(db.String(20), nullable=False, index=True)
+    # 业务域中文名：线索/客户/联系人/商机/联络记录/系统设置……
+    module = db.Column(db.String(30), default='', index=True)
+    detail = db.Column(db.String(300), default='')
+    method = db.Column(db.String(8), default='')
+    path = db.Column(db.String(200), default='')
+    # 失败请求同样留痕：401/403/400/500 才是审计最想看见的东西
+    status_code = db.Column(db.Integer, default=200)
+    duration_ms = db.Column(db.Integer, default=0)
+    ip = db.Column(db.String(40), default='')
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
+
+
+class OperationSummary(db.Model):
+    """每日操作汇总：明细行只增不清，靠预聚合回答「近 30 天趋势」。
+
+    每天凌晨由定时任务把前一天归档一份（见 app/services/audit.py），
+    重算按 day 覆盖写，所以随时可以「立即生成」而不产生重复行。
+    """
+    __tablename__ = 'operation_summaries'
+    id = db.Column(db.Integer, primary_key=True)
+    # YYYY-MM-DD；唯一索引保证同一天只有一份归档
+    day = db.Column(db.String(10), nullable=False, unique=True)
+    total = db.Column(db.Integer, default=0)
+    failures = db.Column(db.Integer, default=0)
+    active_users = db.Column(db.Integer, default=0)
+    # JSON 文本：{动作: 次数}、{模块: 次数}、{用户: 次数}、{用户: {动作: 次数}}
+    by_action = db.Column(db.Text, default='')
+    by_module = db.Column(db.Text, default='')
+    by_user = db.Column(db.Text, default='')
+    user_actions = db.Column(db.Text, default='')
     is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)

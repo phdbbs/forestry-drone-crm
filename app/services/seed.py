@@ -9,12 +9,12 @@ def seed_if_empty():
     if Customer.query.first():
         return
     print("Seeding demo data...")
-    c1 = Customer(name="浙江省林业局", short_name="浙江林业局", customer_type="政府", level="省级", region="杭州", website="http://lyj.zj.gov.cn", remark="省级核心客户")
-    c2 = Customer(name="福建省林业厅", short_name="福建林厅", customer_type="政府", level="省级", region="福州", website="http://lyj.fj.gov.cn", remark="二期项目620万")
-    c3 = Customer(name="江西省林业局", short_name="江西林局", customer_type="政府", level="省级", region="南昌", remark="航拍核查合作")
-    c4 = Customer(name="中国铁塔浙江分公司", short_name="铁塔浙江", customer_type="运营商", region="杭州", remark="5G专网通信合作")
-    c5 = Customer(name="大疆行业应用", short_name="大疆", customer_type="科技公司", region="深圳", website="https://www.dji.com", remark="竞对信息源")
-    c6 = Customer(name="西南林业大学", short_name="西南林大", customer_type="科研院所", region="昆明", website="https://www.swfu.edu.cn", remark="AI模型学术支持")
+    c1 = Customer(name="浙江省林业局", short_name="浙江林业局", customer_type="政府/林场", level="省级", region="杭州", website="http://lyj.zj.gov.cn", remark="省级核心客户")
+    c2 = Customer(name="福建省林业厅", short_name="福建林厅", customer_type="政府/林场", level="省级", region="福州", website="http://lyj.fj.gov.cn", remark="二期项目620万")
+    c3 = Customer(name="江西省林业局", short_name="江西林局", customer_type="政府/林场", level="省级", region="南昌", remark="航拍核查合作")
+    c4 = Customer(name="中国铁塔浙江分公司", short_name="铁塔浙江", customer_type="集成伙伴", region="杭州", remark="5G专网通信合作")
+    c5 = Customer(name="大疆行业应用", short_name="大疆", customer_type="集成伙伴", region="深圳", website="https://www.dji.com", remark="竞对信息源")
+    c6 = Customer(name="西南林业大学", short_name="西南林大", customer_type="其他占位1", region="昆明", website="https://www.swfu.edu.cn", remark="AI模型学术支持")
     db.session.add_all([c1, c2, c3, c4, c5, c6])
     db.session.flush()
     ct1 = Contact(name="王处长", customer_id=c1.id, title="林业管理处处长", phone="138-0571-1234", email="wang@zjly.gov.cn", wechat="wangzjly", importance="关键", role="决策人", business_scope="松材线虫病防控、林业无人机巡检")
