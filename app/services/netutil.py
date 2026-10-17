@@ -8,8 +8,12 @@
 - 禁止自动重定向（防校验后跳转绕过），逐跳跟随时每一跳重新校验；
 - 真正按字节上限分块读取：旧实现只把上限记在响应对象上没人用，
   调用方取 .text 时照样能把远端整站拖进内存。
+
+编码判定见 `resolve_encoding`：中文站几乎都不在 HTTP 头里写 charset，
+交给 chardet 猜会把 UTF-8 的中文猜成 ptcp154 这类西里尔编码，公告全文整篇变乱码。
 """
 import ipaddress
+import re
 import socket
 import threading
 from contextlib import contextmanager
@@ -19,6 +23,10 @@ import requests
 
 _CHUNK = 64 * 1024
 _MAX_HOPS = 3
+_META_CHARSET_RE = re.compile(rb'charset\s*=\s*["\']?\s*([A-Za-z0-9][A-Za-z0-9_.:\-]*)', re.I)
+# gb2312/gbk 收字太少，公告里的生僻字与少数民族地名会解码失败，一律升到 gb18030
+_CHARSET_ALIAS = {'gb2312': 'gb18030', 'gbk': 'gb18030', 'windows-936': 'gb18030',
+                  'iso-8859-1': '', 'ascii': 'utf-8', 'x-utf-8': 'utf-8', 'utf8': 'utf-8'}
 
 # 线程内的「域名 → 已校验 IP」映射。requests/urllib3 建连时走 socket.getaddrinfo，
 # 我们只替换当前线程已登记域名的答案，其它线程与其它域名不受影响。
@@ -131,6 +139,57 @@ def _get_once(getter, url, timeout, headers, kw):
             raise SafeFetchError(f"请求失败: {e}") from e
 
 
+def _norm_charset(name):
+    """归一化编码名；无法识别或等于 requests 的默认 latin 猜测时返回 ''。"""
+    enc = (name or '').strip().lower().replace('_', '-')
+    if not enc:
+        return ''
+    enc = _CHARSET_ALIAS.get(enc, enc)
+    if not enc:
+        return ''
+    # 校验编码名真的存在，避免把 'gb-2312-80' 之类怪写法交给 codecs 抛异常
+    try:
+        ''.encode(enc)
+    except (LookupError, ValueError):
+        return ''
+    return enc
+
+
+def sniff_charset(body):
+    """从 HTML 前 4KB 里读 `<meta charset>` / `Content-Type" content="...charset=x`。"""
+    m = _META_CHARSET_RE.search((body or b'')[:4096])
+    return _norm_charset(m.group(1).decode('ascii', 'ignore')) if m else ''
+
+
+def _is_utf8(body):
+    try:
+        body.decode('utf-8')
+        return True
+    except UnicodeDecodeError:
+        return False
+
+
+def _header_charset(resp):
+    ct = resp.headers.get('Content-Type') or ''
+    return _norm_charset(ct.split('charset=', 1)[1]) if 'charset=' in ct.lower() else ''
+
+
+def resolve_encoding(resp):
+    """确定响应正文编码：HTTP 头 → 页面 meta 声明 → UTF-8 严格试探 → chardet 兜底。
+
+    requests 在 `Content-Type: text/html` 没有 charset 时把 encoding 设成 iso-8859-1，
+    旧实现因此直接改用 apparent_encoding，而 chardet 面对成段中文经常猜出 ptcp1251/ptcp154
+    这类西里尔编码：字节数对得上、每个字节都能解出字符，于是「解码成功」地把公告全文
+    变成 «д»Ӣдј‘…» 存进库。页面自己声明的 charset 才是权威，先信它。
+    """
+    body = resp.content or b''
+    return (_header_charset(resp)
+            or sniff_charset(body)
+            or ('utf-8' if _is_utf8(body) else '')
+            or _norm_charset(resp.apparent_encoding)
+            or 'utf-8')
+
+
 def safe_get(url, timeout=15, max_bytes=8 * 1024 * 1024, session=None, **kw):
     """SSRF 防护的 GET。返回 requests.Response；不安全或失败抛 SafeFetchError。
 
@@ -155,8 +214,7 @@ def safe_get(url, timeout=15, max_bytes=8 * 1024 * 1024, session=None, **kw):
         resp.close()
         raise SafeFetchError(f"站点返回 HTTP {code}")
     resp = _read_capped(resp, max_bytes)
-    if not resp.encoding or resp.encoding.lower() == 'iso-8859-1':
-        resp.encoding = resp.apparent_encoding or 'utf-8'
+    resp.encoding = resolve_encoding(resp)
     return resp
 
 

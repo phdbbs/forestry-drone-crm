@@ -4,6 +4,7 @@
 字节上限真的截断。全部用可编排的假 DNS 与真实 requests.Response，不触网。
 """
 import ipaddress
+import re
 import socket
 import threading
 
@@ -211,3 +212,60 @@ class TestFetchGoesThroughGuard:
                 if re.search(r'\brequests\.get\s*\(', line):
                     offenders.append(f'{py.name}:{lineno}')
         assert offenders == [], f'绕过 SSRF 防护的抓取: {offenders}'
+
+
+class TestEncodingResolution:
+    """公告全文乱码的根因：Content-Type 不带 charset 时不能让 chardet 猜中文页。
+
+    ccgp 只回 `Content-Type: text/html`，requests 于是把 encoding 设成 iso-8859-1；
+    旧实现直接换成 apparent_encoding，而 chardet 把成段 UTF-8 中文猜成了西里尔编码
+    ptcp154 —— 每个字节都能解出字符，结果整篇 «д»Ӣдј‘…» 存进库。
+    """
+
+    def _fetch(self, dns, body, headers=None):
+        resp = safe_get('https://example.com/a.htm',
+                        session=_StubSession([fake_stream(chunks=[body], headers=headers)]))
+        return resp
+
+    def test_m026_001_meta_utf8_beats_cyrillic_guess(self, dns):
+        body = ('<html><head><meta charset="utf-8"></head><body>介休市林业局 2026 年'
+                '中央财政林草有害生物防治项目采购结果公告</body></html>').encode('utf-8')
+        resp = self._fetch(dns, body)
+        assert resp.encoding == 'utf-8'
+        assert '介休市林业局' in resp.text
+        assert not re.search(r'[\u0400-\u04FF]', resp.text)
+
+    def test_m026_002_valid_utf8_without_any_declaration(self, dns):
+        """没声明也不能交给猜测：UTF-8 严格解得通就用 UTF-8。"""
+        body = ('<html><body>' + '云南省普洱市中央财政林草有害生物防治项目' * 12 + '</body></html>').encode()
+        resp = self._fetch(dns, body)
+        assert resp.encoding == 'utf-8' and '普洱市' in resp.text
+
+    def test_m026_003_header_charset_wins(self, dns):
+        body = '<html><body>轮台县林业和草原局</body></html>'.encode('gbk')
+        resp = self._fetch(dns, body, headers={'Content-Type': 'text/html; charset=GBK'})
+        assert resp.encoding == 'gb18030' and '轮台县' in resp.text
+
+    def test_m026_004_gb2312_upgraded_to_gb18030(self, dns):
+        """声明 gb2312 的页面常有生僻字，落到 gb18030 才不会解成 ?"""
+        body = b'<html><head><meta http-equiv="Content-Type" content="text/html; charset=gb2312">' \
+               b'</head><body>\xb8\xd5\xb9\xab\xb8\xe6</body></html>'
+        resp = self._fetch(dns, body)
+        assert resp.encoding == 'gb18030'
+        assert '公告' in resp.text
+
+    def test_m026_005_non_utf8_still_uses_guess(self, dns):
+        """真·非 UTF-8 的老页面仍要有兜底，否则只能得到一串替换符。"""
+        body = ('<html><body>' + 'X' * 200 + '</body></html>').encode('utf-16')
+        resp = self._fetch(dns, body)
+        assert resp.encoding != 'utf-8'
+
+    def test_m026_006_meta_beyond_sniff_window_ignored(self, dns):
+        body = b'<' + b'z' * 5000 + b'><meta charset="utf-16">'
+        assert netutil.sniff_charset(body) == ''
+        assert netutil.sniff_charset(b'<meta charset="UTF-8">ok') == 'utf-8'
+
+    def test_m026_007_unknown_charset_name_is_dropped(self, dns):
+        assert netutil._norm_charset('not-a-codec') == ''
+        assert netutil._norm_charset('GBK_2000') == ''
+        assert netutil._norm_charset('utf_8') == 'utf-8'

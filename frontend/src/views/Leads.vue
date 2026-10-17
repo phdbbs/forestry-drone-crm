@@ -412,8 +412,10 @@
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div v-else-if="fulltext" class="md-body" v-html="fulltextHtml"></div>
           <div v-else-if="fulltextNeedFetch && !fulltextLoading" class="ft-empty">
-            <div class="muted">本地尚未存储公告正文。</div>
-            <el-button v-if="fulltextFetchable" type="primary" plain size="small" class="ft-fetch-btn" @click="fetchFulltext">获取原文</el-button>
+            <div class="muted">{{ fulltextHint || '本地尚未存储公告正文。' }}</div>
+            <el-button v-if="fulltextFetchable" type="primary" plain size="small" class="ft-fetch-btn" @click="fetchFulltext">
+              {{ fulltextHint ? '重新获取' : '获取原文' }}
+            </el-button>
             <div v-else class="muted">该线索没有可抓取的原文链接。</div>
           </div>
           <div v-else-if="!fulltextLoading" class="ft-empty muted">（无正文内容）</div>
@@ -651,6 +653,7 @@ const fulltext = ref('')
 const fulltextError = ref('')
 const fulltextNeedFetch = ref(false)
 const fulltextFetchable = ref(false)
+const fulltextHint = ref('')
 const fulltextHtml = computed(() => DOMPurify.sanitize(marked.parse(fulltext.value || '')))
 async function openFulltext() {
   fulltextVisible.value = true
@@ -659,6 +662,7 @@ async function openFulltext() {
   fulltextError.value = ''
   fulltextNeedFetch.value = false
   fulltextFetchable.value = false
+  fulltextHint.value = ''
   // GET 只读库里已有正文；没有正文时由用户点「获取原文」再抓，避免打开弹窗就写库
   const r = await get(`/leads/${detail.value.id}/fulltext`)
   fulltextLoading.value = false
@@ -666,6 +670,7 @@ async function openFulltext() {
   fulltext.value = r.text || ''
   fulltextNeedFetch.value = !!r.need_fetch
   fulltextFetchable.value = !!r.fetchable
+  fulltextHint.value = r.hint || ''
 }
 async function fetchFulltext() {
   fulltextLoading.value = true
@@ -674,6 +679,7 @@ async function fetchFulltext() {
   fulltextLoading.value = false
   if (r.error) { fulltextError.value = r.error; return }
   fulltextNeedFetch.value = false
+  fulltextHint.value = ''
   fulltext.value = r.text || ''
 }
 

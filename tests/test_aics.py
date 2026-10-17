@@ -25,6 +25,7 @@ from crm_test_utils import (  # noqa: E402
     created_id, err, fake_remote, json_of, make_activity, make_card, make_contact,
     make_customer, make_followup, make_lead, make_opportunity, ok, set_config,
 )
+from app.services.textutil import looks_garbled  # noqa: E402
 
 # ═══════════════════════════════════════════════════════════════
 # AICS-M001 客户管理
@@ -1343,6 +1344,72 @@ class TestAICSM015Fulltext:
         fake_remote(monkeypatch, status=404, body='not found')
         lid = make_lead(client, 'AICS 抓取失败线索', source_url='https://example.com/missing')
         assert 'HTTP 404' in err(client.post(f'/api/leads/{lid}/fulltext/fetch'), 502)
+
+    def test_m015_008_garbled_stored_text_asks_to_refetch(self, client, dbsession):
+        """AICS-M015-008 编码解错的存量乱码不能整屏端给用户，改成提示重新获取。"""
+        from app.models import Lead
+        garbage = ('д»Ӣдј‘еёӮжһ—дёҡеұҖ' * 12)
+        lead = Lead(title='AICS 乱码线索', status='active', full_text=garbage,
+                    source_url='https://example.com/g.htm')
+        dbsession.add(lead)
+        dbsession.commit()
+        body = ok(client.get(f'/api/leads/{lead.id}/fulltext'))
+        assert body['source'] == 'garbled' and body['text'] == ''
+        assert body['need_fetch'] is True and body['fetchable'] is True
+        assert '乱码' in body['hint']
+
+    def test_m015_009_fetch_sends_crawler_headers(self, client, monkeypatch):
+        """AICS-M015-009 手动获取原文必须带采集那套 UA/Referer，否则政采网直接 403。"""
+        import socket
+
+        import requests
+        from requests import Response
+
+        resp = Response()
+        resp.status_code = 200
+        resp.headers['Content-Type'] = 'text/html'
+        resp._content = '<html><body>介休市林业局采购结果公告</body></html>'.encode('utf-8')
+        resp._content_consumed = True
+        monkeypatch.setattr(socket, 'getaddrinfo', lambda *a, **kw: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 0))])
+        seen = {}
+
+        def spy(url, **kw):
+            seen['kw'] = kw
+            return resp
+
+        monkeypatch.setattr(requests, 'get', spy)
+        lid = make_lead(client, 'AICS 请求头线索', source_url='https://example.com/n.htm')
+        ok(client.post(f'/api/leads/{lid}/fulltext/fetch'))
+        headers = seen['kw'].get('headers') or {}
+        assert 'Mozilla' in headers.get('User-Agent', '')
+        assert 'ccgp.gov.cn' in headers.get('Referer', '')
+
+    def test_m015_010_fetch_honours_declared_charset(self, client, monkeypatch, dbsession):
+        """AICS-M015-010 站点只回 text/html 时按页面声明的 charset 解码，落库不能是乱码。"""
+        from app.models import Lead
+
+        html = '<html><head><meta charset="gb2312"></head><body>轮台县林业和草原局 公告</body></html>'
+        fake_remote(monkeypatch, headers={'Content-Type': 'text/html'},
+                    body=html.encode('gbk'))
+        lid = make_lead(client, 'AICS 编码线索', source_url='https://example.com/gbk.htm')
+        body = ok(client.post(f'/api/leads/{lid}/fulltext/fetch'))
+        assert '轮台县林业和草原局' in body['text']
+        stored = Lead.query.get(lid).full_text
+        assert '轮台县' in stored and not looks_garbled(stored)
+
+
+class TestGarbledDetector:
+    """乱码指纹：中文公告正文里成批出现西里尔字母，就是编码解错了。"""
+
+    def test_m015_011_detects_cyrillic_mojibake(self):
+        assert looks_garbled('д»Ӣдј‘еёӮ' * 10)
+
+    def test_m015_012_accepts_normal_chinese_and_russian(self):
+        assert not looks_garbled('介休市林业局 2026 年林草有害生物防治项目')
+        # 真正的俄文公告汉字与西里尔并存，不能误判成乱码
+        assert not looks_garbled('哈巴罗夫ск 边疆区  лесное  хозяйство')
+        assert not looks_garbled(None) and not looks_garbled('')
 
 
 class TestAICSM016LeadKeywordSearch:

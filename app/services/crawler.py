@@ -7,7 +7,7 @@ from app.services.matcher import match_lead
 from app.services.ai_client import extract_lead
 from app.services.regions import resolve_region
 from app.services.serial import gen_serial
-from app.services.netutil import safe_get, SafeFetchError
+from app.services.netutil import safe_get, SafeFetchError, resolve_encoding
 from app.services.textutil import clean_text
 from app.services.amountutil import normalize_amount_text
 from app.services.crawl_log import start_log, finish_log
@@ -25,6 +25,17 @@ HEADERS = {
 
 # Delay between keyword requests (seconds) to avoid triggering rate limits
 REQUEST_DELAY = 3
+
+
+def html_session():
+    """带浏览器 UA 与 ccgp Referer 的会话。
+
+    政采网对无 UA 的请求直接 403，所以手动「获取原文」与采集必须共用同一套请求头，
+    否则详情页永远抓不到。
+    """
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    return session
 
 # 每入库多少条就提交一次事务。
 # 每条公告都要走"抓取正文 + AI 抽取"，单条耗时可达数秒，整轮采集常常持续数分钟。
@@ -568,7 +579,7 @@ def fetch_search_results(kw, start_date, end_date, session, max_pages=2):
         url = _build_search_url(kw, start_date, end_date, page_index=page)
         try:
             resp = session.get(url, timeout=20)
-            resp.encoding = resp.apparent_encoding or "utf-8"
+            resp.encoding = resolve_encoding(resp)
             if resp.status_code != 200:
                 return items, f"HTTP {resp.status_code}"
             # 搜索接口反爬检测：只检测"频繁访问"（正常页面注释中含"验证码"字样，不能用作判据）
@@ -674,8 +685,7 @@ def run_crawl(app=None, log=None):
         error_records.append(rec)
         errors.append(format_error(rec, with_raw=True))
 
-    session = requests.Session()
-    session.headers.update(HEADERS)
+    session = html_session()
     try:
         session.get("https://www.ccgp.gov.cn/", timeout=15)
         time.sleep(2)  # 主页与搜索间留间隔，降低反爬触发概率

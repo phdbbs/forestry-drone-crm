@@ -2020,10 +2020,16 @@ def lead_fulltext(id):
     抓取动作在 POST /leads/<id>/fulltext/fetch：GET 里顺手抓远端并写库，
     会让浏览器预取/重试都触发一次抓取，还会把站点故障表现为「读取失败」5xx。
     """
+    from app.services.textutil import looks_garbled
     l = Lead.query.get_or_404(id)
-    if l.full_text:
+    if l.full_text and not looks_garbled(l.full_text):
         return jsonify({"source": "stored", "text": _text_to_md(l.full_text),
                         "need_fetch": False, "fetchable": bool(l.source_url)})
+    if l.full_text:
+        # 存量乱码（编码判定修好之前抓的）不能端给用户看，改成提示重新获取
+        return jsonify({"source": "garbled", "text": "",
+                        "need_fetch": True, "fetchable": bool(l.source_url),
+                        "hint": "本地存的正文是编码错误产生的乱码，重新获取可修复。"})
     return jsonify({"source": "none", "text": "",
                     "need_fetch": True, "fetchable": bool(l.source_url)})
 
@@ -2035,8 +2041,10 @@ def fetch_lead_fulltext(id):
     if not l.source_url:
         return fail("该线索无原文链接，无法获取全文", 400, "no_source_url")
     from app.services.netutil import safe_get, SafeFetchError
+    from app.services.crawler import HEADERS
     try:
-        resp = safe_get(l.source_url, timeout=15)
+        # 政采网对无 UA 的请求直接 403，必须与采集共用同一套请求头
+        resp = safe_get(l.source_url, timeout=15, headers=HEADERS)
     except SafeFetchError as e:
         # 安全校验未过（内网/非法URL）回 400；网络/远端故障回 502
         code = 'url_blocked' if e.security else 'remote_unavailable'
