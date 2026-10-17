@@ -439,7 +439,10 @@ def scheduled_archive_job():
 
 
 def summary_range(days=30):
-    """最近 N 天的每日汇总列表，按日期倒序；今天始终现算，保证刷新即见。"""
+    """最近 N 天的每日汇总列表，按日期倒序；今天始终现算，保证刷新即见。
+
+    只列出有操作记录的日子：日志功能上线之前的日期没有数据，
+    列出来只会是一屏「无操作记录」，干扰阅读。"""
     from app.models import OperationSummary
     days = max(1, min(365, int(days or 30)))
     today = datetime.now().date()
@@ -451,6 +454,8 @@ def summary_range(days=30):
         day = (today - timedelta(days=offset)).strftime('%Y-%m-%d')
         row = stored.get(day)
         if row is not None:
+            if not (row.total or 0):
+                continue
             out.append({
                 'day': day, 'total': row.total or 0, 'failures': row.failures or 0,
                 'active_users': row.active_users or 0,
@@ -460,10 +465,12 @@ def summary_range(days=30):
             })
         else:
             data = summarize_day(day)
+            if not data['total']:
+                continue
             data['archived'] = False
             out.append(data)
     for item in out:
-        item['headline'] = headline(item) if item['total'] else f"{item['day']} 无操作记录。"
+        item['headline'] = headline(item)
     return out
 
 

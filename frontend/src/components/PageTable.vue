@@ -42,7 +42,7 @@
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="sorted.length"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="PAGE_SIZES"
         layout="sizes, prev, pager, next, jumper"
         size="small"
         background
@@ -71,8 +71,9 @@ const props = defineProps({
   reorderable: { type: Boolean, default: true },
 })
 const tableRef = ref(null)
+const PAGE_SIZES = [10, 20, 50]
 const page = ref(1)
-const pageSize = ref(props.pageSize)
+const pageSize = ref(PAGE_SIZES.includes(props.pageSize) ? props.pageSize : 20)
 const sortProp = ref(props.defaultSort.prop || '')
 const sortOrder = ref(props.defaultSort.order === 'ascending' ? 1 : -1)
 
@@ -83,7 +84,8 @@ try {
   const savedState = JSON.parse(localStorage.getItem(SKEY) || 'null')
   if (savedState) {
     if (savedState.page) page.value = savedState.page
-    if (savedState.pageSize) pageSize.value = savedState.pageSize
+    // 旧版本可能记住了 100/200，选项收敛后这类值直接忽略
+    if (PAGE_SIZES.includes(savedState.pageSize)) pageSize.value = savedState.pageSize
     if (savedState.sortProp) {
       sortProp.value = savedState.sortProp
       sortOrder.value = savedState.sortOrder === 1 ? 1 : -1

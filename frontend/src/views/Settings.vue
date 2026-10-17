@@ -372,7 +372,7 @@
               :total="logTotal"
               :current-page="page"
               :page-size="pageSize"
-              :page-sizes="[10, 20, 50, 100]"
+              :page-sizes="[10, 20, 50]"
               @current-change="(p) => { page = p; loadLogs() }"
               @size-change="(s) => { pageSize = s; page = 1; loadLogs() }"
             />
@@ -414,7 +414,7 @@
               <el-button size="small" :loading="sumGenerating" @click="generateSummary('')">生成今日总结</el-button>
               <el-button size="small" :icon="Refresh" @click="loadSummary">刷新</el-button>
             </div>
-            <el-table v-loading="sumLoading" :data="sumRows" size="small" row-key="day" empty-text="暂无汇总，可点击「生成今日总结」">
+            <el-table v-loading="sumLoading" :data="sumPageRows" size="small" row-key="day" empty-text="暂无汇总，可点击「生成今日总结」">
               <el-table-column type="expand">
                 <template #default="{ row }">
                   <div class="detail-wrap">
@@ -466,6 +466,19 @@
                 </template>
               </el-table-column>
             </el-table>
+
+            <el-pagination
+              v-if="sumRows.length"
+              class="pager"
+              size="small"
+              layout="total, sizes, prev, pager, next"
+              :total="sumRows.length"
+              :current-page="sumPage"
+              :page-size="sumPageSize"
+              :page-sizes="[10, 20, 50]"
+              @current-change="(p) => { sumPage = p }"
+              @size-change="(s) => { sumPageSize = s; sumPage = 1 }"
+            />
 
             <!-- 明细：动作分布 chips + 筛选 -->
             <div class="section-title oplog-title">
@@ -560,7 +573,7 @@
               :total="opTotal"
               :current-page="opPage"
               :page-size="opPageSize"
-              :page-sizes="[20, 50, 100, 200]"
+              :page-sizes="[10, 20, 50]"
               @current-change="(p) => { opPage = p; loadOpLogs() }"
               @size-change="(s) => { opPageSize = s; opPage = 1; loadOpLogs() }"
             />
@@ -1283,6 +1296,8 @@ const opFilters = reactive({ days: 'today', user: 'all', action: 'all', module: 
 const dayRange = ref({ start: '', end: '' })
 const sumRows = ref([])
 const sumDays = ref(30)
+const sumPage = ref(1)
+const sumPageSize = ref(20)
 const sumLoading = ref(false)
 const sumGenerating = ref(false)
 let opLoaded = false
@@ -1306,6 +1321,10 @@ const todayWrites = computed(() => SUMMARY_ACTIONS.filter((a) => ['新增', '修
 const weekRows = computed(() => sumRows.value.filter((r) => r.day >= localDay(6)))
 const weekTotal = computed(() => weekRows.value.reduce((n, r) => n + (r.total || 0), 0))
 const weekFails = computed(() => weekRows.value.reduce((n, r) => n + (r.failures || 0), 0))
+const sumPageRows = computed(() => {
+  const start = (sumPage.value - 1) * sumPageSize.value
+  return sumRows.value.slice(start, start + sumPageSize.value)
+})
 
 function opQuery(extra = {}) {
   const qs = new URLSearchParams({
@@ -1343,6 +1362,8 @@ async function loadSummary() {
     if (r.error) { ElMessage.error(r.error); return }
     // 最近的日期排在最前，和明细列表保持同一个阅读方向
     sumRows.value = (r.days || []).slice().reverse()
+    const maxPage = Math.max(1, Math.ceil(sumRows.value.length / sumPageSize.value))
+    if (sumPage.value > maxPage) sumPage.value = maxPage
   } finally {
     sumLoading.value = false
   }

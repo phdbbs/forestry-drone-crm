@@ -188,12 +188,20 @@ class TestAuditSummary:
         ok(client.get('/api/leads'))
         today = datetime.now().strftime('%Y-%m-%d')
         days = audit.summary_range(days=3)
-        assert [d['day'] for d in days] == [(datetime.now() - timedelta(days=n)).strftime('%Y-%m-%d')
-                                            for n in (2, 1, 0)]
+        # 日志功能上线前的空日期不列出，窗口里只剩真有记录的今天
+        assert [d['day'] for d in days] == [today]
         assert days[-1]['archived'] is False and days[-1]['total'] >= 1
         audit.archive_day(today)
         days = audit.summary_range(days=3)
         assert days[-1]['archived'] is True
+
+    def test_m023_007_summary_range_skips_zero_rows(self, app, dbsession):
+        """零总量的归档行（那天压根没人操作 / 功能上线前补跑）也不该占位。"""
+        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        audit.archive_day(yesterday)
+        assert OperationSummary.query.filter_by(day=yesterday).one().total == 0
+        days = audit.summary_range(days=3)
+        assert yesterday not in [d['day'] for d in days]
 
 
 class TestAuditEndpoints:
@@ -225,7 +233,9 @@ class TestAuditEndpoints:
     def test_m024_004_summary_and_rebuild(self, client, dbsession):
         ok(client.get('/api/leads'))
         body = ok(client.get('/api/audit/summary?days=2'))
-        assert len(body['days']) == 2 and body['days'][-1]['total'] >= 1
+        # 请求 2 天，但没有日志的那天（功能上线前）不占位
+        assert [d['day'] for d in body['days']] == [datetime.now().strftime('%Y-%m-%d')]
+        assert body['days'][-1]['total'] >= 1
         day = datetime.now().strftime('%Y-%m-%d')
         r = ok(client.post('/api/audit/summary', json={'day': day}))
         assert r['ok'] and r['summary']['total'] >= 1

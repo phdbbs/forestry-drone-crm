@@ -12,7 +12,7 @@ from app.services.serial import gen_serial
 from app.services.skills import SkillRegistry
 from app.services.softdelete import alive
 from app.services.amountutil import normalize_amount_text, parse_amount_wan
-from app.services.textutil import clean_text
+from app.services.textutil import clean_text, FULL_TEXT_LIMIT
 from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, timedelta
 import requests as http_requests
@@ -2057,7 +2057,7 @@ def fetch_lead_fulltext(id):
     md = _html_to_md(soup)
     if not md.strip():
         md = _text_to_md(raw_text)
-    l.full_text = clean_text(raw_text)[:60000]  # 与采集入库同一口径与同一上限
+    l.full_text = clean_text(raw_text)[:FULL_TEXT_LIMIT]  # 与采集入库同一口径与同一上限
     _backfill_summary(l, raw_text)
     db.session.commit()
     return jsonify({"source": "fetched", "text": md})

@@ -1,14 +1,17 @@
-"""修复线索公告全文：编码解错的乱码重抓，缺正文的按需补齐。
+"""修复线索公告全文：编码解错的乱码重抓，缺正文的按需补齐，被旧上限截断的补长。
 
 用法（在 /Users/wl/M4/CRM 下）：
     .venv/bin/python scripts/fix_lead_fulltext.py                     # 只报告
     .venv/bin/python scripts/fix_lead_fulltext.py --apply             # 修乱码
+    .venv/bin/python scripts/fix_lead_fulltext.py --apply --truncated  # 重抓截断的
     .venv/bin/python scripts/fix_lead_fulltext.py --apply --missing    # 乱码 + 无正文都补
 
 背景：netutil 早先按 chardet 猜编码，把 ccgp 的 UTF-8 中文页猜成 ptcp154 西里尔编码，
 存进库的正文整篇是 «д»Ӣдј‘…»；另一批 8-9 月的存量根本没抓过详情页。
 乱码那几条除了正文，采购方/联系人也是从乱码里抽的（多数干脆是空），所以顺手用
 规则路径把空字段填上——只填空，已有值一律不动。
+采集旧上限是 8000 字，整好卡在这个长度的行一定是被砍过尾部的，现在上限已放到
+FULL_TEXT_LIMIT，按老写法长度精确匹配就能把它们挑出来重抓。
 """
 import argparse
 import sys
@@ -22,19 +25,23 @@ from app import create_app, db
 from app.models import Lead
 from app.services import crawler
 from app.services.netutil import safe_get
-from app.services.textutil import clean_text, looks_garbled
+from app.services.textutil import clean_text, looks_garbled, FULL_TEXT_LIMIT
 
-FIELD_LIMIT = 60000
+FIELD_LIMIT = FULL_TEXT_LIMIT
+OLD_LIMIT = 8000  # 采集旧口径的长度上限，正好等于它=尾部被截
 
 
 def state_of(lead):
-    if not (lead.full_text or '').strip():
+    text = lead.full_text or ''
+    if not text.strip():
         return 'missing'
-    return 'garbled' if looks_garbled(lead.full_text) else 'ok'
+    if looks_garbled(text):
+        return 'garbled'
+    return 'truncated' if len(text) == OLD_LIMIT else 'ok'
 
 
 def fetch_text(url, session):
-    """抓详情页正文纯文本（与采集同一口径，但不截到 8000 字）。"""
+    """抓详情页正文纯文本（与采集同一口径，但不再截到 8000 字）。"""
     resp = safe_get(url, timeout=20, session=session)
     soup = BeautifulSoup(resp.text, 'html.parser')
     for tag in soup(['script', 'style', 'noscript']):
@@ -72,19 +79,27 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--apply', action='store_true', help='真正写库（默认只报告）')
     ap.add_argument('--missing', action='store_true', help='连「从未抓过正文」的一起补')
+    ap.add_argument('--truncated', action='store_true',
+                    help='连「被旧 8000 字上限截断」的一起重抓')
     ap.add_argument('--limit', type=int, default=0, help='最多处理多少条，0 表示不限')
     ap.add_argument('--delay', type=float, default=crawler.REQUEST_DELAY,
                     help='每条之间的 politeness 间隔（秒）')
     args = ap.parse_args()
 
+    want = {'garbled'}
+    if args.missing:
+        want.add('missing')
+    if args.truncated:
+        want.add('truncated')
+
     app = create_app()
     with app.app_context():
         leads = Lead.query.filter(Lead.is_deleted.is_(False)).all()
-        todo = [l for l in leads
-                if state_of(l) == 'garbled' or (args.missing and state_of(l) == 'missing')]
+        states = [state_of(l) for l in leads]
+        todo = [l for l, s in zip(leads, states) if s in want]
         print(f'线索 {len(leads)} 条，待修 {len(todo)} 条'
-              f'（乱码 {sum(1 for l in leads if state_of(l) == "garbled")}，'
-              f'无正文 {sum(1 for l in leads if state_of(l) == "missing")}）')
+              f'（乱码 {states.count("garbled")}，无正文 {states.count("missing")}'
+              f'，旧上限截断 {states.count("truncated")}）')
         if not todo:
             return
         if not args.apply:

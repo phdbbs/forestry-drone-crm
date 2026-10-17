@@ -8,7 +8,7 @@ from app.services.ai_client import extract_lead
 from app.services.regions import resolve_region
 from app.services.serial import gen_serial
 from app.services.netutil import safe_get, SafeFetchError, resolve_encoding
-from app.services.textutil import clean_text
+from app.services.textutil import clean_text, FULL_TEXT_LIMIT
 from app.services.amountutil import normalize_amount_text
 from app.services.crawl_log import start_log, finish_log
 from app.services.error_classifier import format_error
@@ -604,7 +604,11 @@ def fetch_search_results(kw, start_date, end_date, session, max_pages=2):
 
 
 def fetch_detail_text(url, session):
-    """抓取公告详情页并清洗为纯文本（SSRF 防护）。"""
+    """抓取公告详情页并清洗为纯文本（SSRF 防护）。
+
+    长度按全文上限给足：AI 抽取自己截到 7000 字、地区判定截到 3000 字，
+    这里再截一次只会让入库的公告全文比手动「获取原文」短一截。
+    """
     try:
         resp = safe_get(url, timeout=20, session=session)
     except SafeFetchError as e:
@@ -613,7 +617,7 @@ def fetch_detail_text(url, session):
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
-    return text[:8000]
+    return text[:FULL_TEXT_LIMIT]
 
 
 def extract_contact_rules(text):
@@ -799,7 +803,7 @@ def run_crawl(app=None, log=None):
                 status="active",
                 # 全文要原样保留排版，所以不做 collapse_space（只去控制字符/零宽字符）；
                 # 它会在「公告全文」抽屉里渲染，NBSP 会阻止换行、0x200D 影响字形连接。
-                full_text=clean_text(page_text)[:60000],
+                full_text=clean_text(page_text)[:FULL_TEXT_LIMIT],
             )
             lead.serial_no = gen_serial(item["dt"])
             match_lead(lead)

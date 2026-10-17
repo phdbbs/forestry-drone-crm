@@ -546,6 +546,22 @@ class TestCrawlerHelpers:
             count, _ = crawler.run_crawl(app)
             assert count == 0
 
+    def test_unit_04_023_detail_text_keeps_full_length(self, monkeypatch):
+        """UNIT-04-023 采集正文按 FULL_TEXT_LIMIT 保留，长公告不再被截回 8000 字。"""
+        from app.services import crawler
+        from app.services.textutil import FULL_TEXT_LIMIT
+
+        class Resp:
+            def __init__(self, body):
+                self.text = f'<html><body>{body}</body></html>'
+
+        def stub(body):
+            monkeypatch.setattr(crawler, 'safe_get', lambda url, **kw: Resp(body))
+            return crawler.fetch_detail_text('https://example.com/1.htm', session=None)
+
+        assert len(stub('无人机采购公告正文' * 3000)) == 27000
+        assert len(stub('x' * (FULL_TEXT_LIMIT + 5000))) == FULL_TEXT_LIMIT
+
 
 # ═══════════════════════════════════════════════════════════════
 # UNIT-05 AI 客户端（services/ai_client.py）

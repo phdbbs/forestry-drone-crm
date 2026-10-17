@@ -20,6 +20,10 @@ _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\ufeff]")
 # 各种"看起来像空格"的字符：NBSP、窄空格、全角空格等
 _SPACE_RE = re.compile(r"[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]")
+
+# 公告全文入库长度上限。采集与手动「获取原文」必须同口径，
+# 否则同一条线索换个入口就能多存几万字，列表/详情看起来像缺内容。
+FULL_TEXT_LIMIT = 60000
 # 西里尔字母：中文公告正文里本该一个都没有，成批出现就是编码解错的指纹
 # （UTF-8 的中文字节被当成 ptcp154/cp1251 解码，得到 «д»Ӣдј‘…»）
 _CYRILLIC_RE = re.compile(r"[\u0400-\u04FF\u0500-\u052F]")
